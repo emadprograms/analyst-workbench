@@ -1,0 +1,5 @@
+[runner]
+runOnSave = true
+
+[theme]
+base="dark"
