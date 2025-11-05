@@ -68,239 +68,173 @@ def call_gemini_api(prompt: str, api_key: str, system_prompt: str, logger: AppLo
             if i < max_retries - 1: time.sleep(2**i)
     logger.log(f"API failed after {max_retries} retries."); return None
 
-def update_stock_note(ticker_to_update: str, new_raw_text: str, macro_context_summary: str, api_key_to_use: str, logger: AppLogger):
+def update_company_card(ticker: str, previous_card_json: str, historical_notes: str, new_eod_summary: str, market_context_summary: str, api_key: str = None, logger: AppLogger = None):
     """
-    Updates the main EOD card in the database based on the EOD processor text.
+    Generates an updated company overview card using AI.
+    This function is decoupled from the database and focuses on prompt engineering and AI interaction.
     """
-    logger.log(f"--- Starting EOD update for {ticker_to_update} ---")
-    conn = None
+    if logger is None:
+        logger = AppLogger(st_container=None) # Dummy logger if none provided
+
+    logger.log(f"--- Starting Company Card AI update for {ticker} ---")
+
     try:
-        conn = sqlite3.connect(DATABASE_FILE); conn.row_factory = sqlite3.Row; cursor = conn.cursor()
-        logger.log("1. Parsing raw summary..."); parsed_data = parse_raw_summary(new_raw_text)
-        trade_date = parsed_data.get('date', date.today().isoformat())
-        ticker_from_parse = parsed_data.get('ticker')
-        if not ticker_from_parse: logger.log(f"Warn: No Ticker parsed for {ticker_to_update}. Using provided.");
-        elif ticker_from_parse != ticker_to_update: logger.log(f"Warn: Ticker mismatch ({ticker_from_parse} vs {ticker_to_update}). Using {ticker_from_parse}."); ticker_to_update = ticker_from_parse
-        if not ticker_to_update: logger.log("Error: No ticker."); return
-        
-        logger.log("2. Archiving raw data...");
-        archive_columns = ['ticker','date','raw_text_summary','open','high','low','close','poc','vah','val','vwap','orl','orh']
-        parsed_data['ticker'] = ticker_to_update
-        archive_values = tuple(parsed_data.get(col) for col in archive_columns)
-        cursor.execute(f"INSERT OR REPLACE INTO data_archive ({','.join(archive_columns)}) VALUES ({','.join(['?']*len(archive_columns))})", archive_values)
-        conn.commit(); logger.log("   ...archived.")
-        
-        logger.log("3. Fetching Historical Notes & Yesterday's EOD Card...");
-        cursor.execute("SELECT historical_level_notes, company_overview_card_json FROM stocks WHERE ticker = ?", (ticker_to_update,))
-        company_data = cursor.fetchone(); previous_overview_card_dict={}; historical_notes=""
-        if company_data:
-            historical_notes = company_data["historical_level_notes"] or ""
-            if company_data['company_overview_card_json']:
-                try: previous_overview_card_dict = json.loads(company_data['company_overview_card_json']); logger.log("   ...found yesterday's EOD card.")
-                except: logger.log(f"   ...Warn: Parse fail yesterday's EOD card."); previous_overview_card_dict = json.loads(DEFAULT_COMPANY_OVERVIEW_JSON.replace("TICKER", ticker_to_update))
-            else: logger.log(f"   ...No prior EOD card. Creating new."); previous_overview_card_dict = json.loads(DEFAULT_COMPANY_OVERVIEW_JSON.replace("TICKER", ticker_to_update))
-        else:
-            logger.log(f"   ...No DB entry. Creating row.");
-            try: cursor.execute("INSERT OR IGNORE INTO stocks (ticker) VALUES (?)", (ticker_to_update,)); conn.commit(); logger.log(f"   ...Created row.")
-            except Exception as insert_err: logger.log(f"   ...Error creating row: {insert_err}"); return
-            previous_overview_card_dict = json.loads(DEFAULT_COMPANY_OVERVIEW_JSON.replace("TICKER", ticker_to_update))
+        previous_overview_card_dict = json.loads(previous_card_json)
+        logger.log("1. Parsed previous company card.")
+    except (json.JSONDecodeError, TypeError):
+        logger.log("   ...Warn: Could not parse previous card. Starting from default.")
+        previous_overview_card_dict = json.loads(DEFAULT_COMPANY_OVERVIEW_JSON.replace("TICKER", ticker))
 
-        logger.log("4. Building EOD Note Generator Prompt...");
-        note_generator_system_prompt = (
-            "You are an expert market structure analyst focused ONLY on participant motivation at MAJOR levels. Maintain 'Company Overview Card' JSON. Get [Historical Notes], [Yesterday's Card], [Today's EOD Action]. Generate NEW EOD card JSON. Prioritize structure unless levels decisively broken. Append `keyAction`. Update plans. Preserve `fundamentalContext`, `sector`, `description`. Output ONLY valid JSON."
-        )
-        
-        prompt = f"""
-        [Overall Market Context for Today]
-        (Use this to inform the 'why' behind the price action. e.g., if the market was risk-off, a stock holding support is more significant.)
-        {macro_context_summary or "No overall market context was provided."}
+    logger.log("2. Building EOD Note Generator Prompt...")
+    note_generator_system_prompt = (
+        "You are an expert market structure analyst focused ONLY on participant motivation at MAJOR levels. Maintain 'Company Overview Card' JSON. Get [Historical Notes], [Yesterday's Card], [Today's EOD Action]. Generate NEW EOD card JSON. Prioritize structure unless levels decisively broken. Append `keyAction`. Update plans. Preserve `fundamentalContext`, `sector`, `description`. Output ONLY valid JSON."
+    )
+    
+    trade_date = date.today().isoformat()
+    prompt = f"""
+    [Overall Market Context for Today]
+    (Use this to inform the 'why' behind the price action.)
+    {market_context_summary or "No overall market context was provided."}
 
-        [Historical Notes for {ticker_to_update}]
-        (CRITICAL STATIC CONTEXT: These define the MAJOR structural levels.)
-        {historical_notes}
+    [Historical Notes for {ticker}]
+    (CRITICAL STATIC CONTEXT: These define the MAJOR structural levels.)
+    {historical_notes or "No historical notes provided."}
 
-        [Yesterday's Company Overview Card for {ticker_to_update}] 
-        (This defines the ESTABLISHED structure, plans, and the story so far in `keyAction`. Update this cautiously based on MAJOR level interaction.) 
-        {json.dumps(previous_overview_card_dict, indent=2)}
+    [Yesterday's Company Overview Card for {ticker}] 
+    (This defines the ESTABLISHED structure and plans. Update this cautiously.) 
+    {json.dumps(previous_overview_card_dict, indent=2)}
 
-        [Today's New Price Action Summary]
-        (Objective 5-minute data representing the full completed trading day.)
-        {new_raw_text}
+    [Today's New Price Action Summary]
+    (Objective data representing the completed trading day.)
+    {new_eod_summary}
 
-        [Your Task for Today: {trade_date} (End of Day Update)]
-        Generate the NEW, UPDATED "Company Overview Card" JSON reflecting the completed day's action. Focus on MAJOR level interactions and updating the trade PLANS for TOMORROW.
+    [Your Task for Today: {trade_date} (End of Day Update)]
+    Generate the NEW, UPDATED "Company Overview Card" JSON reflecting the completed day's action.
 
-        **CRITICAL INSTRUCTIONS (LEVELS ARE PARAMOUNT):**
-        1.  **PRESERVE STATIC FIELDS:** Copy `fundamentalContext`, `sector`, `companyDescription` **UNCHANGED** from [Yesterday's Card].
-        2.  **RESPECT ESTABLISHED STRUCTURE & LEVELS:**
-            * **Bias:** Maintain the `bias` from [Yesterday's Card] unless [Today's Action] *decisively breaks AND closes beyond* a MAJOR support/resistance level defined in yesterday's `riskZones` or `historical_level_notes`. Consolidation within the established range does NOT change the bias.
-            * **Major S/R:** Keep the MAJOR `support`/`resistance` levels from `historical_level_notes` and [Yesterday's Card] unless today's action *clearly invalidates* them.
-            * **Pattern:** Only update `technicalStructure.pattern` if today's action *completes* or *decisively breaks* the pattern.
-        3.  **UPDATE `keyAction` (Level-Focused):** APPEND today's action relative to MAJOR levels to the existing `keyAction`.
-        4.  **UPDATE PLANS:** Based on the new `keyAction` at MAJOR levels, update BOTH `openingTradePlan` and `alternativePlan` for TOMORROW.
-        5.  **UPDATE `volumeMomentum` (Level-Focused):** Describe ONLY how volume confirmed or denied the `keyAction` *at those specific levels*.
-        6.  **CALCULATE `confidence` (EOD Logic):**
-            * **High:** Today's action *strongly confirmed* the previous bias AND *respected* MAJOR S/R (e.g., bounced from support) **OR** it achieved a *decisive, high-volume CLOSE* beyond a MAJOR S/R level, completing a new structural pattern (e.g., a "Breakout Confirmed" or "Bear Trap Reclaim" like TSLA's $450 reclaim).
-            * **Medium:** Today's action was mixed, closed *at* a major level (indecision), or a breakout occurred on low volume.
-            * **Low:** Today's action *failed* at a level and *reversed* against the bias (e.g., a "failed breakout" that closed back inside the range, invalidating the structure).
-        7.  **Write `screener_briefing` (Top Level)**: A single, compelling sentence summarizing the *most actionable element* for tomorrow's screener.
+    **CRITICAL INSTRUCTIONS:**
+    1.  **PRESERVE STATIC FIELDS:** Copy `fundamentalContext`, `sector`, `companyDescription` **UNCHANGED**.
+    2.  **RESPECT ESTABLISHED STRUCTURE:** Maintain the `bias` unless today's action *decisively breaks AND closes beyond* a MAJOR support/resistance level.
+    3.  **UPDATE `keyAction`:** APPEND today's action relative to MAJOR levels to the existing `keyAction`.
+    4.  **UPDATE PLANS:** Based on the new `keyAction`, update BOTH `openingTradePlan` and `alternativePlan` for TOMORROW.
+    5.  **CALCULATE `confidence`:** High (strong confirmation), Medium (mixed signals), Low (reversal/failure).
+    6.  **Write `screener_briefing`:** A single, compelling sentence summarizing the most actionable element.
 
-        [Output Format Constraint]
-        Output ONLY the single, complete, updated JSON object. Ensure it is valid JSON. Do not include ```json markdown. """
-        
-        logger.log(f"5. Calling EOD AI Analyst...");
-        ai_response_text = call_gemini_api(prompt, api_key_to_use, note_generator_system_prompt, logger)
-        if not ai_response_text: logger.log("Error: No AI response."); return
-        
-        logger.log("6. Received EOD Card JSON. Parsing & Comparing...");
-        json_match = re.search(r"```json\s*([\s\S]+?)\s*```", ai_response_text); ai_response_text = json_match.group(1) if json_match else ai_response_text.strip()
-        new_overview_card_dict = None
-        try:
-            full_parsed_json = json.loads(ai_response_text)
-            if isinstance(full_parsed_json, list) and full_parsed_json: new_overview_card_dict = full_parsed_json[0]
-            elif isinstance(full_parsed_json, dict): new_overview_card_dict = full_parsed_json
-            else: raise json.JSONDecodeError("Not dict/list.", ai_response_text, 0)
-        except Exception as e: logger.log(f"Invalid JSON: {e}\n{ai_response_text}"); return
-        
+    [Output Format Constraint]
+    Output ONLY the single, complete, updated JSON object. Ensure it is valid JSON. Do not include ```json markdown. """
+    
+    logger.log(f"3. Calling EOD AI Analyst for {ticker}...");
+    api_key_to_use = api_key or (API_KEYS[0] if API_KEYS else None)
+    if not api_key_to_use:
+        logger.log("Error: No API key available.")
+        return None
+
+    ai_response_text = call_gemini_api(prompt, api_key_to_use, note_generator_system_prompt, logger)
+    if not ai_response_text: 
+        logger.log(f"Error: No AI response for {ticker}."); 
+        return None
+    
+    logger.log(f"4. Received EOD Card for {ticker}. Parsing & Validating...")
+    json_match = re.search(r"```json\s*([\s\S]+?)\s*```", ai_response_text)
+    ai_response_text = json_match.group(1) if json_match else ai_response_text.strip()
+    
+    try:
+        # Validate the JSON structure before returning
+        new_overview_card_dict = json.loads(ai_response_text)
         required_keys=['marketNote','confidence','screener_briefing','basicContext','technicalStructure','fundamentalContext','behavioralSentiment','openingTradePlan','alternativePlan']
-        required_plan=['planName','knownParticipant','expectedParticipant','trigger','invalidation']; required_alt=required_plan+['scenario']
-        missing_keys=[k for k in required_keys if k not in new_overview_card_dict]
-        opening_plan_dict=new_overview_card_dict.get('openingTradePlan',{}); alt_plan_dict=new_overview_card_dict.get('alternativePlan',{})
-        missing_open=[k for k in required_plan if k not in opening_plan_dict]
-        missing_alt=[k for k in required_alt if k not in alt_plan_dict]
-        if missing_keys or missing_open or missing_alt: logger.log(f"Missing keys: T({missing_keys}), O({missing_open}), A({missing_alt}). Abort.\n{json.dumps(new_overview_card_dict, indent=2)}"); return
+        if any(k not in new_overview_card_dict for k in required_keys):
+            logger.log(f"Error: AI response for {ticker} is missing required keys.")
+            return None
         
-        logger.log("   ...JSON parsed & validated.")
-        try: 
-            diff=DeepDiff(previous_overview_card_dict, new_overview_card_dict, ignore_order=True, view='tree')
-            if not diff: logger.log("   ...No changes.")
-            else:
-                changes_log="   **Changes detected:**\n"; changes_found=False
-                if 'values_changed' in diff:
-                    changes_log+="| Field | Old | New |\n|---|---|---|\n"; changes_found=True
-                    for change in diff['values_changed']:
-                        path=change.path().replace("root","").replace("['",".").replace("']","").strip('.'); path=path or"(root)"
-                        old=change.t1; new=change.t2; old_s=json.dumps(old,ensure_ascii=False) if isinstance(old,(dict,list)) else str(old); new_s=json.dumps(new,ensure_ascii=False) if isinstance(new,(dict,list)) else str(new)
-                        old_s=(old_s[:50]+'...') if len(old_s)>53 else old_s; new_s=(new_s[:50]+'...') if len(new_s)>53 else new_s
-                        changes_log+=f"| `{path}` | `{old_s}` | `{new_s}` |\n"
-                if not changes_found and ('dictionary_item_added' in diff or 'dictionary_item_removed' in diff): changes_log+="   ...Structural changes only.\n"
-                elif changes_found: logger.log(changes_log)
-        except Exception as e: logger.log(f"   ...Error comparing: {e}.")
-        
-        logger.log(f"   ...AI Confidence: `{new_overview_card_dict.get('confidence','N/A')}`")
-        logger.log(f"   ...AI Briefing: `{new_overview_card_dict.get('screener_briefing','N/A')}`")
-        logger.log(f"   ...AI Plan: `{new_overview_card_dict.get('openingTradePlan',{}).get('planName','N/A')}`")
-        
-        logger.log("7. Saving NEW EOD Card..."); today_str=date.today().isoformat()
-        new_json_str=json.dumps(new_overview_card_dict, indent=2)
-        cursor.execute("UPDATE stocks SET company_overview_card_json=?, last_updated=? WHERE ticker=?", (new_json_str, today_str, ticker_to_update))
-        if cursor.rowcount==0: logger.log(f"   ...Warn: Update fail {ticker_to_update} (row 0). Init first.")
-        else: conn.commit(); logger.log(f"--- Success EOD update {ticker_to_update} ---")
-    except Exception as e: logger.log(f"Unexpected error in EOD update: `{e}`")
-    finally:
-        if conn: conn.close()
+        logger.log(f"--- Success: AI update for {ticker} complete. ---")
+        return ai_response_text
 
-def update_economy_card(manual_summary: str, etf_summaries_text: str, api_key_to_use: str, logger: AppLogger):
+    except json.JSONDecodeError as e:
+        logger.log(f"Error: Failed to decode AI response JSON for {ticker}. Details: {e}")
+        logger.log_code(ai_response_text, language='text')
+        return None
+    except Exception as e:
+        logger.log(f"Unexpected error validating AI response for {ticker}: {e}")
+        return None
+
+def update_economy_card(current_economy_card: str, daily_market_news: str, etf_summaries: str, api_key: str = None, logger: AppLogger = None):
     """
     Updates the global Economy Card in the database using AI.
     """
+    if logger is None:
+        logger = AppLogger(st_container=None) # Create a dummy logger if none is provided
+    
     logger.log("--- Starting Economy Card EOD Update ---")
-    conn = None
+
     try:
-        conn = sqlite3.connect(DATABASE_FILE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+        previous_economy_card_dict = json.loads(current_economy_card)
+    except (json.JSONDecodeError, TypeError):
+        logger.log("   ...Warn: Could not parse previous card, starting from default.")
+        previous_economy_card_dict = json.loads(DEFAULT_ECONOMY_CARD_JSON)
 
-        logger.log("1. Fetching previous day's Economy Card...")
-        cursor.execute("SELECT economy_card_json FROM market_context WHERE context_id = 1")
-        eco_data = cursor.fetchone()
-        
-        previous_economy_card_dict = {}
-        if eco_data and eco_data['economy_card_json']:
-            try:
-                previous_economy_card_dict = json.loads(eco_data['economy_card_json'])
-                logger.log("   ...found previous Economy Card.")
-            except json.JSONDecodeError:
-                logger.log("   ...Warn: Could not parse previous card, starting from default.")
-                previous_economy_card_dict = json.loads(DEFAULT_ECONOMY_CARD_JSON)
-        else:
-            logger.log("   ...No previous card found, starting from default.")
-            previous_economy_card_dict = json.loads(DEFAULT_ECONOMY_CARD_JSON)
+    logger.log("2. Building Economy Card Update Prompt...")
+    
+    system_prompt = (
+        "You are a macro-economic strategist. Your task is to update the global 'Economy Card' JSON. "
+        "You will receive the previous card, a manual summary from the user, and EOD data for key ETFs. "
+        "Your primary goal is to synthesize this information into an updated macro view. "
+        "CRITICAL: You MUST append to the `marketKeyAction` field to continue the narrative, not replace it. "
+        "Output ONLY the single, valid JSON object."
+    )
 
-        logger.log("2. Building Economy Card Update Prompt...")
-        
-        system_prompt = (
-            "You are a macro-economic strategist. Your task is to update the global 'Economy Card' JSON. "
-            "You will receive the previous card, a manual summary from the user, and EOD data for key ETFs. "
-            "Your primary goal is to synthesize this information into an updated macro view. "
-            "CRITICAL: You MUST append to the `marketKeyAction` field to continue the narrative, not replace it. "
-            "Output ONLY the single, valid JSON object."
-        )
+    prompt = f"""
+    [CONTEXT & INSTRUCTIONS]
+    Your task is to generate the updated "Economy Card" JSON for today, {date.today().isoformat()}.
+    Synthesize all the provided information to create a comprehensive macro-economic outlook.
+    
+    [Previous Day's Economy Card]
+    (This is the established macro context. Update it based on the new information.)
+    {json.dumps(previous_economy_card_dict, indent=2)}
 
-        prompt = f"""
-        [CONTEXT & INSTRUCTIONS]
-        Your task is to generate the updated "Economy Card" JSON for today, {date.today().isoformat()}.
-        Synthesize all the provided information to create a comprehensive macro-economic outlook.
+    [User's Manual Summary for Today]
+    (This is a high-signal, qualitative input from the analyst.)
+    {daily_market_news or "No manual summary provided."}
 
-        **CRITICAL RULE: APPEND, DON'T REPLACE.**
-        You MUST append today's analysis to the `marketKeyAction` field from the [Previous Day's Card]. Do not erase the existing story. Start a new line with today's date.
+    [Key ETF Summaries for Today]
+    (This is the objective price action from key market-wide ETFs.)
+    {etf_summaries or "No ETF summaries provided."}
 
-        [DATA]
-        1.  **Previous Day's Economy Card:**
-            (This is the established macro context and narrative.)
-            {json.dumps(previous_economy_card_dict, indent=2)}
+    **CRITICAL INSTRUCTIONS:**
+    1.  **UPDATE `marketBias`:** Based on the synthesis of all inputs, determine if the overall market bias is `Bullish`, `Bearish`, or `Neutral`.
+    2.  **UPDATE `marketNarrative`:** Write a new, concise narrative explaining the *reasoning* for the updated bias.
+    3.  **APPEND `marketKeyAction`:** **Append** a new entry to the `marketKeyAction` list describing today's most significant event (e.g., "Fed meeting caused a risk-off reversal," "Inflation data came in cool, leading to a broad rally"). DO NOT replace the existing list.
+    4.  **UPDATE `keyUpcomingEvents`:** Add or remove any significant upcoming economic events.
+    5.  **PRESERVE `keyLevels`:** The `keyLevels` for major indices should remain static unless a truly major, multi-year level is broken.
 
-        2.  **User's Manual Daily Summary:**
-            (This is the user's high-level take on the day's events. Give this high importance for the `marketNarrative`.)
-            "{manual_summary}"
+    [Output Format Constraint]
+    Output ONLY the single, complete, updated JSON object. Ensure it is valid JSON. Do not include ```json markdown.
+    """
 
-        3.  **Today's EOD ETF Data Summaries:**
-            (This is the objective price and volume data for key market indices and sectors.)
-            {etf_summaries_text}
+    logger.log("3. Calling Macro Strategist AI...")
+    # Use the first key from the list if none is provided
+    api_key_to_use = api_key or (API_KEYS[0] if API_KEYS else None)
+    if not api_key_to_use:
+        logger.log("Error: No API key available for economy card update.")
+        return None
 
-        [YOUR TASK]
-        Generate the new, updated "Economy Card" JSON.
-        - Update `marketNarrative` and `marketBias` based on all inputs.
-        - APPEND to `marketKeyAction`.
-        - Update `sectorRotation` and based on the ETF data.
-        - Update `keyEconomicEvents` and `marketInternals` if new information is available.
-        - **Update `indexAnalysis` for SPY, QQQ, IWM, and DIA** based on their respective EOD data summaries.
-        - **Update the `interMarketAnalysis` section.** Analyze the data for assets like TLT (Bonds), GLD (Gold), UUP (Dollar), and BTC (Crypto) to describe the broader capital flow story. Is money flowing to safety (bonds/gold up) or into risk (equities/crypto up)?
-        - Output ONLY the single, complete, updated JSON object.
-        """
+    ai_response_text = call_gemini_api(prompt, api_key_to_use, system_prompt, logger)
+    if not ai_response_text:
+        logger.log("Error: No response from AI for economy card update.")
+        return None
 
-        logger.log("3. Calling Macro Strategist AI...")
-        ai_response_text = call_gemini_api(prompt, api_key_to_use, system_prompt, logger)
-
-        if not ai_response_text:
-            logger.log("Error: No response from Macro AI. Aborting update.")
-            return
-
-        logger.log("4. Parsing and validating new Economy Card...")
-        json_match = re.search(r"```json\s*([\s\S]+?)\s*```", ai_response_text)
-        ai_response_text = json_match.group(1) if json_match else ai_response_text.strip()
-
-        try:
-            new_economy_card_dict = json.loads(ai_response_text)
-            if "marketNarrative" not in new_economy_card_dict or "sectorRotation" not in new_economy_card_dict:
-                raise ValueError("Validation failed: Key fields missing from AI response.")
-            
-            logger.log("   ...JSON parsed and validated.")
-            logger.log(f"   ...New Market Narrative: {new_economy_card_dict.get('marketNarrative', 'N/A')}")
-
-            logger.log("5. Saving new Economy Card to database...")
-            new_json_str = json.dumps(new_economy_card_dict, indent=2)
-            cursor.execute("UPDATE market_context SET economy_card_json = ?, last_updated = ? WHERE context_id = 1",
-                           (new_json_str, date.today().isoformat()))
-            conn.commit()
-            logger.log("--- Success: Economy Card EOD update complete! ---")
-
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.log(f"Error processing AI response: {e}")
-            logger.log_code(ai_response_text, 'text')
-
+    logger.log("4. Received new Economy Card. Parsing and validating...")
+    json_match = re.search(r"```json\s*([\s\S]+?)\s*```", ai_response_text)
+    if json_match:
+        ai_response_text = json_match.group(1)
+    
+    try:
+        # Basic validation before returning
+        json.loads(ai_response_text)
+        logger.log("--- Success: Economy Card generation complete! ---")
+        return ai_response_text
+    except json.JSONDecodeError as e:
+        logger.log(f"Error: Failed to decode AI response for economy card. Details: {e}")
+        logger.log_code(ai_response_text, language='text')
+        return None
     except Exception as e:
-        logger.log(f"An unexpected error occurred in update_economy_card: {e}")
-    finally:
-        if conn:
-            conn.close()
+        logger.log(f"An unexpected error occurred during economy card update: {e}")
+        return None

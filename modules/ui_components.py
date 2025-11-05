@@ -1,5 +1,3 @@
-# ui_components.py
-
 import streamlit as st
 import textwrap
 import json
@@ -31,7 +29,8 @@ def escape_markdown(text):
         return text
     return text.replace('$', '\\$').replace('~', '\\~')
 
-def display_view_market_note_card(card_data):
+# --- THIS FUNCTION IS MODIFIED ---
+def display_view_market_note_card(card_data, show_edit_button: bool = True):
     """Displays the data in a read-only, formatted Markdown view."""
     data = card_data
     with st.container(border=True):
@@ -40,9 +39,12 @@ def display_view_market_note_card(card_data):
             st.header(escape_markdown(data.get('marketNote', '')))
         with button_col:
             st.write("") 
-            if st.button("✏️", help="Edit card"):
-                st.session_state.edit_mode = True
-                st.rerun()
+            # --- THIS BLOCK IS NOW CONDITIONAL ---
+            if show_edit_button:
+                if st.button("✏️", help="Edit card"):
+                    st.session_state.edit_mode = True
+                    st.rerun()
+            # -------------------------------------
 
         if "basicContext" in data:
             st.subheader(escape_markdown(data["basicContext"].get('tickerDate', '')))
@@ -131,7 +133,8 @@ def display_editable_market_note_card(card_data):
     # The function now returns the raw string for the main app to validate and save.
     return edited_json_string
 
-def display_view_economy_card(card_data, key_prefix="eco_view"):
+# --- THIS FUNCTION IS MODIFIED ---
+def display_view_economy_card(card_data, key_prefix="eco_view", show_edit_button: bool = True):
     """Displays the Economy card data in a read-only, formatted Markdown view."""
     data = card_data
     with st.expander("Global Economy Card", expanded=True):
@@ -141,9 +144,12 @@ def display_view_economy_card(card_data, key_prefix="eco_view"):
                 st.markdown(f"**{escape_markdown(data.get('marketNarrative', 'Market Narrative N/A'))}**")
             with button_col:
                 st.write("")
-                if st.button("✏️", key=f"{key_prefix}_edit_button", help="Edit economy card"):
-                    st.session_state.edit_mode_economy = True
-                    st.rerun()
+                # --- THIS BLOCK IS NOW CONDITIONAL ---
+                if show_edit_button:
+                    if st.button("✏️", key=f"{key_prefix}_edit_button", help="Edit economy card"):
+                        st.session_state.edit_mode_economy = True
+                        st.rerun()
+                # -------------------------------------
 
             st.markdown(f"**Market Bias:** {escape_markdown(data.get('marketBias', 'N/A'))}")
             st.markdown("---")

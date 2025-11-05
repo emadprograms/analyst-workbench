@@ -1,23 +1,28 @@
-# data_processing.py
-
 import pandas as pd
 import yfinance as yf
 import datetime as dt
 import numpy as np
 import re
 
+# --- DATA FETCHING (FROM 'processor.py' - MORE ROBUST) ---
+
 def fetch_intraday_data(tickers_list, day, interval="5m"):
-    """Fetches intraday data for a list of tickers for a specific day."""
-    start_time = dt.datetime.combine(day, dt.time(4, 0))
-    end_time = dt.datetime.combine(day, dt.time(20, 0))
+    """
+    Fetches intraday data for a list of tickers on a specific day
+    and returns a single, long-format DataFrame.
+    
+    FIX: Added ignore_tz=True to fix timezone comparison errors.
+    """
+    start_date = day
+    end_date = day + dt.timedelta(days=1)
     
     try:
         data = yf.download(
             tickers=tickers_list,
-            start=start_time,
-            end=end_time,
+            start=start_date,
+            end=end_date,
             interval=interval,
-            group_by='ticker',
+            ignore_tz=True, # FIX: This ignores timezone info and solves the 'nan' bug
             progress=False
         )
         
@@ -25,12 +30,19 @@ def fetch_intraday_data(tickers_list, day, interval="5m"):
             return pd.DataFrame()
 
         if len(tickers_list) > 1:
-            stacked_data = data.stack(level=0).rename_axis(['Datetime', 'Ticker']).reset_index()
+            stacked_data = data.stack(level=1)
         else:
             data['Ticker'] = tickers_list[0]
-            stacked_data = data.reset_index()
-
-        stacked_data = stacked_data[['Datetime', 'Ticker', 'Open', 'High', 'Low', 'Close', 'Volume']]
+            stacked_data = data
+        
+        stacked_data = stacked_data.reset_index().rename(columns={'level_0': 'Datetime'})
+        stacked_data['Ticker'] = stacked_data['Ticker'].str.upper()
+        
+        cols = ['Ticker', 'Datetime', 'Open', 'High', 'Low', 'Close', 'Volume']
+        final_cols = [col for col in cols if col in stacked_data.columns]
+        stacked_data = stacked_data[final_cols]
+        
+        stacked_data = stacked_data.dropna(subset=['Open', 'High', 'Low', 'Close', 'Volume'])
         stacked_data = stacked_data[stacked_data['Volume'] > 0]
         
         return stacked_data
@@ -39,107 +51,196 @@ def fetch_intraday_data(tickers_list, day, interval="5m"):
         print(f"Error fetching data: {e}")
         return pd.DataFrame()
 
+# --- ANALYSIS FUNCTIONS (UPGRADED from 'processor.py') ---
+
 def calculate_vwap(df):
-    """Calculates the Volume Weighted Average Price (VWAP)."""
-    q = df['Volume'] * (df['High'] + df['Low'] + df['Close']) / 3
-    return q.cumsum() / df['Volume'].cumsum()
+    """Calculates the Volume Weighted Average Price (VWAP) series."""
+    if df['Volume'].sum() == 0:
+        return pd.Series([np.nan] * len(df), index=df.index)
+    tp = (df['High'] + df['Low'] + df['Close']) / 3
+    tpv = tp * df['Volume']
+    vwap_series = tpv.cumsum() / df['Volume'].cumsum()
+    return vwap_series
 
-def calculate_volume_profile(df, bins=30):
-    """Calculates POC, VAH, and VAL from a simple volume profile."""
-    price_range = np.linspace(df['Low'].min(), df['High'].max(), bins)
-    volume_at_price = np.zeros(bins)
+def calculate_volume_profile(df, bins=50):
+    """
+    Calculates Volume Profile: POC, VAH, and VAL.
+    (Upgraded to the more robust 'processor.py' version)
+    """
+    if df.empty or df['Volume'].sum() == 0:
+        return np.nan, np.nan, np.nan
+        
+    price_mid = (df['High'] + df['Low']) / 2
+    price_bins = pd.cut(price_mid, bins=bins)
     
-    for _, row in df.iterrows():
-        price_indices = np.where((price_range >= row['Low']) & (price_range <= row['High']))
-        if len(price_indices[0]) > 0:
-            volume_at_price[price_indices] += row['Volume'] / len(price_indices[0])
-            
-    poc_index = np.argmax(volume_at_price)
-    poc = price_range[poc_index]
+    if price_bins.empty:
+        return np.nan, np.nan, np.nan
+        
+    grouped = df.groupby(price_bins)['Volume'].sum()
     
-    total_volume = np.sum(volume_at_price)
+    if grouped.empty:
+        return np.nan, np.nan, np.nan
+        
+    poc_bin = grouped.idxmax()
+    if not isinstance(poc_bin, pd.Interval):
+         return np.nan, np.nan, np.nan
+    poc_price = poc_bin.mid
+    
+    total_volume = grouped.sum()
+    if total_volume == 0:
+        return poc_price, np.nan, np.nan
+        
     target_volume = total_volume * 0.70
+    sorted_by_vol = grouped.sort_values(ascending=False)
+    cumulative_vol = sorted_by_vol.cumsum()
+    value_area_bins = sorted_by_vol[cumulative_vol <= target_volume]
     
-    current_volume = volume_at_price[poc_index]
-    low_index, high_index = poc_index, poc_index
-    
-    while current_volume < target_volume and (low_index > 0 or high_index < len(volume_at_price) - 1):
-        low_index_next = low_index - 1
-        high_index_next = high_index + 1
+    if value_area_bins.empty:
+        return poc_price, np.nan, np.nan
         
-        vol_low = volume_at_price[low_index_next] if low_index_next >= 0 else -1
-        vol_high = volume_at_price[high_index_next] if high_index_next < len(volume_at_price) else -1
+    val_price = value_area_bins.index.min().left
+    vah_price = value_area_bins.index.max().right
+    
+    return poc_price, vah_price, val_price
 
-        if vol_low > vol_high:
-            current_volume += vol_low
-            low_index = low_index_next
+def calculate_opening_range(df, minutes=30, session_open_time_str="09:30"):
+    """
+    Calculates Opening Range High/Low and a narrative for the RTH 
+    session, ignoring pre-market data.
+    (This is the robust version from 'processor.py' that fixes the 'nan' bug)
+    """
+    if df.empty:
+        return np.nan, np.nan, "No data."
+
+    try:
+        rth_open_time = pd.to_datetime(session_open_time_str).time()
+    except Exception:
+        rth_open_time = dt.time(9, 30) # Fallback
+
+    # Filter for RTH data only
+    rth_df = df[df['Datetime'].dt.time >= rth_open_time].copy()
+
+    if rth_df.empty:
+        return np.nan, np.nan, "No RTH (9:30am onward) data found."
+
+    start_time = rth_df['Datetime'].min()
+    end_time = start_time + pd.Timedelta(minutes=minutes)
+    
+    opening_range_df = rth_df[rth_df['Datetime'] < end_time]
+    
+    if opening_range_df.empty:
+        return np.nan, np.nan, "No data found in opening range window (9:30-10:00)."
+        
+    orl = opening_range_df['Low'].min()
+    orh = opening_range_df['High'].max()
+    
+    rest_of_day_df = rth_df[rth_df['Datetime'] >= end_time]
+    
+    if rest_of_day_df.empty:
+        return orh, orl, "Market closed after opening range."
+
+    # Check for breaks
+    broke_low = rest_of_day_df['Low'].min() < orl
+    broke_high = rest_of_day_df['High'].max() > orh
+    
+    time_broke_low_series = rest_of_day_df[rest_of_day_df['Low'] < orl]['Datetime']
+    time_broke_high_series = rest_of_day_df[rest_of_day_df['High'] > orh]['Datetime']
+
+    time_broke_low = time_broke_low_series.min() if not time_broke_low_series.empty else pd.NaT
+    time_broke_high = time_broke_high_series.min() if not time_broke_high_series.empty else pd.NaT
+
+    # Build the narrative
+    narrative = ""
+    if not broke_low and not broke_high:
+        narrative = "Price remained entirely inside the Opening Range (Balance Day)."
+    elif broke_high and not broke_low:
+        narrative = f"Price held the ORL as support and broke out above ORH at {time_broke_high.strftime('%H:%M')}, trending higher."
+    elif not broke_high and broke_low:
+        narrative = f"Price held the ORH as resistance and broke down below ORL at {time_broke_low.strftime('%H:%M')}, trending lower."
+    elif broke_high and broke_low:
+        if pd.isna(time_broke_low) or pd.isna(time_broke_high):
+             narrative = "Price broke both ORH and ORL, but timing data is incomplete."
+        elif time_broke_low < time_broke_high:
+            narrative = f"Price broke below ORL at {time_broke_low.strftime('%H:%M')}, then reversed and broke above ORH at {time_broke_high.strftime('%H:%M')}."
         else:
-            current_volume += vol_high
-            high_index = high_index_next
+            narrative = f"Price broke above ORH at {time_broke_high.strftime('%H:%M')}, then reversed and broke below ORL at {time_broke_low.strftime('%H:%M')}."
             
-    vah = price_range[high_index]
-    val = price_range[low_index]
-    
-    return poc, vah, val
-
-def calculate_opening_range(df, duration_minutes=30):
-    """Calculates the opening range and provides a narrative."""
-    market_open_time = dt.time(9, 30)
-    analysis_date = df['Datetime'].iloc[0].date()
-    opening_range_end_time = (dt.datetime.combine(analysis_date, market_open_time) + dt.timedelta(minutes=duration_minutes)).time()
-    
-    or_df = df[df['Datetime'].dt.time >= market_open_time]
-    or_df = or_df[or_df['Datetime'].dt.time < opening_range_end_time]
-    
-    if or_df.empty:
-        return np.nan, np.nan, "No data in opening range."
-        
-    orh = or_df['High'].max()
-    orl = or_df['Low'].min()
-    
-    after_or_df = df[df['Datetime'].dt.time >= opening_range_end_time]
-    if after_or_df.empty:
-        return orh, orl, "Session ended within opening range."
-        
-    breakout_up = (after_or_df['High'] > orh).any()
-    breakdown_down = (after_or_df['Low'] < orl).any()
-    
-    if breakout_up and not breakdown_down:
-        narrative = "Price broke above the opening range and held."
-    elif breakdown_down and not breakout_up:
-        narrative = "Price broke below the opening range and held."
-    elif breakout_up and breakdown_down:
-        narrative = "Price broke out in both directions (choppy)."
-    else:
-        narrative = "Price remained contained within the opening range."
-        
     return orh, orl, narrative
 
-def find_key_volume_events(df, std_dev_multiplier=2.5):
-    """Identifies bars with unusually high volume."""
-    volume_mean = df['Volume'].mean()
-    volume_std = df['Volume'].std()
-    volume_threshold = volume_mean + (volume_std * std_dev_multiplier)
+def find_key_volume_events(df, count=3):
+    """
+    Finds the top N volume candles and describes their context.
+    (Upgraded from std-dev method to top-N method from 'processor.py')
+    """
+    if df.empty:
+        return ["No data to find events."]
+        
+    rth_df = df[df['Datetime'].dt.time >= dt.time(9, 30)].copy()
+    if rth_df.empty:
+        return ["No RTH data to find events."]
+
+    hod = rth_df['High'].max()
+    lod = rth_df['Low'].min()
+    sorted_by_vol = rth_df.sort_values(by='Volume', ascending=False)
+    top_events = sorted_by_vol.head(count)
     
-    high_volume_df = df[df['Volume'] > volume_threshold]
-    events = []
-    for _, row in high_volume_df.iterrows():
-        time_str = row['Datetime'].strftime('%H:%M')
-        direction = "Up" if row['Close'] > row['Open'] else "Down"
-        events.append(f"{time_str}: High volume on a {direction} bar.")
-    return events if events else ["No significant volume events detected."]
+    events_list = []
+    for _, row in top_events.iterrows():
+        time = row['Datetime'].strftime('%H:%M')
+        price = row['Close']
+        vol = row['Volume']
+        
+        action_parts = []
+        if row['High'] >= hod: action_parts.append("Set High-of-Day")
+        if row['Low'] <= lod: action_parts.append("Set Low-of-Day")
+        
+        if row['Close'] > row['Open']: action_parts.append("Strong Up-Bar")
+        elif row['Close'] < row['Open']: action_parts.append("Strong Down-Bar")
+        else: action_parts.append("Neutral Bar")
+            
+        brief_action = " | ".join(action_parts)
+        formatted_string = f"{time} @ ${price:.2f} (Vol: {vol:,.0f}) - [{brief_action}]"
+        events_list.append(formatted_string)
+        
+    return events_list
 
 def get_vwap_interaction(df, vwap_series):
-    """Determines if VWAP acted as support or resistance."""
-    if (df['Low'] > vwap_series).all():
+    """
+    Analyzes how price interacted with VWAP.
+    (Upgraded from 'processor.py')
+    """
+    if df.empty or vwap_series.isnull().all():
+        return "N/A"
+        
+    rth_df = df[df['Datetime'].dt.time >= dt.time(9, 30)].copy()
+    if rth_df.empty:
+        return "N/A"
+        
+    # Ensure index alignment before slicing vwap_series
+    vwap_series_rth = vwap_series.loc[rth_df.index]
+    if vwap_series_rth.empty:
+        return "N/A"
+
+    crosses = ((rth_df['Close'] > vwap_series_rth) & (rth_df['Close'].shift(1) < vwap_series_rth)) | \
+              ((rth_df['Close'] < vwap_series_rth) & (rth_df['Close'].shift(1) > vwap_series_rth))
+    num_crosses = crosses.sum()
+    
+    if num_crosses > 4:
+        return "Crossed multiple times"
+    elif (rth_df['Low'] > vwap_series_rth).all():
         return "Support"
-    elif (df['High'] < vwap_series).all():
+    elif (rth_df['High'] < vwap_series_rth).all():
         return "Resistance"
     else:
         return "Mixed (acted as both support and resistance)"
 
+# --- TEXT GENERATION (UPGRADED) ---
+
 def generate_analysis_text(tickers_to_process, analysis_date):
-    """Performs all analysis and returns a single formatted string."""
+    """
+    Performs all analysis and returns a single formatted string
+    in the new, desired "Data Extraction Summary" format.
+    """
     all_data_df = fetch_intraday_data(tickers_to_process, analysis_date, interval="5m")
 
     if all_data_df.empty:
@@ -157,47 +258,66 @@ def generate_analysis_text(tickers_to_process, analysis_date):
         df_ticker.reset_index(drop=True, inplace=True)
         
         try:
-            open_price = df_ticker['Open'].iloc[0]
-            close_price = df_ticker['Close'].iloc[-1]
-            hod_price = df_ticker['High'].max()
-            lod_price = df_ticker['Low'].min()
+            # Filter for RTH data to get correct O/C/H/L
+            rth_df = df_ticker[df_ticker['Datetime'].dt.time >= dt.time(9, 30)]
+            if rth_df.empty:
+                continue
+
+            open_price = rth_df['Open'].iloc[0]
+            close_price = rth_df['Close'].iloc[-1]
+            hod_price = rth_df['High'].max()
+            hod_time_str = rth_df.loc[rth_df['High'].idxmax(), 'Datetime'].strftime('%H:%M')
+            lod_price = rth_df['Low'].min()
+            lod_time_str = rth_df.loc[rth_df['Low'].idxmin(), 'Datetime'].strftime('%H:%M')
             
             vwap_series = calculate_vwap(df_ticker)
-            session_vwap_final = vwap_series.iloc[-1]
-            poc, vah, val = calculate_volume_profile(df_ticker)
-            orh, orl, or_narrative = calculate_opening_range(df_ticker)
-            key_volume_events = find_key_volume_events(df_ticker)
+            session_vwap_final = vwap_series.iloc[-1] # Full session VWAP
+            
+            # Use RTH data for profile and events
+            poc, vah, val = calculate_volume_profile(rth_df)
+            orh, orl, or_narrative = calculate_opening_range(df_ticker) # This function handles RTH filtering internally
+            key_volume_events = find_key_volume_events(df_ticker) # This also handles RTH
             
             close_vs_vwap = "Above" if close_price > session_vwap_final else "Below"
             vwap_interaction = get_vwap_interaction(df_ticker, vwap_series)
 
+            # Build the new, high-quality string
             ticker_summary = f"""
-Summary: {ticker} | {analysis_date}
+Data Extraction Summary: {ticker} | {analysis_date}
 ==================================================
-- Date: {analysis_date}
-- Ticker: {ticker}
-- Open: {open_price:.2f}
-- High: {hod_price:.2f}
-- Low: {lod_price:.2f}
-- Close: {close_price:.2f}
-- POC: {poc:.2f}
-- VAH: {vah:.2f}
-- VAL: {val:.2f}
-- VWAP: {session_vwap_final:.2f}
-- ORL: {orl:.2f}
-- ORH: {orh:.2f}
 
-Key Volume Events:
+1. Session Extremes & Timing:
+   - Open: ${open_price:.2f}
+   - Close: ${close_price:.2f}
+   - High of Day (HOD): ${hod_price:.2f} (Set at {hod_time_str})
+   - Low of Day (LOD): ${lod_price:.2f} (Set at {lod_time_str})
+
+2. Volume Profile (Value References):
+   - Point of Control (POC): ${poc:.2f} (Highest volume traded)
+   - Value Area High (VAH): ${vah:.2f}
+   - Value Area Low (VAL): ${val:.2f}
+
+3. Key Intraday Volume Events:
 """
             for event in key_volume_events:
-                ticker_summary += f"- {event}\n"
-            ticker_summary += f"\nOpening Range Narrative: {or_narrative}\n"
-            ticker_summary += f"VWAP Interaction: Price closed {close_vs_vwap} VWAP, which acted as {vwap_interaction}."
-            
+                ticker_summary += f"   - {event}\n"
+
+            ticker_summary += f"""
+4. VWAP Relationship:
+   - Session VWAP: ${session_vwap_final:.2f}
+   - Close vs. VWAP: {close_vs_vwap}
+   - Key Interactions: VWAP primarily acted as {vwap_interaction}.
+
+5. Opening Range Analysis (First 30 Mins):
+   - Opening Range: ${orl:.2f} - ${orh:.2f}
+   - Outcome Narrative: {or_narrative}
+"""
             full_analysis_text.append(ticker_summary.strip())
 
         except Exception as e:
             errors.append(f"An error occurred during analysis for {ticker}: {e}")
+            # Also print to console for debugging
+            print(f"Error processing {ticker}: {e}")
 
     final_text = "\n\n".join(full_analysis_text)
     if errors:
@@ -205,32 +325,90 @@ Key Volume Events:
         
     return final_text
 
+# --- PARSER (NOW UPDATED TO READ THE NEW FORMAT) ---
+
 def parse_raw_summary(raw_text: str) -> dict:
     """
-    Parses the structured text summary from the 'Processor' app (for EOD).
+    Parses the new, high-quality "Data Extraction Summary" format.
     """
     data = {"raw_text_summary": raw_text}
-    def find_value(pattern, text, type_conv=float):
-        match = re.search(pattern, text, re.DOTALL)
+    
+    def find_value(pattern, text, type_conv=float, group_num=1):
+        match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
         if match:
-            val_str = match.group(1).replace(',', '').strip();
-            if not val_str: return None
+            val_str = match.group(group_num).replace(',', '').replace('$', '').strip()
+            if not val_str or val_str.lower() == 'nan': return None
             try: return type_conv(val_str)
             except:
                 if type_conv == str: return val_str
                 return None
         return None
-    data['ticker'] = find_value(r"Summary:\s*(\w+)", raw_text, str)
+
+    data['ticker'] = find_value(r"Data Extraction Summary:\s*([A-Z\.]+)", raw_text, str) # FIX: Changed regex to match generator
     data['date'] = find_value(r"\|\s*([\d\-]+)", raw_text, str)
-    data['open'] = find_value(r"Open:\s*\$([\d\.]+)", raw_text)
-    data['close'] = find_value(r"Close:\s*\$([\d\.]+)", raw_text)
-    data['high'] = find_value(r"High.*:\s*\$([\d\.]+)", raw_text)
-    data['low'] = find_value(r"Low.*:\s*\$([\d\.]+)", raw_text)
-    data['poc'] = find_value(r"POC.*:\s*\$([\d\.]+)", raw_text)
-    data['vah'] = find_value(r"VAH.*:\s*\$([\d\.]+)", raw_text)
-    data['val'] = find_value(r"VAL.*:\s*\$([\d\.]+)", raw_text)
-    data['vwap'] = find_value(r"VWAP.*:\s*\$([\d\.]+)", raw_text)
-    or_match = re.search(r"Opening Range:\s*\$([\d\.]+)\s*-\s*\$([\d\.]+)", raw_text)
-    data['orl'] = float(or_match.group(1)) if or_match else None
-    data['orh'] = float(or_match.group(2)) if or_match else None
+    
+    money_pattern = r"\$([\d\.,]+)"
+    data['open'] = find_value(rf"Open:\s*{money_pattern}", raw_text)
+    data['close'] = find_value(rf"Close:\s*{money_pattern}", raw_text)
+    data['high'] = find_value(rf"High of Day \(HOD\):\s*{money_pattern}", raw_text)
+    data['low'] = find_value(rf"Low of Day \(LOD\):\s*{money_pattern}", raw_text)
+    data['poc'] = find_value(rf"Point of Control \(POC\):\s*{money_pattern}", raw_text)
+    data['vah'] = find_value(rf"Value Area High \(VAH\):\s*{money_pattern}", raw_text)
+    data['val'] = find_value(rf"Value Area Low \(VAL\):\s*{money_pattern}", raw_text)
+    data['vwap'] = find_value(rf"Session VWAP:\s*{money_pattern}", raw_text)
+    
+    or_match = re.search(rf"Opening Range:\s*\$?([\d\.]+)\s*-\s*\$?([\d\.]+)", raw_text, re.IGNORECASE)
+    if or_match:
+        try: data['orl'] = float(or_match.group(1))
+        except: data['orl'] = None
+        try: data['orh'] = float(or_match.group(2))
+        except: data['orh'] = None
+    else:
+        data['orl'] = None
+        data['orh'] = None
+        
+    data['or_narrative'] = find_value(r"Outcome Narrative:\s*(.*)", raw_text, str)
+    data['vwap_narrative'] = find_value(r"Key Interactions:\s*VWAP primarily acted as (.*)\.", raw_text, str)
+    
     return data
+
+# --- THIS FUNCTION IS NOW UN-INDENTED AND VISIBLE ---
+def split_stock_summaries(raw_text: str) -> dict:
+    """
+    Splits the combined raw text (in "Data Extraction Summary" format)
+    into a dictionary of ticker: summary.
+    """
+    summaries = {}
+    
+    # Pattern to find the start of each summary block.
+    # It captures the ticker name (e.g., "AAPL", "BRK.B").
+    pattern = re.compile(r"Data Extraction Summary:\s*([A-Z\.]+)\s*\|")
+    
+    # Find all starting points
+    matches = list(pattern.finditer(raw_text))
+    
+    if not matches:
+        return {} # No tickers found
+
+    for i, match in enumerate(matches):
+        ticker = match.group(1).strip()
+        
+        # The start of the summary text for *this* block
+        # is the start of the match itself (the "Data Extraction..." line)
+        start_index = match.start()
+        
+        # The end of this summary block is the start of the *next* block
+        if i + 1 < len(matches):
+            end_index = matches[i+1].start()
+        else:
+            # If it's the last one, go to the end of the string
+            end_index = len(raw_text)
+            
+        # Get the full summary block text
+        summary_text = raw_text[start_index:end_index].strip()
+        
+        if ticker and summary_text:
+            # Add the full text, including the header
+            summaries[ticker] = summary_text
+            
+    return summaries
