@@ -98,7 +98,7 @@ def test_update_stock_note_success(mock_call_gemini_api, mock_db):
     mock_call_gemini_api.return_value = json.dumps(ai_response)
 
     # --- Act ---
-    update_stock_note(ticker, raw_text, macro_context, 'fake_api_key', mock_logger)
+    update_stock_note(ticker, raw_text, macro_context, 'fake_api_key', mock_logger, db_connection=mock_db)
 
     # --- Assert ---
     # Check logs
@@ -140,7 +140,7 @@ def test_update_economy_card_success(mock_call_gemini_api, mock_db):
     mock_call_gemini_api.return_value = json.dumps(ai_response)
 
     # --- Act ---
-    update_economy_card(manual_summary, etf_summaries, 'fake_api_key', mock_logger)
+    update_economy_card(manual_summary, etf_summaries, 'fake_api_key', mock_logger, db_connection=mock_db)
 
     # --- Assert ---
     # Check logs
@@ -165,7 +165,7 @@ def test_update_stock_note_no_ai_response(mock_db):
     """
     with patch('modules.ai_services.call_gemini_api', return_value=None) as mock_api:
         mock_logger = MockLogger()
-        update_stock_note('TEST', 'Summary: TEST | 2023-10-27', '', 'key', mock_logger)
+        update_stock_note('TEST', 'Summary: TEST | 2023-10-27', '', 'key', mock_logger, db_connection=mock_db)
         
         logs_str = "".join(mock_logger.logs)
         assert "Error: No AI response." in logs_str
@@ -178,3 +178,36 @@ def test_update_stock_note_no_ai_response(mock_db):
         original_card = json.loads(DEFAULT_COMPANY_OVERVIEW_JSON.replace("TICKER", "TEST"))
         db_card = json.loads(card_str)
         assert db_card['confidence'] == original_card['confidence']
+
+@patch('modules.ai_services.call_gemini_api')
+def test_update_stock_note_invalid_json_from_ai(mock_call_gemini_api, mock_db):
+    """
+    Tests that the system handles a non-JSON response from the AI gracefully.
+    """
+    # --- Arrange ---
+    mock_logger = MockLogger()
+    ticker = 'TEST'
+    raw_text = "Summary: TEST | 2023-10-27\\n- Close: 105.00"
+    macro_context = "Market was bullish."
+
+    # Mock the Gemini API to return a non-JSON string
+    mock_call_gemini_api.return_value = "This is not valid JSON."
+
+    # Get the original state of the card from the DB
+    cursor = mock_db.cursor()
+    cursor.execute("SELECT company_overview_card_json FROM stocks WHERE ticker=?", (ticker,))
+    original_card_str = cursor.fetchone()[0]
+
+    # --- Act ---
+    update_stock_note(ticker, raw_text, macro_context, 'fake_api_key', mock_logger, db_connection=mock_db)
+
+    # --- Assert ---
+    # Check that the error was logged
+    logs_str = "".join(mock_logger.logs)
+    assert "Error: Failed to decode AI response JSON" in logs_str
+    assert "Success" not in logs_str
+
+    # Check that the database was NOT updated
+    cursor.execute("SELECT company_overview_card_json FROM stocks WHERE ticker=?", (ticker,))
+    final_card_str = cursor.fetchone()[0]
+    assert final_card_str == original_card_str

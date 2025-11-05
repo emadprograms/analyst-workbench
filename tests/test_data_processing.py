@@ -94,6 +94,26 @@ Summary: TEST | 2023-10-27
     assert parsed_data['poc'] is None
 
 
+def test_parse_raw_summary_malformed_input():
+    """
+    Tests that parse_raw_summary handles incomplete or malformed text gracefully.
+    """
+    # Input text is missing the 'Close' and 'Open' price
+    raw_text = "Summary: BADTICKER | 2023-11-01\n- High: 150.50\n- Low: 140.25"
+    
+    parsed_data = parse_raw_summary(raw_text)
+    
+    # Assert that the function still correctly parsed the fields that were present
+    assert parsed_data['ticker'] == 'BADTICKER'
+    assert parsed_data['high'] == 150.50
+    assert parsed_data['low'] == 140.25
+    
+    # CRITICAL: Assert that the missing fields are returned as None, not causing an error
+    assert parsed_data['open'] is None
+    assert parsed_data['close'] is None
+    assert parsed_data['poc'] is None
+
+
 # --- Tests for calculation functions ---
 
 @pytest.fixture
