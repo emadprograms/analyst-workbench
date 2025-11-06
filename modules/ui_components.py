@@ -1,8 +1,23 @@
+"""
+This module provides functions to display market note data in a Streamlit application.
+It offers two main display modes: a read-only view and an editable view.
+
+- `display_view_market_note_card`: Renders market data in a static, formatted card
+  for viewing purposes. It includes sections for fundamental context, behavioral sentiment,
+  technical structure, and trade plans.
+
+- `display_editable_market_note_card`: Renders the market data as raw JSON in a
+  text area for direct editing.
+
+A helper function `escape_markdown` is also included to safely render text within
+Markdown components by escaping special characters.
+"""
+
 import streamlit as st
 import textwrap
 import json
 
-# --- Logger Class ---
+# --- Logger Class (as imported by your main app) ---
 class AppLogger:
     def __init__(self, st_container=None):
         self.st_container = st_container
@@ -23,29 +38,40 @@ class AppLogger:
             else: print(log_message)
         except Exception as e: self.log(f"Err format log: {e}"); self.log(str(data))
 
+
+# --- Helper Function ---
 def escape_markdown(text):
     """Escapes special Markdown characters in a string for safe rendering."""
     if not isinstance(text, str):
         return text
+    # Escape $ and ~
     return text.replace('$', '\\$').replace('~', '\\~')
 
-# --- THIS FUNCTION IS MODIFIED ---
-def display_view_market_note_card(card_data, show_edit_button: bool = True):
-    """Displays the data in a read-only, formatted Markdown view."""
+# --- COMPANY CARD (VIEW) ---
+def display_view_market_note_card(card_data, edit_mode_key="edit_mode"):
+    """
+    Displays the data in a read-only, formatted Markdown view.
+    Accepts an 'edit_mode_key' to toggle the correct session state variable.
+    """
     data = card_data
     with st.container(border=True):
+        # Header with Edit button on the right
         title_col, button_col = st.columns([0.95, 0.05])
+
         with title_col:
             st.header(escape_markdown(data.get('marketNote', '')))
+        
         with button_col:
-            st.write("") 
-            # --- THIS BLOCK IS NOW CONDITIONAL ---
-            if show_edit_button:
-                if st.button("✏️", help="Edit card"):
-                    st.session_state.edit_mode = True
-                    st.rerun()
-            # -------------------------------------
-
+            st.write("") # Add vertical space to align button
+            
+            # Create a unique key for the button itself
+            button_key = f"edit_btn_{data.get('basicContext', {}).get('tickerDate', 'default_key')}_{edit_mode_key}"
+            
+            # Use the new edit_mode_key to set the correct session state
+            if st.button("✏️", help="Edit card", key=button_key):
+                st.session_state[edit_mode_key] = True # <-- This now uses the key
+                # st.rerun() # <-- THIS LINE WAS THE PROBLEM AND IS NOW REMOVED.
+        
         if "basicContext" in data:
             st.subheader(escape_markdown(data["basicContext"].get('tickerDate', '')))
         st.markdown(f"**Confidence:** {escape_markdown(data.get('confidence', 'N/A'))}")
@@ -53,6 +79,7 @@ def display_view_market_note_card(card_data, show_edit_button: bool = True):
             st.info(escape_markdown(data.get('screener_briefing', 'N/A')))
         st.divider()
 
+        # Columns
         col1, col2 = st.columns(2)
         with col1:
             with st.container(border=True):
@@ -87,10 +114,21 @@ def display_view_market_note_card(card_data, show_edit_button: bool = True):
                 st.markdown(textwrap.dedent(f"""
                     - **Major Support:** {escape_markdown(tech.get('majorSupport', 'N/A'))}
                     - **Major Resistance:** {escape_markdown(tech.get('majorResistance', 'N/A'))}
-                    - **Key Action:** {escape_markdown(tech.get('keyAction', 'N/A'))}
                 """))
+                
+                # --- NEW: Key Action Expander ---
+                key_action = tech.get('keyAction', 'N/A')
+                # Check length to decide if we need an expander
+                if len(key_action) > 150:
+                    with st.expander("Show Key Action..."):
+                        st.markdown(escape_markdown(key_action))
+                else:
+                    st.markdown(f"- **Key Action:** {escape_markdown(key_action)}")
+                # --- END NEW ---
+
         st.divider()
 
+        # Trade Plans
         st.subheader("Trade Plans")
         def render_plan(plan_data):
             st.markdown(f"#### {escape_markdown(plan_data.get('planName', 'N/A'))}")
@@ -111,50 +149,60 @@ def display_view_market_note_card(card_data, show_edit_button: bool = True):
             if "alternativePlan" in data:
                 render_plan(data["alternativePlan"])
 
+# --- COMPANY CARD (EDIT) ---
+# --- REVERTED TO RAW JSON EDITING ---
 def display_editable_market_note_card(card_data):
-    """Displays the raw JSON for the market note card for editing."""
-    st.info("You are in raw JSON edit mode. Ensure the final text is valid JSON before saving.")
-    
+    """
+    Displays the data in an editable layout with input widgets.
+    Returns the edited data as a JSON string.
+    """
     try:
-        # Pretty-print the JSON for readability
-        json_string = json.dumps(card_data, indent=2)
+        # Pretty-print the JSON for editing
+        json_string = json.dumps(card_data, indent=4)
     except Exception as e:
-        st.error(f"Could not serialize card data to JSON: {e}")
-        json_string = "{}"
+        st.error(f"Failed to serialize card data for editing: {e}")
+        json_string = "{}" # Fallback
 
-    # The text area will hold the JSON string.
+    st.warning("You are in raw edit mode. Be careful to maintain valid JSON structure.")
+    
+    # Display in a tall text area
     edited_json_string = st.text_area(
-        "Company Overview Card JSON",
+        "Edit Raw JSON",
         value=json_string,
         height=600,
-        key="editable_market_note_json"
+        label_visibility="collapsed"
     )
-
-    # The function now returns the raw string for the main app to validate and save.
+    
+    # Return the (potentially) modified string
     return edited_json_string
 
-# --- THIS FUNCTION IS MODIFIED ---
-def display_view_economy_card(card_data, key_prefix="eco_view", show_edit_button: bool = True):
-    """Displays the Economy card data in a read-only, formatted Markdown view."""
+# --- ECONOMY CARD (VIEW) ---
+def display_view_economy_card(card_data, key_prefix="eco_view", edit_mode_key="edit_mode_economy"):
+    """
+    Displays the Economy card data in a read-only, formatted Markdown view.
+    Accepts an 'edit_mode_key' to toggle the correct session state variable.
+    """
     data = card_data
     with st.expander("Global Economy Card", expanded=True):
         with st.container(border=True):
+            
             title_col, button_col = st.columns([0.95, 0.05])
+                
             with title_col:
                 st.markdown(f"**{escape_markdown(data.get('marketNarrative', 'Market Narrative N/A'))}**")
+            
             with button_col:
                 st.write("")
-                # --- THIS BLOCK IS NOW CONDITIONAL ---
-                if show_edit_button:
-                    if st.button("✏️", key=f"{key_prefix}_edit_button", help="Edit economy card"):
-                        st.session_state.edit_mode_economy = True
-                        st.rerun()
-                # -------------------------------------
+                # Use the new edit_mode_key to set the correct session state
+                if st.button("✏️", key=f"{key_prefix}_edit_button", help="Edit economy card"):
+                    st.session_state[edit_mode_key] = True # <-- This now uses the key
+                    # st.rerun() # <-- THIS LINE WAS THE PROBLEM AND IS NOW REMOVED.
 
             st.markdown(f"**Market Bias:** {escape_markdown(data.get('marketBias', 'N/A'))}")
             st.markdown("---")
             col1, col2 = st.columns(2)
 
+            # Column 1: Key Economic Events and Index Analysis
             with col1:
                 with st.container(border=True):
                     st.markdown("##### Key Economic Events")
@@ -172,6 +220,7 @@ def display_view_economy_card(card_data, key_prefix="eco_view", show_edit_button
                             st.markdown(f"**{index.replace('_', ' ')}**")
                             st.write(escape_markdown(analysis))
 
+            # Column 2: Sector Rotation and Inter-Market Analysis
             with col2:
                 with st.container(border=True):
                     st.markdown("##### Sector Rotation")
@@ -191,26 +240,39 @@ def display_view_economy_card(card_data, key_prefix="eco_view", show_edit_button
 
             st.markdown("---")
             st.markdown("##### Market Key Action")
-            st.text(escape_markdown(data.get('marketKeyAction', 'N/A')))
+            # --- NEW: Key Action Expander ---
+            key_action = data.get('marketKeyAction', 'N/A')
+            if len(key_action) > 150: # Check length
+                with st.expander("Show Market Key Action..."):
+                    st.text(escape_markdown(key_action))
+            else:
+                st.text(escape_markdown(key_action))
+            # --- END NEW ---
 
+# --- ECONOMY CARD (EDIT) ---
+# --- REVERTED TO RAW JSON EDITING ---
 def display_editable_economy_card(card_data, key_prefix="eco_edit"):
-    """Displays the raw JSON for the economy card for editing."""
-    st.info("You are in raw JSON edit mode. Ensure the final text is valid JSON before saving.")
-    
+    """
+    Displays the Economy card data in an editable layout.
+    Returns the edited data as a JSON string.
+    """
     try:
-        # Pretty-print the JSON for readability
-        json_string = json.dumps(card_data, indent=2)
+        # Pretty-print the JSON for editing
+        json_string = json.dumps(card_data, indent=4)
     except Exception as e:
-        st.error(f"Could not serialize card data to JSON: {e}")
-        json_string = "{}"
+        st.error(f"Failed to serialize card data for editing: {e}")
+        json_string = "{}" # Fallback
 
-    # The text area will hold the JSON string.
+    st.warning("You are in raw edit mode. Be careful to maintain valid JSON structure.")
+    
+    # Display in a tall text area
     edited_json_string = st.text_area(
-        "Economy Card JSON",
+        "Edit Raw JSON",
         value=json_string,
         height=600,
-        key=f"{key_prefix}_editable_economy_json"
+        label_visibility="collapsed",
+        key=f"{key_prefix}_json_edit" # Add a key for uniqueness
     )
     
-    # The function now returns the raw string for the main app to validate and save.
+    # Return the (potentially) modified string
     return edited_json_string

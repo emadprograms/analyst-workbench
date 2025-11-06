@@ -1,12 +1,17 @@
-# db_viewer.py
-
 import streamlit as st
 import pandas as pd
 from modules.db_utils import get_all_table_names, get_table_data
+from modules.config import DATABASE_FILE # <-- 1. IMPORT THE FILE PATH
+import os # <-- Import os to get the full path
 
 st.set_page_config(layout="wide", page_title="Database Viewer")
 
+# --- 2. PRINT THE FILE PATH ---
 st.title("Database Viewer")
+st.subheader(f"Reading from: {os.path.abspath(DATABASE_FILE)}")
+st.markdown("---")
+# --- END MODIFICATION ---
+
 st.markdown("A simple interface to view the contents of the application's database tables.")
 
 # Get all table names from the database
