@@ -69,8 +69,8 @@ def display_view_market_note_card(card_data, edit_mode_key="edit_mode"):
             
             # Use the new edit_mode_key to set the correct session state
             if st.button("✏️", help="Edit card", key=button_key):
-                st.session_state[edit_mode_key] = True # <-- This now uses the key
-                # st.rerun() # <-- THIS LINE WAS THE PROBLEM AND IS NOW REMOVED.
+                st.session_state[edit_mode_key] = True 
+                # st.rerun() # <-- This line is removed to prevent tab switching
         
         if "basicContext" in data:
             st.subheader(escape_markdown(data["basicContext"].get('tickerDate', '')))
@@ -116,15 +116,24 @@ def display_view_market_note_card(card_data, edit_mode_key="edit_mode"):
                     - **Major Resistance:** {escape_markdown(tech.get('majorResistance', 'N/A'))}
                 """))
                 
-                # --- NEW: Key Action Expander ---
-                key_action = tech.get('keyAction', 'N/A')
-                # Check length to decide if we need an expander
-                if len(key_action) > 150:
-                    with st.expander("Show Key Action..."):
-                        st.markdown(escape_markdown(key_action))
-                else:
-                    st.markdown(f"- **Key Action:** {escape_markdown(key_action)}")
-                # --- END NEW ---
+                # --- REFACTORED: Display the new 'pattern' and 'keyActionLog' ---
+                st.markdown(f"**Pattern:** {escape_markdown(tech.get('pattern', 'N/A'))}")
+                
+                key_log = tech.get('keyActionLog', [])
+                if isinstance(key_log, list) and key_log:
+                    with st.expander("Show Full Key Action Log..."):
+                        for entry in reversed(key_log): # Show most recent first
+                            if isinstance(entry, dict):
+                                st.markdown(f"**{entry.get('date', 'N/A')}:** {escape_markdown(entry.get('action', 'N/A'))}")
+                            else:
+                                st.text(escape_markdown(entry)) # Fallback for old data
+                
+                # --- Fallback for old data model ---
+                elif 'keyAction' in tech:
+                    st.markdown(f"**Key Action (Old):**")
+                    with st.expander("Show Full Key Action Log..."):
+                        st.text(escape_markdown(tech.get('keyAction', 'N/A')))
+                # --- END REFACTOR ---
 
         st.divider()
 
@@ -150,7 +159,6 @@ def display_view_market_note_card(card_data, edit_mode_key="edit_mode"):
                 render_plan(data["alternativePlan"])
 
 # --- COMPANY CARD (EDIT) ---
-# --- REVERTED TO RAW JSON EDITING ---
 def display_editable_market_note_card(card_data):
     """
     Displays the data in an editable layout with input widgets.
@@ -196,7 +204,7 @@ def display_view_economy_card(card_data, key_prefix="eco_view", edit_mode_key="e
                 # Use the new edit_mode_key to set the correct session state
                 if st.button("✏️", key=f"{key_prefix}_edit_button", help="Edit economy card"):
                     st.session_state[edit_mode_key] = True # <-- This now uses the key
-                    # st.rerun() # <-- THIS LINE WAS THE PROBLEM AND IS NOW REMOVED.
+                    # st.rerun() # <-- This line is removed to prevent tab switching
 
             st.markdown(f"**Market Bias:** {escape_markdown(data.get('marketBias', 'N/A'))}")
             st.markdown("---")
@@ -215,10 +223,13 @@ def display_view_economy_card(card_data, key_prefix="eco_view", edit_mode_key="e
                 with st.container(border=True):
                     st.markdown("##### Index Analysis")
                     indices = data.get("indexAnalysis", {})
+                    # --- REFACTORED: Display the new 'pattern' ---
+                    st.markdown(f"**Pattern:** {escape_markdown(indices.get('pattern', 'N/A'))}")
                     for index, analysis in indices.items():
-                        if analysis and analysis.strip():
+                        if index != 'pattern' and analysis and analysis.strip(): # Don't print pattern twice
                             st.markdown(f"**{index.replace('_', ' ')}**")
                             st.write(escape_markdown(analysis))
+                    # --- END REFACTOR ---
 
             # Column 2: Sector Rotation and Inter-Market Analysis
             with col2:
@@ -239,18 +250,24 @@ def display_view_economy_card(card_data, key_prefix="eco_view", edit_mode_key="e
                             st.write(escape_markdown(analysis))
 
             st.markdown("---")
-            st.markdown("##### Market Key Action")
-            # --- NEW: Key Action Expander ---
-            key_action = data.get('marketKeyAction', 'N/A')
-            if len(key_action) > 150: # Check length
-                with st.expander("Show Market Key Action..."):
-                    st.text(escape_markdown(key_action))
-            else:
-                st.text(escape_markdown(key_action))
-            # --- END NEW ---
+            
+            # --- REFACTORED: Display the new 'keyActionLog' ---
+            st.markdown("##### Market Key Action Log")
+            key_log = data.get('keyActionLog', [])
+            if isinstance(key_log, list) and key_log:
+                with st.expander("Show Full Market Action Log..."):
+                    for entry in reversed(key_log): # Show most recent first
+                        if isinstance(entry, dict):
+                            st.markdown(f"**{entry.get('date', 'N/A')}:** {escape_markdown(entry.get('action', 'N/A'))}")
+                        else:
+                            st.text(escape_markdown(entry)) # Fallback for old data
+            elif 'marketKeyAction' in data:
+                 # Fallback for old data models
+                 st.text(escape_markdown(data.get('marketKeyAction', 'N/A')))
+            # --- END REFACTOR ---
+
 
 # --- ECONOMY CARD (EDIT) ---
-# --- REVERTED TO RAW JSON EDITING ---
 def display_editable_economy_card(card_data, key_prefix="eco_edit"):
     """
     Displays the Economy card data in an editable layout.

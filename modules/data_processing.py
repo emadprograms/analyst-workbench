@@ -15,7 +15,7 @@ def fetch_intraday_data(tickers_list, day, interval="5m"):
     """
     start_date = day
     end_date = day + dt.timedelta(days=1)
-    
+    print(f"[DEBUG] fetch_intraday_data: Fetching data for tickers: {tickers_list} on {day} (type: {type(tickers_list)})")
     try:
         data = yf.download(
             tickers=tickers_list,
@@ -25,28 +25,34 @@ def fetch_intraday_data(tickers_list, day, interval="5m"):
             ignore_tz=True, # FIX: This ignores timezone info and solves the 'nan' bug
             progress=False
         )
-        
         if data.empty:
+            print(f"[DEBUG] fetch_intraday_data: No data returned for {tickers_list} on {day}")
             return pd.DataFrame()
+
+        print(f"[DEBUG] fetch_intraday_data: Data columns returned: {list(data.columns)}")
 
         if len(tickers_list) > 1:
             stacked_data = data.stack(level=1)
+            stacked_data = stacked_data.reset_index().rename(columns={'level_0': 'Datetime'})
+            stacked_data['Ticker'] = stacked_data['Ticker'].str.upper()
         else:
-            data['Ticker'] = tickers_list[0]
-            stacked_data = data
-        
-        stacked_data = stacked_data.reset_index().rename(columns={'level_0': 'Datetime'})
-        stacked_data['Ticker'] = stacked_data['Ticker'].str.upper()
-        
+            # Single ticker as list: flatten columns if needed
+            if isinstance(data.columns, pd.MultiIndex):
+                # Flatten columns: ('Open', 'AAPL') -> 'Open'
+                data.columns = [col[0] for col in data.columns]
+            data['Ticker'] = tickers_list[0].upper()
+            stacked_data = data.reset_index()
+
         cols = ['Ticker', 'Datetime', 'Open', 'High', 'Low', 'Close', 'Volume']
         final_cols = [col for col in cols if col in stacked_data.columns]
         stacked_data = stacked_data[final_cols]
-        
+
         stacked_data = stacked_data.dropna(subset=['Open', 'High', 'Low', 'Close', 'Volume'])
         stacked_data = stacked_data[stacked_data['Volume'] > 0]
-        
-        return stacked_data
 
+        print(f"[DEBUG] fetch_intraday_data: Returning {len(stacked_data)} rows for {tickers_list} on {day}")
+        print(f"[DEBUG] fetch_intraday_data: Sample data (first 2 rows):\n{stacked_data.head(2)}")
+        return stacked_data
     except Exception as e:
         print(f"Error fetching data: {e}")
         return pd.DataFrame()
@@ -241,26 +247,37 @@ def generate_analysis_text(tickers_to_process, analysis_date):
     Performs all analysis and returns a single formatted string
     in the new, desired "Data Extraction Summary" format.
     """
+    print(f"[DEBUG] generate_analysis_text: Processing tickers: {tickers_to_process} (type: {type(tickers_to_process)}) for date {analysis_date}")
+    if not tickers_to_process or not isinstance(tickers_to_process, (list, tuple)) or len(tickers_to_process) == 0:
+        print(f"[DEBUG] generate_analysis_text: No tickers supplied! Value: {tickers_to_process}")
+        return f"[ERROR] No tickers supplied to analysis function."
     all_data_df = fetch_intraday_data(tickers_to_process, analysis_date, interval="5m")
 
     if all_data_df.empty:
-        return f"No data found for any tickers on {analysis_date}. It may be a weekend or holiday."
+        print(f"[DEBUG] generate_analysis_text: No data found for any tickers on {analysis_date}. Tickers supplied: {tickers_to_process}")
+        return f"[ERROR] No data found for any tickers on {analysis_date}. Tickers supplied: {tickers_to_process}. It may be a weekend, holiday, or a data-fetching issue."
 
     full_analysis_text = []
     errors = []
 
     for ticker in tickers_to_process:
-        df_ticker = all_data_df[all_data_df['Ticker'] == ticker.upper()].copy()
-        
-        if df_ticker.empty:
+        print(f"[DEBUG] generate_analysis_text: Processing ticker: '{ticker}' (type: {type(ticker)})")
+        if not ticker or not isinstance(ticker, str):
+            print(f"[DEBUG] generate_analysis_text: Skipping invalid ticker: {ticker}")
             continue
-        
+        df_ticker = all_data_df[all_data_df['Ticker'] == ticker.upper()].copy()
+        print(f"[DEBUG] generate_analysis_text: Data rows for {ticker}: {len(df_ticker)}")
+        if df_ticker.empty:
+            print(f"[DEBUG] generate_analysis_text: No data for ticker '{ticker}' on {analysis_date}")
+            continue
+
         df_ticker.reset_index(drop=True, inplace=True)
-        
+
         try:
             # Filter for RTH data to get correct O/C/H/L
             rth_df = df_ticker[df_ticker['Datetime'].dt.time >= dt.time(9, 30)]
             if rth_df.empty:
+                print(f"[DEBUG] generate_analysis_text: No RTH data for ticker {ticker}")
                 continue
 
             open_price = rth_df['Open'].iloc[0]
@@ -269,15 +286,15 @@ def generate_analysis_text(tickers_to_process, analysis_date):
             hod_time_str = rth_df.loc[rth_df['High'].idxmax(), 'Datetime'].strftime('%H:%M')
             lod_price = rth_df['Low'].min()
             lod_time_str = rth_df.loc[rth_df['Low'].idxmin(), 'Datetime'].strftime('%H:%M')
-            
+
             vwap_series = calculate_vwap(df_ticker)
             session_vwap_final = vwap_series.iloc[-1] # Full session VWAP
-            
+
             # Use RTH data for profile and events
             poc, vah, val = calculate_volume_profile(rth_df)
             orh, orl, or_narrative = calculate_opening_range(df_ticker) # This function handles RTH filtering internally
             key_volume_events = find_key_volume_events(df_ticker) # This also handles RTH
-            
+
             close_vs_vwap = "Above" if close_price > session_vwap_final else "Below"
             vwap_interaction = get_vwap_interaction(df_ticker, vwap_series)
 
@@ -322,7 +339,6 @@ Data Extraction Summary: {ticker} | {analysis_date}
     final_text = "\n\n".join(full_analysis_text)
     if errors:
         final_text += "\n\n--- ERRORS ---\n" + "\n".join(errors)
-        
     return final_text
 
 # --- PARSER (NOW UPDATED TO READ THE NEW FORMAT) ---

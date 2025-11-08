@@ -1,11 +1,40 @@
-# config.py
+import os
+from datetime import date
+import streamlit as st 
 
-import streamlit as st
-
-# --- Constants ---
-DATABASE_FILE = "database/analysis_database.db"
-MODEL_NAME = "gemini-2.5-pro"
+# --- API Configuration ---
+MODEL_NAME = "gemini-2.5-pro" 
 API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent"
+
+# --- Load Gemini API Keys ---
+try:
+    gemini_secrets = st.secrets.get("gemini", {})
+    API_KEYS = gemini_secrets.get("api_keys", [])
+    if not API_KEYS or not isinstance(API_KEYS, list) or len(API_KEYS) == 0:
+        st.error("Error: Gemini API keys not found in st.secrets.")
+        st.info("Please add [gemini] section with api_keys = [...] to your .streamlit/secrets.toml file.")
+        st.stop()
+except Exception as e:
+    # Fallback for when st.secrets isn't available (e.g., testing)
+    print(f"Warning: Could not load st.secrets (e.g., in a test). {e}")
+    API_KEYS = []
+
+# --- (NEW) Load Turso Database Configuration ---
+try:
+    turso_secrets = st.secrets.get("turso", {})
+    TURSO_DB_URL = turso_secrets.get("db_url")
+    TURSO_AUTH_TOKEN = turso_secrets.get("auth_token")
+    
+    if not TURSO_DB_URL or not TURSO_AUTH_TOKEN:
+        st.error("Error: Turso DB URL or Auth Token not found in st.secrets.")
+        st.info("Please add [turso] section to your .streamlit/secrets.toml file.")
+        st.stop()
+except Exception as e:
+    st.error(f"Failed to load Turso secrets. App cannot connect to DB. Error: {e}")
+    print(f"Warning: Could not load st.secrets (e.g., in a test). {e}")
+    TURSO_DB_URL = None
+    TURSO_AUTH_TOKEN = None
+
 
 # --- Ticker Grouping ---
 STOCK_TICKERS = [
@@ -13,16 +42,16 @@ STOCK_TICKERS = [
     "SNOW", "NET", "PLTR", "MU", "ORCL", "TSM"
 ]
 ETF_TICKERS = [
-    "SPY", "QQQ", "IWM", "DIA", "TLT", "XLK", "XLF", "XLP", "XLE",
-    "SMH", "XLI", "XLV", "UUP", "GLD"
+  "SPY", "QQQ", "IWM", "DIA", "TLT", "XLK", "XLF", "XLP", "XLE",
+  "SMH", "XLI", "XLV", "UUP", "GLD",
+  "BTC-USD"
 ]
 ALL_TICKERS = sorted(STOCK_TICKERS + ETF_TICKERS)
 
-# --- Load Gemini API Keys from Secrets ---
-gemini_secrets = st.secrets.get("gemini", {})
-API_KEYS = gemini_secrets.get("api_keys", [])
 
-# Default JSON structure - This is the primary "Company Overview Card"
+# --- Default JSON Structures ---
+
+# --- REFACTORED: This now uses the new 'pattern' and 'keyActionLog' structure ---
 DEFAULT_COMPANY_OVERVIEW_JSON = """
 {
   "marketNote": "Executor's Battle Card: TICKER",
@@ -38,8 +67,8 @@ DEFAULT_COMPANY_OVERVIEW_JSON = """
   "technicalStructure": {
     "majorSupport": "AI RULE: READ-ONLY. Update only if decisively broken & confirmed over multiple days.",
     "majorResistance": "AI RULE: READ-ONLY. Update only if decisively broken & confirmed over multiple days.",
-    "keyAction": "AI RULE: APPEND today's action relative to major levels to continue the 2-3 day story.",
-    "pattern": "AI Updates: Current pattern based on cumulative action.",
+    "pattern": "AI RULE: AI will provide a new, high-level summary of the current pattern here.",
+    "keyActionLog": [],
     "volumeMomentum": "AI Updates: Volume qualifier for action AT key levels."
   },
   "fundamentalContext": {
@@ -70,13 +99,14 @@ DEFAULT_COMPANY_OVERVIEW_JSON = """
   }
 }
 """
+# --- END REFACTOR ---
 
-# Default JSON structure for the Economy Card
+# --- REFACTORED: This now uses the new 'pattern' and 'keyActionLog' structure ---
 DEFAULT_ECONOMY_CARD_JSON = """
 {
   "marketNarrative": "AI Updates: The current dominant story driving the market.",
   "marketBias": "Neutral",
-  "marketKeyAction": "AI RULE: APPEND today's macro developments to continue the story.",
+  "keyActionLog": [],
   "keyEconomicEvents": {
     "last_24h": "AI Updates: Summary of recent major data releases and their impact.",
     "next_24h": "AI Updates: List of upcoming high-impact events."
@@ -87,6 +117,7 @@ DEFAULT_ECONOMY_CARD_JSON = """
     "rotationAnalysis": "AI Updates: Analysis of which sectors are showing strength/weakness."
   },
   "indexAnalysis": {
+    "pattern": "AI RULE: AI will provide a new, high-level summary of the current market pattern here.",
     "SPY": "AI Updates: Summary of SPY's current position relative to its own major levels.",
     "QQQ": "AI Updates: Summary of QQQ's current position relative to its own major levels."
   },
@@ -101,3 +132,4 @@ DEFAULT_ECONOMY_CARD_JSON = """
   }
 }
 """
+# --- END REFACTOR ---

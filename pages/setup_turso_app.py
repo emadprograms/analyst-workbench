@@ -1,33 +1,15 @@
-import os
+import streamlit as st
 import libsql_client
 from libsql_client import LibsqlError
+from modules.config import TURSO_DB_URL, TURSO_AUTH_TOKEN
 
-# --- NEW: Load config from Environment Variables ---
-# This script is run from the command line, not Streamlit
-# You MUST set these in your terminal before running
-# export TURSO_DB_URL="libsql://..."
-# export TURSO_AUTH_TOKEN="..."
-
-TURSO_DB_URL = os.environ.get("TURSO_DB_URL")
-TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
-
-def create_tables():
+def run_turso_setup():
     """
-    Creates all necessary tables in the Turso database.
-    This script is idempotent and can be run safely.
+    Connects to Turso and runs the batch of setup commands.
+    Returns (success, message)
     """
-    
-    if not TURSO_DB_URL or not TURSO_AUTH_TOKEN:
-        print("Error: TURSO_DB_URL and TURSO_AUTH_TOKEN environment variables must be set.")
-        print("You can copy/paste them from your .streamlit/secrets.toml file.")
-        print("Example (Linux/Mac): export TURSO_DB_URL='libsql://your-db.turso.io'")
-        print("Example (Windows): set TURSO_DB_URL=libsql://your-db.turso.io")
-        return
-
-    print(f"Connecting to Turso at: {TURSO_DB_URL}...")
     client = None
     try:
-        # --- FIX: Force HTTPS connection ---
         http_url = TURSO_DB_URL.replace("libsql://", "https://")
         
         config = {
@@ -36,7 +18,7 @@ def create_tables():
         }
         client = libsql_client.create_client_sync(**config)
         
-        print("\n--- Running Schema Setup on Turso... ---")
+        st.write("Connection successful. Running schema setup...")
 
         # Use a 'batch' operation to send all commands at once
         statements = [
@@ -49,12 +31,11 @@ def create_tables():
             "DROP TABLE IF EXISTS company_card_archive;",
             "DROP TABLE IF EXISTS economy_card_archive;",
             
-            # --- 1. Daily Inputs Table ---
+            # --- 1. Daily Inputs Table (MODIFIED) ---
             """
             CREATE TABLE IF NOT EXISTS daily_inputs (
                 date TEXT PRIMARY KEY,
-                market_news TEXT,
-                stock_raw_summaries TEXT
+                market_news TEXT
             );
             """,
             
@@ -90,29 +71,46 @@ def create_tables():
         
         # Execute the batch
         client.batch(statements)
-
-        print("  Created/Verified 'stocks' table.")
-        print("  Recreated 'daily_inputs' table.")
-        print("  Recreated 'economy_cards' table.")
-        print("  Recreated 'company_cards' table.")
-        print("  Dropped all obsolete tables.")
-        print("\n--- Turso Database setup complete! ---")
+        
+        return True, "Database setup complete! 'stocks' preserved, others reset."
 
     except Exception as e:
-        print(f"An error occurred during database setup: {e}")
+        return False, f"An error occurred: {e}"
     finally:
         if client:
             client.close()
 
-if __name__ == "__main__":
-    confirm = input(
-        "WARNING: This will connect to your LIVE TURSO database.\n"
-        "It will PRESERVE the 'stocks' table (with your notes) but will\n"
-        "WIPE and RECREATE 'daily_inputs', 'company_cards', and 'economy_cards'.\n"
-        "This will DELETE all existing processed data. Are you sure? (y/n): "
-    )
-    if confirm.lower() != 'y':
-        print("Operation cancelled.")
-        exit()
-        
-    create_tables()
+# --- Streamlit App UI ---
+st.set_page_config(page_title="Turso DB Setup", layout="centered")
+st.title("Turso Database Setup Utility")
+
+st.header("1. Credentials Check")
+if not TURSO_DB_URL or not TURSO_AUTH_TOKEN:
+    st.error("Error: Turso secrets not found in .streamlit/secrets.toml")
+    st.info("Please make sure your `.streamlit/secrets.toml` file has the `[turso]` section.")
+    st.stop()
+else:
+    st.success("Turso credentials loaded from st.secrets successfully.")
+    st.write(f"**Database URL:** `{TURSO_DB_URL}`")
+
+st.header("2. Run Setup")
+st.warning(
+    """
+    **WARNING:** This will connect to your LIVE Turso database.
+    
+    - It will **PRESERVE** the `stocks` table (with your notes).
+    - It will **WIPE and RECREATE** the `daily_inputs`, `company_cards`, and `economy_cards` tables.
+    
+    This will DELETE all existing processed data in those tables.
+    """
+)
+
+if st.button("Initialize/Reset Turso Database"):
+    with st.spinner("Connecting to Turso and running setup..."):
+        success, message = run_turso_setup()
+    
+    if success:
+        st.success(f"✅ {message}")
+        st.balloons()
+    else:
+        st.error(f"❌ {message}")
