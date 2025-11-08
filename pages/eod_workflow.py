@@ -157,7 +157,7 @@ with tab_runner_eod:
                 # We save the news and also the *existing* stock summaries
                 # This prevents the save button from deleting processed stock data
                 # --- FIX: Pass 'stock_summaries' to the correct param ---
-                if upsert_daily_inputs(selected_date, market_news_input, saved_stock_summaries or ""):
+                if upsert_daily_inputs(selected_date, market_news_input):
                     st.success(f"Manual inputs for {selected_date.isoformat()} saved successfully.")
                     st.rerun()
                 else:
