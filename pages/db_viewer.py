@@ -5,7 +5,7 @@ import os
 
 # --- 1. DEFINE LOCAL DB PATH ---
 # Assumes 'analysis_database.db' is in the same root folder as this script
-DATABASE_FILE = "analysis_database.db"
+DATABASE_FILE = "database_backup/analysis_database.db"
 
 # --- 2. CREATE LOCAL-ONLY DB FUNCTIONS ---
 # These functions are copied from your old setup and use sqlite3

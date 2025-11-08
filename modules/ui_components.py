@@ -75,7 +75,7 @@ def display_view_market_note_card(card_data, edit_mode_key="edit_mode"):
         if "basicContext" in data:
             st.subheader(escape_markdown(data["basicContext"].get('tickerDate', '')))
         st.markdown(f"**Confidence:** {escape_markdown(data.get('confidence', 'N/A'))}")
-        with st.expander("Show Screener Briefing"):
+        with st.expander("Show Screener Briefing", expanded=True):
             st.info(escape_markdown(data.get('screener_briefing', 'N/A')))
         st.divider()
 
