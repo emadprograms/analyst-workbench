@@ -259,21 +259,24 @@ def update_company_card(
 
     **9. `screener_briefing` (The "Data Packet" for Python):**
         * This is your **final** task. You will generate the data packet *after* all other analysis is complete.
-        * **Step 1: Calculate the Final `Bias` (Master Synthesis Rule):**
+        * **Step 1: Calculate the `Setup_Bias` (Master Synthesis Rule):**
             * Your `Bias` for *this field only* MUST be a *synthesis* of your `pattern` (Macro) and `emotionalTone` (Micro) findings.
             * **Rule 1 (Change of Character):** If today's `emotionalTone` (e.g., 'Accumulation') *contradicts* the `Trend_Bias` (e.g., 'Bearish'), the **`emotionalTone` takes precedence.** The `Bias` *must* reflect this *new change* in market character.
                 * *(Example: `emotionalTone: 'Accumulation'` at support MUST result in a `Bias: Neutral` or `Neutral (Bullish Lean)`.)*
             * **Rule 2 (Use Relative Strength):** Use your `newsReaction` (relative strength/weakness) to "shade" the bias.
                 * *(Example: `emotionalTone: 'Accumulation'` + `newsReaction: 'Extreme Relative Strength'` = `Bias: Neutral (Bullish Lean)` or `Bullish`.)*
-        * **Step 2: Assemble the "Data Packet":**
+        * **Step 2: Summarize the `Catalyst`:**
+            * Create a clean, one-line summary of the "Governing Narrative" you already built for the `recentCatalyst` field.
+            * **Example:** "Post-earnings consolidation and new AI deal."
+        * **Step 3: Assemble the "Data Packet":**
             * You *must* output a multi-line string in the *exact* key-value format specified below.
             * For `Plan_A_Level` and `Plan_B_Level`, extract the *primary* price level from the `trigger`.
             * For `S_Levels` and `R_Levels`, extract *all* numerical price levels from `technicalStructure.majorSupport` and `technicalStructure.majorResistance`. Format them as a comma-separated list *inside brackets*.
         * **Exact Output Format:**
         Bias: [Your *newly calculated* 'Setup Bias' from Step 1]
-        Catalyst: [Your 'Governing Narrative' from basicContext.recentCatalyst]
+        Justification: [Your 'Proof of Reasoning' for the Setup_Bias, e.g., "Today's 'Accumulation' by 'Committed Buyers' (40% weight) contradicts the multi-day 'Breakdown' (60% weight), signaling seller exhaustion and forcing a 'Neutral' bias."]
+        Catalyst: [Your new *one-line summary* of the 'Governing Narrative']
         Pattern: [Your 'Structural Narrative' from technicalStructure.pattern]
-        Participant: [Your 'Conclusion' from behavioralSentiment.buyerVsSeller]
         Plan_A: [The 'planName' from openingTradePlan]
         Plan_A_Level: [Extracted level from Plan A's trigger]
         Plan_B: [The 'planName' from alternativePlan]
@@ -287,11 +290,11 @@ def update_company_card(
     {{
       "marketNote": "Executor's Battle Card: {ticker}",
       "confidence": "Your **'Story' Label + Proof of Reasoning** (e.g., 'Trend_Bias: Bearish (Story_Confidence: Low) - Reasoning: The action was a *failure* against the Bearish trend...').",
-      "screener_briefing": "Your **Regex-Friendly 'Data Packet'** (Bias, Catalyst, Pattern, Participant, Plan A, Plan B, S_Levels, R_Levels).",
+      "screener_briefing": "Your **10-Part Regex-Friendly 'Data Packet'** (Bias, Justification, Catalyst, Pattern, Plan A, Plan B, S_Levels, R_Levels).",
       "basicContext": {{
         "tickerDate": "{ticker} | {trade_date_str}",
         "sector": "Set in Static Editor / Preserved",
-        "companyDescription": "Set in Static Editor / PresVerved",
+        "companyDescription": "Set in Static Editor / Preserved",
         "priceTrend": "Your new summary of the cumulative trend.",
         "recentCatalyst": "Your 'Governing Narrative' (e.g., 'Post-earnings digestion continues; today's news confirmed...' or 'Awaiting Fed tariffs...')"
       }},
