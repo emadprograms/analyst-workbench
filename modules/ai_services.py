@@ -138,8 +138,8 @@ def update_company_card(
         "You are an expert market structure analyst. Your *only* job is to apply the specific 4-Participant Trading Model provided in the user's prompt. "
         "Your logic must *strictly* follow this model. You will be given a 'Masterclass' in the prompt that defines the model's philosophy. "
         "Your job has **three** distinct analytical tasks: "
-        "1. **Analyze `behavioralSentiment` (The 'Micro'):** You MUST provide a full 'Proof of Reasoning' for the `emotionalTone` field. "
-        "2. **Analyze `technicalStructure` (The 'Macro'):** Use *repeated* participant behavior to define and evolve the *key structural zones*. "
+        "1. **Analyze `behavioralSentiment` (The 'Micro'):** You MUST provide a full 'Proof of Reasoning' for the `emotionalTone` field. This means showing your work: linking the 'Observation' (price action) to the 'Inference' (participant psychology) to the 'Conclusion' (the pattern label). "
+        "2. **Analyze `technicalStructure` (The 'Macro'):** Use *repeated* participant behavior from the 3-5 day log to define and evolve the *key structural zones*. "
         "3. **Justify `confidence` (The 'Conviction'):** You MUST provide a full 'Proof of Reasoning' for the `confidence` field, explaining *why* the day's action matched the 'High', 'Medium', or 'Low' definitions from the Masterclass. "
         "You must also maintain the `recentCatalyst` as a 'Governing Narrative'. "
         "Do not use any of your own default logic. Your sole purpose is to be a processor for the user's provided framework."
@@ -261,18 +261,25 @@ def update_company_card(
 
     **6. `keyActionLog`:** Write your `todaysAction` log entry *last*, *after* you have done the `behavioralSentiment` analysis, so it uses the same language (e.g., "Committed Buyers stepped away, letting price drift down...").
 
-    **7. `screener_briefing` (The "Pre-Market Cheat Sheet"):**
-        * This is your final synthesis, written for a trader in the pre-market. It MUST be a 1-2 sentence "Go/No-Go" summary. You *must* synthesize these **six** conclusions:
-            1.  The `bias` (e.g., Bullish)
-            2.  The `confidence` (e.g., High)
-            3.  The `recentCatalyst` (e.g., "Post-earnings consolidation")
-            4.  The `pattern` (e.g., "Building support above $265")
-            5.  The `buyerVsSeller` (e.g., "Committed Buyers in control")
-            6.  The `openingTradePlan` (e.g., "Plan: Long $266.25 retest.")
-        * **Example:** `"Bias: Bullish (High Confidence). Catalyst: Post-earnings consolidation. Pattern: Building a stable support base above the $265 zone, with Committed Buyers in control. Primary plan is to long the $266.25 tactical support retest."`
+    **7. `openingTradePlan` & `alternativePlan`:** Use the `CRITICAL ANALYTICAL RULES` below to update these.
 
-    **8. Other Fields (`bias`, `plans`):** Use the `CRITICAL ANALYTICAL RULES` below.
-    
+    **8. `screener_briefing` (The "Data Packet" for Python):**
+        * This is your final task. You MUST output a multi-line string in the *exact* key-value format specified below. This is for a Python script, so formatting must be precise. Do NOT include the 'Story Confidence' label.
+        * **Rules for Level Extraction:**
+            * For `Plan_A_Level` and `Plan_B_Level`, extract the *primary* price level (e.g., '$266.25') from the `trigger` of the corresponding plan.
+            * For `S_Levels` and `R_Levels`, extract *all* numerical price levels from your `technicalStructure.majorSupport` and `technicalStructure.majorResistance` analysis. Format them as a comma-separated list *inside brackets* (e.g., `[$266.25, $264.00, $255.00]`).
+        * **Exact Output Format:**
+        Bias: [Your calculated Bias (e.g., Bullish)]
+        Catalyst: [Your full 'Governing Narrative' from basicContext.recentCatalyst]
+        Pattern: [Your full 'Structural Narrative' from technicalStructure.pattern]
+        Participant: [Your 'Conclusion' from behavioralSentiment.buyerVsSeller]
+        Plan_A: [The 'planName' from openingTradePlan]
+        Plan_A_Level: [Extracted level from Plan A's trigger]
+        Plan_B: [The 'planName' from alternativePlan]
+        Plan_B_Level: [Extracted level from Plan B's trigger]
+        S_Levels: [Your extracted list of support levels, e.g., $266.25, $264.00]
+        R_Levels: [Your extracted list of resistance levels, e.g., $271.41, $275.00]
+
     **CRITICAL ANALYTICAL RULES (LEVELS ARE PARAMOUNT):**
     * **Bias:** Maintain the `bias` from the [Previous Card] unless [Today's Action] *decisively breaks AND closes beyond* a MAJOR level. The `emotionalTone` does *not* change the `bias`, only the *levels* do.
     * **Plans:** Update BOTH `openingTradePlan` and `alternativePlan` for TOMORROW.
@@ -284,7 +291,7 @@ def update_company_card(
     {{
       "marketNote": "Executor's Battle Card: {ticker}",
       "confidence": "Your **Label + Proof of Reasoning** (e.g., 'Medium - Reasoning: The action was indecisive. It closed *at* the $271 resistance, not decisively *beyond* it, matching the 'Medium Confidence' definition.')",
-      "screener_briefing": "Your **6-Part 'Pre-Market Cheat Sheet'** (Bias, Confidence, Catalyst, Pattern, Participant, Plan).",
+      "screener_briefing": "Your **Regex-Friendly 'Data Packet'** (Bias, Catalyst, Pattern, Participant, Plan A, Plan B, S_Levels, R_Levels).",
       "basicContext": {{
         "tickerDate": "{ticker} | {trade_date_str}",
         "sector": "Set in Static Editor / Preserved",
