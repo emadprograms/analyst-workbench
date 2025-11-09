@@ -242,17 +242,18 @@ def update_company_card(
 
     **6. `behavioralSentiment` Section (The "Micro" / Today's Analysis):**
         * **`emotionalTone` (Pattern + Proof of Reasoning):**
-            * This is your **Justification**. You MUST show your work:
+            * This is your **Justification**, not a description. You MUST show your work by following this 3-part logic:
             * **1. Observation (The "What"):** State the objective price action from `[Today's Summary]` (e.g., "Price formed a higher-low pattern...").
             * **2. Inference (The "So What?"):** State what this action *means* according to the Masterclass philosophy. (e.g., "This action is the *opposite* of a 'price vacuum' (which would signal `Desperate Sellers`). It proves buyers who were 'absent' are now becoming more aggressive.").
             * **3. Conclusion (The "Why"):** State the *psychological event* this signals. (e.g., "Therefore, this price action is the classic signal of **seller exhaustion** and a shift to *competing* **Committed Buyers**.").
             * **Final Format:** "Label - Reasoning: [Your full 3-part proof]"
+            * **Example:** "Accumulation (Stable) - Reasoning: **(1. Observation)** The `[Price Summary]` shows sellers were unable to achieve a new low with conviction, instead forming a higher-low pattern. **(2. Inference)** This action is *not* a 'price vacuum' (which would signal `Desperate Sellers`); it proves that buyers who were 'absent' are now competing more aggressively. **(3. Conclusion)** This directly signals **seller exhaustion** and a shift to competing **Committed Buyers** as defined in the Masterclass."
         * **`newsReaction` (Headwind/Tailwind):**
             * This is your *relative strength* analysis. Compare the stock's `emotionalTone` to the `[Overall Market Context]`.
             * (e.g., "Market was bearish (headwind), but the stock held its $266 support in an 'Accumulation' pattern. This shows *extreme relative strength*...")
         * **`buyerVsSeller` (The Conclusion):**
             * This is your *final synthesis* of the `emotionalTone` and `newsReaction`.
-            * (e.g., "Committed Buyers are in firm control. They not only showed a 'Stable Accumulation' pattern at $415 but did so *against* a weak, bearish market, confirming their conviction.")
+            * (e.g., "Committed Buyers are in firm control. They not only showed a 'Stable Accumulation' pattern at $415 but did so *against* a weak, bearish market, confirming their high conviction.")
 
     **7. `keyActionLog`:** Write your `todaysAction` log entry *last*, using the language from your `behavioralSentiment` analysis.
     **8. `openingTradePlan` & `alternativePlan`:** Update these for TOMORROW.
@@ -260,11 +261,11 @@ def update_company_card(
     **9. `screener_briefing` (The "Data Packet" for Python):**
         * This is your **final** task. You will generate the data packet *after* all other analysis is complete.
         * **Step 1: Calculate the `Setup_Bias` (Master Synthesis Rule):**
-            * Your `Bias` for *this field only* MUST be a *synthesis* of your `pattern` (Macro) and `emotionalTone` (Micro) findings.
-            * **Rule 1 (Change of Character):** If today's `emotionalTone` (e.g., 'Accumulation') *contradicts* the `Trend_Bias` (e.g., 'Bearish'), the **`emotionalTone` takes precedence.** The `Bias` *must* reflect this *new change* in market character.
-                * *(Example: `emotionalTone: 'Accumulation'` at support MUST result in a `Bias: Neutral` or `Neutral (Bullish Lean)`.)*
+            * Your `Setup_Bias` for *this field only* MUST be a *synthesis* of your `pattern` (Macro) and `emotionalTone` (Micro) findings.
+            * **Rule 1 (Change of Character):** If today's `emotionalTone` (e.g., 'Accumulation') *contradicts* the `Trend_Bias` (e.g., 'Bearish'), the **`emotionalTone` takes precedence.** The `Setup_Bias` *must* reflect this *new change* in market character.
+                * *(Example: `emotionalTone: 'Accumulation'` at support MUST result in a `Setup_Bias: Neutral` or `Neutral (Bullish Lean)`.)*
             * **Rule 2 (Use Relative Strength):** Use your `newsReaction` (relative strength/weakness) to "shade" the bias.
-                * *(Example: `emotionalTone: 'Accumulation'` + `newsReaction: 'Extreme Relative Strength'` = `Bias: Neutral (Bullish Lean)` or `Bullish`.)*
+                * *(Example: `emotionalTone: 'Accumulation'` + `newsReaction: 'Extreme Relative Strength'` = `Setup_Bias: Neutral (Bullish Lean)` or `Bullish`.)*
         * **Step 2: Summarize the `Catalyst`:**
             * Create a clean, one-line summary of the "Governing Narrative" you already built for the `recentCatalyst` field.
             * **Example:** "Post-earnings consolidation and new AI deal."
@@ -273,7 +274,7 @@ def update_company_card(
             * For `Plan_A_Level` and `Plan_B_Level`, extract the *primary* price level from the `trigger`.
             * For `S_Levels` and `R_Levels`, extract *all* numerical price levels from `technicalStructure.majorSupport` and `technicalStructure.majorResistance`. Format them as a comma-separated list *inside brackets*.
         * **Exact Output Format:**
-        Bias: [Your *newly calculated* 'Setup Bias' from Step 1]
+        Setup_Bias: [Your *newly calculated* 'Setup Bias' from Step 1]
         Justification: [Your 'Proof of Reasoning' for the Setup_Bias, e.g., "Today's 'Accumulation' by 'Committed Buyers' (40% weight) contradicts the multi-day 'Breakdown' (60% weight), signaling seller exhaustion and forcing a 'Neutral' bias."]
         Catalyst: [Your new *one-line summary* of the 'Governing Narrative']
         Pattern: [Your 'Structural Narrative' from technicalStructure.pattern]
@@ -290,7 +291,7 @@ def update_company_card(
     {{
       "marketNote": "Executor's Battle Card: {ticker}",
       "confidence": "Your **'Story' Label + Proof of Reasoning** (e.g., 'Trend_Bias: Bearish (Story_Confidence: Low) - Reasoning: The action was a *failure* against the Bearish trend...').",
-      "screener_briefing": "Your **10-Part Regex-Friendly 'Data Packet'** (Bias, Justification, Catalyst, Pattern, Plan A, Plan B, S_Levels, R_Levels).",
+      "screener_briefing": "Your **10-Part Regex-Friendly 'Data Packet'** (Setup_Bias, Justification, Catalyst, Pattern, Plan A, Plan B, S_Levels, R_Levels).",
       "basicContext": {{
         "tickerDate": "{ticker} | {trade_date_str}",
         "sector": "Set in Static Editor / Preserved",
@@ -311,7 +312,7 @@ def update_company_card(
       }},
       "behavioralSentiment": {{
         "buyerVsSeller": "Your **Conclusion** (e.g., 'Committed Buyers in control, having proven strength against a macro headwind...').",
-        "emotionalTone": "Your **Pattern + Proof of Reasoning** (e.g., 'Accumulation (Stable) - Reasoning: (1. Obs) Price formed a higher low. (2. Inf) This is not a vacuum, it proves buyers are competing. (3. Con) This signals seller exhaustion...').",
+        "emotionalTone": "Your **Pattern + Proof of Reasoning** (e.g., 'Accumulation (Stable) - Reasoning: (1. Observation) Price formed a higher low. (2. Inference) This is not a vacuum, it proves buyers are competing. (3. Conclusion) This signals seller exhaustion...').",
         "newsReaction": "Your **Headwind/Tailwind Analysis** (e.g., 'Showed extreme relative strength by holding support *despite* the bearish macro context...')."
       }},
       "openingTradePlan": {{
