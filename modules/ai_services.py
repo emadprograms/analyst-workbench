@@ -2,31 +2,56 @@ import requests
 import json
 import re
 import time
-import logging  # <-- ADDED for KeyManager initialization
-# import random <-- REMOVED (no longer needed)
+import logging
 from datetime import date
 from deepdiff import DeepDiff
+import streamlit as st  # <-- ADDED: Needed to access st.secrets
 
 # --- Core Module Imports ---
 from modules.config import API_URL, API_KEYS, DEFAULT_COMPANY_OVERVIEW_JSON, DEFAULT_ECONOMY_CARD_JSON
 from modules.data_processing import parse_raw_summary
 from modules.ui_components import AppLogger
-from modules.key_manager import KeyManager  # <-- ADDED
+from modules.key_manager import KeyManager
 
-# --- GLOBAL KEY MANAGER SETUP ---
-# This code runs ONCE when your app starts.
+# --- NEW, ROBUST GLOBAL KEY MANAGER SETUP ---
+# Load secrets directly from Streamlit
 KEY_MANAGER = None
 try:
+    # 1. Load Turso Secrets
+    TURSO_DB_URL = st.secrets["turso"]["db_url"]
+    TURSO_AUTH_TOKEN = st.secrets["turso"]["auth_token"]
+    
+    # 2. Check for missing credentials
     if not API_KEYS or len(API_KEYS) == 0:
-        # Use standard logging for this initial setup error
-        logging.warning("No API keys found in modules.config. KEY_MANAGER not initialized.")
+        logging.warning("No API keys found in st.secrets. KEY_MANAGER not initialized.")
+    elif not TURSO_DB_URL or not TURSO_AUTH_TOKEN:
+         logging.warning("Turso credentials not found in st.secrets. KEY_MANAGER not initialized.")
     else:
-        # Initialize the single, global KeyManager instance
-        KEY_MANAGER = KeyManager(API_KEYS)
-        logging.info(f"KeyManager initialized successfully with {len(API_KEYS)} keys.")
+        
+        # --- THIS IS THE FIX ---
+        # Force the client to use HTTPS instead of WSS (WebSocket)
+        # by replacing the protocol.
+        HTTPS_DB_URL = TURSO_DB_URL.replace("libsql://", "https://")
+        logging.info(f"Original URL: {TURSO_DB_URL}, Forced HTTPS URL: {HTTPS_DB_URL}")
+        # --- END OF FIX ---
+
+        # 3. All credentials are present, initialize the manager
+        KEY_MANAGER = KeyManager(
+            api_keys=API_KEYS,
+            db_url=HTTPS_DB_URL,        # <-- Pass the new HTTPS-forced URL
+            auth_token=TURSO_AUTH_TOKEN
+        )
+        logging.info(f"KeyManager initialized successfully with {len(API_KEYS)} keys and persistent Turso DB (via HTTPS).")
+
+except KeyError as e:
+    # This catches if ["turso"]["db_url"] etc. is missing
+    logging.critical(f"CRITICAL: Missing key in st.secrets: {e}. KEY_MANAGER not initialized.")
+    st.error(f"Error: Missing credentials in secrets.toml ({e}). App cannot start.")
 except Exception as e:
+    # This catches other errors
     logging.critical(f"CRITICAL: Failed to initialize KeyManager: {e}")
-# --- END OF GLOBAL SETUP ---
+    st.error(f"A critical error occurred initializing the KeyManager: {e}")
+# --- END OF NEW GLOBAL SETUP ---
 
 
 # --- REFACTORED API Call function ---
