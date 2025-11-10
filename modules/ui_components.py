@@ -63,14 +63,23 @@ def display_view_market_note_card(card_data, edit_mode_key="edit_mode"):
         
         with button_col:
             st.write("") # Add vertical space to align button
-            
+
             # Create a unique key for the button itself
             button_key = f"edit_btn_{data.get('basicContext', {}).get('tickerDate', 'default_key')}_{edit_mode_key}"
-            
-            # Use the new edit_mode_key to set the correct session state
-            if st.button("✏️", help="Edit card", key=button_key):
-                st.session_state[edit_mode_key] = True 
-                # st.rerun() # <-- This line is removed to prevent tab switching
+
+            # Use the new edit_mode_key to set the correct session state.
+            # Use an on_click callback that sets session state and triggers a rerun
+            # so a single click immediately switches to edit mode.
+            def _enter_edit_mode():
+                st.session_state[edit_mode_key] = True
+                try:
+                    st.experimental_rerun()
+                except Exception:
+                    # If rerun is unavailable in the current environment, ignore the error.
+                    pass
+
+            # Attach the callback to the button; we don't need to check its return value.
+            st.button("✏️", help="Edit card", key=button_key, on_click=_enter_edit_mode)
         
         if "basicContext" in data:
             st.subheader(escape_markdown(data["basicContext"].get('tickerDate', '')))
@@ -118,6 +127,8 @@ def display_view_market_note_card(card_data, edit_mode_key="edit_mode"):
                 
                 # --- REFACTORED: Display the new 'pattern' and 'keyActionLog' ---
                 st.markdown(f"**Pattern:** {escape_markdown(tech.get('pattern', 'N/A'))}")
+                # --- NEW: Display volumeMomentum so volume analysis is visible in the card ---
+                st.markdown(f"**Volume Momentum:** {escape_markdown(tech.get('volumeMomentum', 'N/A'))}")
                 
                 key_log = tech.get('keyActionLog', [])
                 if isinstance(key_log, list) and key_log:
@@ -202,9 +213,14 @@ def display_view_economy_card(card_data, key_prefix="eco_view", edit_mode_key="e
             with button_col:
                 st.write("")
                 # Use the new edit_mode_key to set the correct session state
-                if st.button("✏️", key=f"{key_prefix}_edit_button", help="Edit economy card"):
-                    st.session_state[edit_mode_key] = True # <-- This now uses the key
-                    # st.rerun() # <-- This line is removed to prevent tab switching
+                def _enter_econ_edit_mode():
+                    st.session_state[edit_mode_key] = True
+                    try:
+                        st.rerun()
+                    except Exception:
+                        pass
+
+                st.button("✏️", key=f"{key_prefix}_edit_button", help="Edit economy card", on_click=_enter_econ_edit_mode)
 
             st.markdown(f"**Market Bias:** {escape_markdown(data.get('marketBias', 'N/A'))}")
             st.markdown("---")

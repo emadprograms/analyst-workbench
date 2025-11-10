@@ -2,99 +2,134 @@ import requests
 import json
 import re
 import time
-import random
+import logging  # <-- ADDED for KeyManager initialization
+# import random <-- REMOVED (no longer needed)
 from datetime import date
 from deepdiff import DeepDiff
 
-# --- FIX: Removed unused imports ---
+# --- Core Module Imports ---
 from modules.config import API_URL, API_KEYS, DEFAULT_COMPANY_OVERVIEW_JSON, DEFAULT_ECONOMY_CARD_JSON
 from modules.data_processing import parse_raw_summary
 from modules.ui_components import AppLogger
-# import streamlit as st <-- REMOVED
+from modules.key_manager import KeyManager  # <-- ADDED
 
-# --- Key-Randomizing API Call (Unchanged) ---
-def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, max_retries=5) -> str:
-    """
-    Calls the Gemini API, handles key switching and retries.
-    This function now randomly selects its own key for the first attempt.
-    """
+# --- GLOBAL KEY MANAGER SETUP ---
+# This code runs ONCE when your app starts.
+KEY_MANAGER = None
+try:
     if not API_KEYS or len(API_KEYS) == 0:
-        logger.log("Error: No Gemini API keys found in st.secrets.")
+        # Use standard logging for this initial setup error
+        logging.warning("No API keys found in modules.config. KEY_MANAGER not initialized.")
+    else:
+        # Initialize the single, global KeyManager instance
+        KEY_MANAGER = KeyManager(API_KEYS)
+        logging.info(f"KeyManager initialized successfully with {len(API_KEYS)} keys.")
+except Exception as e:
+    logging.critical(f"CRITICAL: Failed to initialize KeyManager: {e}")
+# --- END OF GLOBAL SETUP ---
+
+
+# --- REFACTORED API Call function ---
+def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, max_retries=5) -> str | None:
+    """
+    Calls the Gemini API using the stateful KeyManager.
+    It automatically handles key rotation, cooldowns, and retries.
+    """
+    if not KEY_MANAGER:
+        # --- FIX: Removed level= keyword ---
+        logger.log("ERROR: KeyManager is not initialized. No API keys loaded.")
         return None
     
-    # Always select a random key for the *first attempt*.
-    current_api_key = random.choice(API_KEYS)
-    current_key_index = API_KEYS.index(current_api_key)
-    logger.log(f"Selected random Key #{current_key_index + 1} for first attempt.")
-        
     for i in range(max_retries):
-        gemini_api_url = f"{API_URL}?key={current_api_key}"
-        
-        payload = {"contents": [{"parts": [{"text": prompt}]}], "systemInstruction": {"parts": [{"text": system_prompt}]}}
-        headers = {'Content-Type': 'application/json'}
-        
+        current_api_key = None
         try:
+            # 1. Get a key from the manager
+            current_api_key, wait_time = KEY_MANAGER.get_key()
+            
+            if not current_api_key:
+                # --- FIX: Removed level= keyword ---
+                logger.log(f"WARNING: All keys are on cooldown. Next key available in {wait_time:.0f}s. (Attempt {i+1}/{max_retries})")
+                if wait_time > 0 and i < max_retries - 1:
+                    # Wait for the next key to be free
+                    time.sleep(wait_time)
+                    continue  # Try getting a key again
+                else:
+                    # --- FIX: Removed level= keyword ---
+                    logger.log("ERROR: All keys are on cooldown and max retries reached.")
+                    return None
+            
+            logger.log(f"Attempt {i+1}/{max_retries} using key '...{current_api_key[-4:]}'")
+            
+            # --- Make the API Call (Same as your original code) ---
+            gemini_api_url = f"{API_URL}?key={current_api_key}"
+            payload = {"contents": [{"parts": [{"text": prompt}]}], "systemInstruction": {"parts": [{"text": system_prompt}]}}
+            headers = {'Content-Type': 'application/json'}
+            
             response = requests.post(gemini_api_url, headers=headers, data=json.dumps(payload), timeout=90)
             
-            if response.status_code in [429, 503]:
-                logger.log(f"API Error {response.status_code} on Key #{current_key_index + 1}. Switching...")
-                
-                if len(API_KEYS) > 1:
-                    new_key_index = random.randint(0, len(API_KEYS) - 1)
-                    while new_key_index == current_key_index:
-                        new_key_index = random.randint(0, len(API_KEYS) - 1)
-                    
-                    current_api_key = API_KEYS[new_key_index]
-                    current_key_index = new_key_index 
-                    logger.log(f"   ...Switched to random Key #{current_key_index + 1}.")
-                else:
-                     logger.log("   ...Cannot switch (only one key). Retrying same key.")
-                
-                delay = 2**i
-                logger.log(f"   ...Retry in {delay}s...")
-                time.sleep(delay)
-                continue 
+            # --- AUTOMATICALLY REPORT STATUS ---
             
-            elif response.status_code != 200:
-                logger.log(f"API Error {response.status_code}: {response.text} (Key #{current_key_index + 1})")
-                if i < max_retries - 1:
-                    delay = 2**i
-                    logger.log(f"   ...Retry in {delay}s...")
-                    time.sleep(delay)
-                    continue
-                else:
-                    logger.log("   ...Final fail.")
-                    return None
-
-            result = response.json()
-            candidates = result.get("candidates")
-            if candidates and len(candidates) > 0:
-                content = candidates[0].get("content")
-                if content:
-                    parts = content.get("parts")
-                    if parts and len(parts) > 0:
-                        text_part = parts[0].get("text")
-                        if text_part is not None:
-                            return text_part.strip()
+            if response.status_code == 200:
+                # 2a. Report SUCCESS
+                KEY_MANAGER.report_success(current_api_key)
+                
+                # ... (rest of your original JSON parsing logic)
+                result = response.json()
+                candidates = result.get("candidates")
+                if candidates and len(candidates) > 0:
+                    content = candidates[0].get("content")
+                    if content:
+                        parts = content.get("parts")
+                        if parts and len(parts) > 0:
+                            text_part = parts[0].get("text")
+                            if text_part is not None:
+                                logger.log(f"API call successful with key '...{current_api_key[-4:]}'")
+                                return text_part.strip()
+                
+                # If parsing fails (but status was 200)
+                # We honor your original logic: log and retry
+                logger.log(f"Invalid API response (Key '...{current_api_key[-4:]}'): {json.dumps(result, indent=2)}")
+                # We don't penalize the key, but we will retry
             
-            logger.log(f"Invalid API response (Key #{current_key_index + 1}): {json.dumps(result, indent=2)}")
-            if i < max_retries - 1:
-                delay = 2**i
-                logger.log(f"   ...Retry in {delay}s...")
-                time.sleep(delay)
-                continue
+            elif response.status_code in [429, 503]:
+                # 2b. Report FAILURE (Rate Limit or Server Unavailable)
+                # --- FIX: Removed level= keyword ---
+                logger.log(f"WARNING: API Error {response.status_code} on Key '...{current_api_key[-4:]}'. Reporting failure.")
+                KEY_MANAGER.report_failure(current_api_key)
+                # Loop will continue and get a new key after backoff
+            
             else:
-                return None
+                # 2c. Report OTHER Failures (e.g., 400, 403, 500)
+                # --- FIX: Removed level= keyword ---
+                logger.log(f"ERROR: API Error {response.status_code}: {response.text} (Key '...{current_api_key[-4:]}')")
+                # We'll treat other server/client errors as a failure for this key
+                KEY_MANAGER.report_failure(current_api_key)
+                # Loop will continue and get a new key after backoff
 
         except requests.exceptions.Timeout:
-            logger.log(f"API Timeout (Key #{current_key_index + 1}). Retry {i+1}/{max_retries}...")
-            if i < max_retries - 1: time.sleep(2**i)
+            # --- FIX: Removed level= keyword ---
+            logger.log(f"WARNING: API Timeout (Key '...{current_api_key[-4:]}'). Retry {i+1}/{max_retries}...")
+            if current_api_key:
+                KEY_MANAGER.report_failure(current_api_key)
+                
         except requests.exceptions.RequestException as e:
-            logger.log(f"API Request fail: {e} (Key #{current_key_index + 1}). Retry {i+1}/{max_retries}...");
-            if i < max_retries - 1: time.sleep(2**i)
+            # --- FIX: Removed level= keyword ---
+            logger.log(f"ERROR: API Request fail: {e} (Key '...{current_api_key[-4:]}'). Retry {i+1}/{max_retries}...")
+            if current_api_key:
+                KEY_MANAGER.report_failure(current_api_key)
+        
+        # If we got here, it means the attempt failed (e.g., 429, 503, timeout)
+        # We will now wait before the next retry, as per your original logic.
+        if i < max_retries - 1:
+            delay = 2**i
+            logger.log(f"   ...Retry in {delay}s...")
+            time.sleep(delay)
 
-    logger.log(f"API failed after {max_retries} retries."); return None
+    # --- FIX: Removed level= keyword ---
+    logger.log("ERROR: API failed after {max_retries} retries.")
+    return None
 
+    
 # --- REFACTORED: update_company_card (PROMPT IS GOOD) ---
 def update_company_card(
     ticker: str, 
@@ -240,7 +275,13 @@ def update_company_card(
             * This is the **multi-day structural story** *relative to the zones*.
             * (e.g., "Price is in a 'Balance (Chop)' pattern, coiling between the Committed Buyer zone at $415 and the Committed Seller zone at $420.")
 
-    **6. `behavioralSentiment` Section (The "Micro" / Today's Analysis):**
+    **6. `technicalStructure.volumeMomentum` (The "Volume Analysis"):**
+        * **This is your next analysis.** Your job is to be the volume analyst.
+        * Describe ONLY how volume from `[Today's New Price Action Summary]` *confirmed or denied* the action *at the specific levels*.
+        * **Example 1 (Confirmation):** "High-volume defense. The rejection of the $239.15 low was confirmed by the day's highest volume spike, proving Committed Buyers were present in force."
+        * **Example 2 (No Confirmation):** "Low-volume breakout. The move above $420 resistance was on low, unconvincing volume, signaling a 'Stable Market' (Committed Seller) exhaustion, not 'Unstable' (Desperate Buyer) panic."
+
+    **7. `behavioralSentiment` Section (The "Micro" / Today's Analysis):**
         * **`emotionalTone` (Pattern + Proof of Reasoning):**
             * This is your **Justification**, not a description. You MUST show your work by following this 3-part logic:
             * **1. Observation (The "What"):** State the objective price action from `[Today's Summary]` (e.g., "Price formed a higher-low pattern...").
@@ -255,10 +296,10 @@ def update_company_card(
             * This is your *final synthesis* of the `emotionalTone` and `newsReaction`.
             * (e.g., "Committed Buyers are in firm control. They not only showed a 'Stable Accumulation' pattern at $415 but did so *against* a weak, bearish market, confirming their high conviction.")
 
-    **7. `keyActionLog`:** Write your `todaysAction` log entry *last*, using the language from your `behavioralSentiment` analysis.
-    **8. `openingTradePlan` & `alternativePlan`:** Update these for TOMORROW.
+    **8. `keyActionLog`:** Write your `todaysAction` log entry *last*, using the language from your `behavioralSentiment` analysis.
+    **9. `openingTradePlan` & `alternativePlan`:** Update these for TOMORROW.
 
-    **9. `screener_briefing` (The "Data Packet" for Python):**
+    **10. `screener_briefing` (The "Data Packet" for Python):**
         * This is your **final** task. You will generate the data packet *after* all other analysis is complete.
         * **Step 1: Calculate the `Setup_Bias` (Master Synthesis Rule):**
             * Your `Setup_Bias` for *this field only* MUST be a *synthesis* of your `pattern` (Macro) and `emotionalTone` (Micro) findings.
@@ -285,6 +326,11 @@ def update_company_card(
         S_Levels: [Your extracted list of support levels, e.g., $266.25, $264.00]
         R_Levels: [Your extracted list of resistance levels, e.g., $271.41, $275.00]
 
+    **CRITICAL ANALYTICAL RULES (LEVELS ARE PARAMOUNT):**
+    * **Bias:** (This rule is *only* for the `Trend_Bias` calculation in Task 1. Do not use it for the `Setup_Bias` in Task 10.) Maintain the `bias` from the [Previous Card] unless [Today's Action] *decisively breaks AND closes beyond* a MAJOR level.
+    * **Plans:** Update BOTH `openingTradePlan` and `alternativePlan` for TOMORROW.
+    * **Volume:** (This rule is now handled in Task 6).
+
     [Output Format Constraint]
     Output ONLY a single, valid JSON object in this exact format. **You must populate every single field designated for AI updates.**
 
@@ -302,7 +348,8 @@ def update_company_card(
       "technicalStructure": {{
         "majorSupport": "Your *evolved* list of support zones, based on Historical Notes + new, multi-day Committed Buyer levels.",
         "majorResistance": "Your *evolved* list of resistance zones, based on Historical Notes + new, multi-day Committed Seller levels.",
-        "pattern": "Your **'Structural Narrative'** (multi-day) describing the battle between these zones (e.g., 'Consolidating above $265...')."
+        "pattern": "Your **'Structural Narrative'** (multi-day) describing the battle between these zones (e.g., 'Consolidating above $265...').",
+        "volumeMomentum": "Your **Volume Analysis** from Task 6 (e.g., 'High-volume defense. The rejection of $239.15...')."
       }},
       "fundamentalContext": {{
         "valuation": "AI RULE: READ-ONLY (Set during initialization/manual edit)",
