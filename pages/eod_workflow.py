@@ -534,31 +534,23 @@ with tab_editor:
         if not tickers_on_date:
             st.info(f"No company cards found for {selected_archive_date_str}.")
         else:
-            # --- Ticker Selector Logic (for the selected date) ---
-            # (This section is unchanged)
-            if 'current_selected_date' not in st.session_state or st.session_state.current_selected_date != selected_archive_date_str:
-                st.session_state.current_selected_date = selected_archive_date_str
-                st.session_state.ticker_index = 0
-                st.session_state.ticker_selector = tickers_on_date[0] if tickers_on_date else None
-            
             selected_ticker = st.selectbox(
                 "Select Ticker to View/Edit",
                 tickers_on_date,
-                index=st.session_state.ticker_index,
-                key='ticker_selector' 
+                key='ticker_selector'
             )
-            
+
             if selected_ticker:
                 conn_stock = None
                 try:
                     conn_stock = get_db_connection() # <-- NEW: Gets Turso client
-                    
-                    # These calls use db_utils, which are fixed
+
+                    # Always use the selectbox value for notes and card
                     card_json, raw_summary = get_archived_company_card(selected_archive_date, selected_ticker)
-                    _, notes, _ = get_company_card_and_notes(selected_ticker, None) 
+                    _, notes, _ = get_company_card_and_notes(selected_ticker, None)
 
                     with st.form("historical_notes_form_unified"): # Unique key
-                        new_notes = st.text_area("Historical Level Notes (Major Levels)", value=notes, height=150, key="notes_unified")
+                        new_notes = st.text_area("Historical Level Notes (Major Levels)", value=notes, height=150, key=f"notes_unified_{selected_ticker}")
                         if st.form_submit_button("Save Historical Notes", use_container_width=True, key="save_notes_unified"):
                             # --- NEW: Use robust UPSERT query ---
                             conn_stock.execute(
@@ -631,12 +623,14 @@ with tab_editor:
                 def go_prev_archive():
                     new_index = current_idx - 1
                     if new_index >= 0:
+                        st.session_state.ticker_index = new_index
                         st.session_state.ticker_selector = tickers_on_date[new_index]
                         st.session_state.edit_mode = False # Exit edit mode on ticker change
 
                 def go_next_archive():
                     new_index = current_idx + 1
                     if new_index < len(tickers_on_date):
+                        st.session_state.ticker_index = new_index
                         st.session_state.ticker_selector = tickers_on_date[new_index]
                         st.session_state.edit_mode = False # Exit edit mode on ticker change
 
