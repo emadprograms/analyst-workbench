@@ -131,7 +131,156 @@ python setup_db.py
 
 A new, empty analysis_database.db file will be created in your root folder.
 
-You can now run the app: streamlit run pages/eod_workflow.py
+You can now run the app. Two common options:
+
+- Run the main EOD page directly:
+
+        streamlit run pages/eod_workflow.py
+
+- Or use the single-entry launcher (recommended) which provides a small
+    sidebar to pick pages:
+
+        streamlit run app.py
+
+The launcher (`app.py`) will load the available pages from the `pages/`
+folder and let you switch between the EOD workflow, the DB viewer, and
+other helper pages.
+
+Setting up Python 3.12 (recommended)
+-----------------------------------
+
+If your system Python is older (for example Python 3.9), it's best to install
+Python 3.12 for this project and recreate the virtual environment. Below are
+two supported approaches: the simple Homebrew method (system-level) and the
+recommended per-project `pyenv` method.
+
+Quick summary (recommended): use `pyenv` to install Python 3.12 and create a
+project-local `.venv`. The commands below are zsh-ready for macOS.
+
+Option A — Homebrew (quick)
+
+1. Install Homebrew (if you don't have it):
+
+```zsh
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+2. Install Python 3.12:
+
+```zsh
+brew update
+brew install python@3.12
+```
+
+3. (Optional) Add the Homebrew Python to your PATH in `~/.zshrc`:
+
+```zsh
+# Apple Silicon example
+echo 'export PATH="/opt/homebrew/opt/python@3.12/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+4. Create the project virtualenv and install deps:
+
+```zsh
+cd /path/to/analyst-workbench
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt
+```
+
+Option B — pyenv (recommended)
+
+1. Install dependencies and `pyenv`:
+
+```zsh
+xcode-select --install
+brew update
+brew install pyenv openssl readline sqlite3 xz zlib tcl-tk
+```
+
+2. Add pyenv init to your shell (`~/.zshrc`):
+
+```zsh
+echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.zshrc
+echo 'export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.zshrc
+echo 'eval "$(pyenv init --path)"' >> ~/.zshrc
+echo 'eval "$(pyenv init -)"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+3. Install Python 3.12.x and set it for the project:
+
+```zsh
+pyenv install 3.12.2   # or latest 3.12.x from `pyenv install --list`
+cd /path/to/analyst-workbench
+pyenv local 3.12.2     # writes .python-version to the repo
+```
+
+4. Create the venv and install deps:
+
+```zsh
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt
+```
+
+Smoke test (verify imports)
+---------------------------
+
+After installing dependencies, run the small smoke test to ensure the main
+page imports without raising errors (it won't start Streamlit):
+
+```zsh
+source .venv/bin/activate
+python scripts/smoke_test_import.py
+```
+
+If that prints "OK: imported pages.eod_workflow" then imports are fine. If it
+raises an error, read the traceback and install any missing OS-level
+dependencies (e.g., Tesseract for `pytesseract`) or Python packages.
+
+Automated helper script
+-----------------------
+
+There's a helper shell script at `scripts/setup_python_env.sh` that will:
+- attempt to use pyenv if available (and print helpful instructions if not),
+- create a `.venv`, and
+- install `requirements.txt` into it.
+
+Run it with:
+
+```zsh
+bash scripts/setup_python_env.sh
+```
+
+Note: the script does not attempt to install Homebrew or pyenv for you — it
+will guide you if those are missing.
+
+Watchdog (recommended for Streamlit live-reload)
+------------------------------------------------
+
+Streamlit uses file watchers to detect code changes. Installing the Python
+package `watchdog` enables fast, event-driven notifications on macOS (via
+FSEvents) instead of slower polling. The setup script will attempt to ensure
+`watchdog` is installed, but on macOS you may need the Xcode Command Line
+Tools to build it if a prebuilt wheel isn't available for your Python:
+
+```zsh
+# Install Xcode Command Line Tools (if not present)
+xcode-select --install
+
+# With your virtualenv active, install watchdog (the helper script does this):
+pip install watchdog
+```
+
+If `pip install watchdog` fails with compilation errors, ensure Xcode CLT is
+installed and that you are using a common Python distribution (Homebrew or
+pyenv-installed) so pip can fetch a prebuilt wheel. An alternative system
+watcher is Facebook's `watchman` (brew install watchman) but it's not required
+for Streamlit — `watchdog` is the typical solution.
 
 B) Migrating from the Old v1 Database
 

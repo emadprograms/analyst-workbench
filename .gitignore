@@ -1,3 +1,7 @@
 # Ignore Streamlit secrets
 .streamlit/secrets.toml
 .streamlit/
+
+# Ignore local venv
+.venv/
+venv/
