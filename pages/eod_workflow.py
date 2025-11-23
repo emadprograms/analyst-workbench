@@ -220,9 +220,10 @@ with tab_runner_eod:
                 updated_card_str = update_economy_card( 
                     current_economy_card=current_economy_card_json,
                     daily_market_news=market_news,
-                    etf_summaries=etf_summaries, # Pass the generated summaries
+                    etf_summaries=etf_summaries, 
                     selected_date=selected_date,
-                    logger=logger 
+                    logger=logger,
+                    model_name=selected_model # <--- ADD THIS ARGUMENT
                 )
 
                 if not updated_card_str:
@@ -398,7 +399,8 @@ with tab_runner_eod:
                             new_eod_summary=summary,
                             new_eod_date=selected_date, 
                             market_context_summary=market_news,
-                            logger=logger 
+                            logger=logger,
+                            model_name=selected_model # <--- ADD THIS ARGUMENT
                         )
 
                         if not new_card_str:
