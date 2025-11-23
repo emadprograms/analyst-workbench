@@ -45,6 +45,7 @@ def create_tables():
             "DROP TABLE IF EXISTS daily_inputs;",
             "DROP TABLE IF EXISTS economy_cards;",
             "DROP TABLE IF EXISTS company_cards;",
+            "DROP TABLE IF EXISTS data_archive;",
             "DROP TABLE IF EXISTS market_context;",
             "DROP TABLE IF EXISTS company_card_archive;",
             "DROP TABLE IF EXISTS economy_card_archive;",
@@ -85,6 +86,16 @@ def create_tables():
                 company_card_json TEXT,
                 PRIMARY KEY (date, ticker)
             );
+            """,
+
+            # --- 5. Data Archive Table (Image Parser / Misc) ---
+            """
+            CREATE TABLE IF NOT EXISTS data_archive (
+                date TEXT NOT NULL,
+                ticker TEXT NOT NULL,
+                raw_text_summary TEXT,
+                PRIMARY KEY (date, ticker)
+            );
             """
         ]
         
@@ -95,6 +106,7 @@ def create_tables():
         print("  Recreated 'daily_inputs' table.")
         print("  Recreated 'economy_cards' table.")
         print("  Recreated 'company_cards' table.")
+        print("  Recreated 'data_archive' table.")
         print("  Dropped all obsolete tables.")
         print("\n--- Turso Database setup complete! ---")
 
@@ -108,7 +120,7 @@ if __name__ == "__main__":
     confirm = input(
         "WARNING: This will connect to your LIVE TURSO database.\n"
         "It will PRESERVE the 'stocks' table (with your notes) but will\n"
-        "WIPE and RECREATE 'daily_inputs', 'company_cards', and 'economy_cards'.\n"
+        "WIPE and RECREATE 'daily_inputs', 'company_cards', 'economy_cards', and 'data_archive'.\n"
         "This will DELETE all existing processed data. Are you sure? (y/n): "
     )
     if confirm.lower() != 'y':
