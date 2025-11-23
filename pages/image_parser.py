@@ -3,12 +3,12 @@ import requests
 import json
 import base64
 import time
-import sqlite3
 import re
 import os
 from datetime import datetime
 from PIL import Image
 import pytesseract
+from libsql_client import LibsqlError
 
 # --- INTEGRATION IMPORTS ---
 from modules.config import (
@@ -16,6 +16,7 @@ from modules.config import (
     API_BASE_URL, 
     AVAILABLE_MODELS
 )
+from modules.db_utils import get_db_connection
 
 # --- Session State Initialization ---
 if 'logs' not in st.session_state:
@@ -286,7 +287,7 @@ if uploaded_files:
                         st.session_state.final_text = final_text
                         st.session_state.extraction_finished = True
 
-    # --- SAVE TO LOCAL DB (Preserved from your original code) ---
+    # --- SAVE TO ARCHIVE (Now using Turso) ---
     if st.session_state.final_text:
         st.divider()
         col1, col2 = st.columns(2)
@@ -299,7 +300,7 @@ if uploaded_files:
         if category == "Other...":
             custom_category = st.text_input("Custom Category Name")
 
-        if st.button("💾 Save Text to Local Archive", use_container_width=True):
+        if st.button("💾 Save Text to Database Archive", use_container_width=True):
             final_cat = custom_category if category == "Other..." and custom_category else category
             
             if final_cat and final_cat != "Other...":
@@ -311,26 +312,27 @@ if uploaded_files:
                 else:
                     db_category = final_cat
 
-                # Local SQLite Save
-                db_file = "analysis_database.db"
+                # Turso Save
                 conn = None
                 try:
-                    conn = sqlite3.connect(db_file)
-                    c = conn.cursor()
-                    c.execute("""
-                        CREATE TABLE IF NOT EXISTS data_archive (
-                            date TEXT, ticker TEXT, raw_text_summary TEXT,
-                            PRIMARY KEY (date, ticker)
-                        )
-                    """)
-                    c.execute(
-                        "INSERT OR REPLACE INTO data_archive (date, ticker, raw_text_summary) VALUES (?, ?, ?)",
+                    conn = get_db_connection()
+                    # Note: 'data_archive' table is created in setup_db.py now.
+                    # We use UPSERT logic compatible with SQLite/LibSQL
+                    conn.execute(
+                        """
+                        INSERT INTO data_archive (date, ticker, raw_text_summary)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(date, ticker) DO UPDATE SET
+                            raw_text_summary = excluded.raw_text_summary
+                        """,
                         (save_date.strftime('%Y-%m-%d'), db_category, st.session_state.final_text)
                     )
-                    conn.commit()
-                    st.success(f"✅ Saved to local DB: '{final_cat}'")
-                except sqlite3.Error as e:
-                    st.error(f"DB Error: {e}")
+                    # No commit needed for Turso client
+                    st.success(f"✅ Saved to Database: '{final_cat}'")
+                except LibsqlError as e:
+                    st.error(f"Database Error: {e}")
+                except Exception as e:
+                    st.error(f"An unexpected error occurred: {e}")
                 finally:
                     if conn: conn.close()
             else:

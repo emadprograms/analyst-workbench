@@ -1,309 +1,152 @@
-Analyst Pipeline Engine
+# Analyst Workbench
 
-Overview
+**Analyst Workbench** is a comprehensive market intelligence platform designed to streamline the workflow of financial analysts. It combines quantitative data processing (price action, volume, VWAP) with qualitative AI analysis (narrative generation, sentiment analysis) to create a persistent, date-aware database of market insights.
 
-The Analyst Pipeline Engine is a Streamlit web application designed for market analysts to streamline their End-of-Day (EOD) workflow. It combines quantitative data processing with AI-driven qualitative analysis to generate daily "Economy Cards" and "Company Cards."
+## 🚀 Features
 
-This application is built on a single source of truth database model, where all historical cards are stored in a unified, date-anchored database. This allows for robust, date-aware processing and gives analysts the ability to go back in time to edit any historical card and re-run the pipeline to fix downstream data.
+*   **Date-Aware EOD Workflow:** A robust pipeline to process "Economy Cards" (Macro) and "Company Cards" (Micro) for any specific date.
+*   **AI-Powered Analysis:** Utilizes Google Gemini (Pro & Flash) models to generate insights, trade plans, and market narratives.
+*   **Gemini Key Rotation System:** A sophisticated `KeyManager` that handles API key rotation, rate limits, and usage quotas automatically.
+*   **Unified Editor:** A "Single Source of Truth" editor that allows you to view and modify historical cards seamlessly.
+*   **AI Image Parser:** A dedicated tool to extract text from complex images (charts, news screenshots) using Multimodal AI and OCR, saving directly to the database.
+*   **Turso (LibSQL) Database:** Built on a remote, scalable database architecture for secure data persistence.
 
-Features
+---
 
-Date-Aware EOD Pipeline: Run the entire EOD analysis pipeline for any selected date.
+## 🛠️ System Architecture
 
-AI-Powered Analysis: Uses the Gemini API to generate qualitative insights on market narratives and company-specific price action.
+The application is built with **Streamlit** for the frontend and **Turso (LibSQL)** for the backend database.
 
-Automated Data Processing: Fetches and processes EOD market data (OHLC, VWAP, Volume Profile, etc.) for stocks and ETFs.
+### The Core Components
 
-Unified Card Editor: A single, powerful editor. There is no "living" vs. "archived" view. Select any date to view, edit, and save the Economy Card or any Company Card for that day.
+1.  **`app.py`**: The landing page and entry point.
+2.  **`pages/eod_workflow.py`**: The main engine. Handles data fetching (yfinance), AI analysis, and database CRUD operations.
+3.  **`pages/image_parser.py`**: A utility to convert images to text and archive them.
+4.  **`modules/key_manager.py`**: The brain of the AI system. It manages a pool of API keys stored in the database to ensure high availability.
 
-Persistent Historical Notes: A dedicated table for analysts to save long-term, static notes on specific tickers (e.g., "Major 5-year support at $150").
+---
 
-Database Viewer: A separate Streamlit page (db_viewer.py) for raw, read-only access to all database tables.
+## 📦 Setup & Installation
 
-Project Structure
+### 1. Environment Setup
 
-/
-├── analysis_database.db       # The new, simplified database file (created by setup_db.py)
-├── database/
-│   └── analysis_database.db   # (The OLD v1 database file, for migration)
-├── pages/
-│   ├── eod_workflow.py        # The main application (Tab 1: Pipeline, Tab 2: Editor)
-│   └── db_viewer.py           # The database viewer utility
-├── modules/
-│   ├── ai_services.py         # Handles all Gemini API calls and prompt engineering.
-│   ├── config.py              # Stores API keys, DB path, ticker lists, and default JSON.
-│   ├── data_processing.py     # Runs quantitative analysis (yfinance) and generates raw summaries.
-│   ├── db_utils.py            # Manages all database connections and queries (CRUD operations).
-│   └── ui_components.py       # Contains all Streamlit components for rendering cards.
-├── setup_db.py                # (SETUP) Script to create the new database schema.
-├── migrate_data.py            # (MIGRATION) Script to copy data from the old DB to the new one.
-├── inspect_old_db.py          # (UTILITY) A read-only script to check a database's schema.
-└── requirements.txt           # (To be created)
+Ensure you have **Python 3.10+** installed.
 
-
-Database Schema
-
-This application uses a simplified, single-source-of-truth schema:
-
-daily_inputs: The "anchor" table. The latest date here defines the "Last Processed Date."
-
-date (PRIMARY KEY)
-
-market_news
-
-etf_summaries (replaces combined_etf_summaries)
-
-stocks: Stores only the persistent, manually-edited historical notes.
-
-ticker (PRIMARY KEY)
-
-historical_level_notes
-
-economy_cards: The main table for all economy cards.
-
-date (PRIMARY KEY)
-
-economy_card_json
-
-company_cards: The main table for all company cards.
-
-date (PRIMARY KEY)
-
-ticker (PRIMARY KEY)
-
-raw_text_summary
-
-company_card_json
-
-Setup & Installation
-
-Clone the Repository:
-
+```bash
+# Clone the repository
 git clone [your-repo-url]
 cd analyst-workbench
 
-
-Create a Virtual Environment (Recommended):
-
+# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
-
-Install Requirements:
-Create a requirements.txt file with the following content:
-
-streamlit
-pandas
-requests
-deepdiff
-pytz
-yfinance
-
-
-Then, install them:
-
-pip install -r requirements.txt
-
-
-Set Up Secrets:
-Create a file at .streamlit/secrets.toml and add your Gemini API keys:
-
-[gemini]
-api_keys = [
-    "AIzaSy...key1",
-    "AIzaSy...key2",
-    "AIzaSy...key3"
-]
-
-
-Database Setup & Migration
-
-You have two options:
-
-A) First-Time Setup (Clean Slate)
-
-If you are starting fresh and have no old data to migrate:
-
-Run the database setup script from your terminal:
-
-python setup_db.py
-
-
-A new, empty analysis_database.db file will be created in your root folder.
-
-You can now run the app. Two common options:
-
-- Run the main EOD page directly:
-
-        streamlit run pages/eod_workflow.py
-
-- Or use the single-entry launcher (recommended) which provides a small
-    sidebar to pick pages:
-
-        streamlit run app.py
-
-The launcher (`app.py`) will load the available pages from the `pages/`
-folder and let you switch between the EOD workflow, the DB viewer, and
-other helper pages.
-
-Setting up Python 3.12 (recommended)
------------------------------------
-
-If your system Python is older (for example Python 3.9), it's best to install
-Python 3.12 for this project and recreate the virtual environment. Below are
-two supported approaches: the simple Homebrew method (system-level) and the
-recommended per-project `pyenv` method.
-
-Quick summary (recommended): use `pyenv` to install Python 3.12 and create a
-project-local `.venv`. The commands below are zsh-ready for macOS.
-
-Option A — Homebrew (quick)
-
-1. Install Homebrew (if you don't have it):
-
-```zsh
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
-
-2. Install Python 3.12:
-
-```zsh
-brew update
-brew install python@3.12
-```
-
-3. (Optional) Add the Homebrew Python to your PATH in `~/.zshrc`:
-
-```zsh
-# Apple Silicon example
-echo 'export PATH="/opt/homebrew/opt/python@3.12/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-```
-
-4. Create the project virtualenv and install deps:
-
-```zsh
-cd /path/to/analyst-workbench
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip setuptools wheel
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-Option B — pyenv (recommended)
+### 2. Database Configuration (Turso)
 
-1. Install dependencies and `pyenv`:
+This project uses **Turso**. You need a Turso database URL and an Auth Token.
 
-```zsh
-xcode-select --install
-brew update
-brew install pyenv openssl readline sqlite3 xz zlib tcl-tk
+Create a file at `.streamlit/secrets.toml`:
+
+```toml
+[turso]
+db_url = "libsql://your-database-name.turso.io"
+auth_token = "your-long-auth-token-here"
 ```
 
-2. Add pyenv init to your shell (`~/.zshrc`):
+### 3. API Key Setup (The Key Manager)
 
-```zsh
-echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.zshrc
-echo 'export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.zshrc
-echo 'eval "$(pyenv init --path)"' >> ~/.zshrc
-echo 'eval "$(pyenv init -)"' >> ~/.zshrc
-source ~/.zshrc
+Unlike standard apps that store keys in `.env` files, **Analyst Workbench manages AI keys inside the database**. This allows for dynamic rotation and usage tracking.
+
+You must insert your Google Gemini API keys into the `gemini_api_keys` table in your Turso database.
+
+**Table Schema (`gemini_api_keys`):**
+*   `key_name` (TEXT): A nickname for the key (e.g., "Pro_Key_1").
+*   `key_value` (TEXT): The actual API key starting with `AIza...`.
+*   `priority` (INT): Order of use (Lower = Higher priority).
+
+**How to Add Keys:**
+You can use the Turso CLI or the Turso dashboard web UI to run this SQL command:
+
+```sql
+INSERT INTO gemini_api_keys (key_name, key_value, priority)
+VALUES
+('My_Primary_Key', 'AIzaSyYourKeyHere...', 10),
+('My_Backup_Key', 'AIzaSyYourBackupKey...', 20);
 ```
 
-3. Install Python 3.12.x and set it for the project:
+*The system will automatically detect these keys and start rotating them.*
 
-```zsh
-pyenv install 3.12.2   # or latest 3.12.x from `pyenv install --list`
-cd /path/to/analyst-workbench
-pyenv local 3.12.2     # writes .python-version to the repo
+---
+
+## 🗄️ Database Initialization
+
+To create the required tables (`daily_inputs`, `economy_cards`, `company_cards`, `data_archive`), run the setup script.
+
+**⚠️ WARNING: This script wipes existing data tables (except `stocks`). Use with caution on a production DB.**
+
+You must export your credentials as environment variables for this script to work (since it doesn't read Streamlit secrets):
+
+**Linux/Mac:**
+```bash
+export TURSO_DB_URL="libsql://your-db.turso.io"
+export TURSO_AUTH_TOKEN="your-token"
+python modules/setup_db.py
 ```
 
-4. Create the venv and install deps:
-
-```zsh
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip setuptools wheel
-pip install -r requirements.txt
+**Windows (PowerShell):**
+```powershell
+$env:TURSO_DB_URL="libsql://your-db.turso.io"
+$env:TURSO_AUTH_TOKEN="your-token"
+python modules/setup_db.py
 ```
 
-Smoke test (verify imports)
----------------------------
+---
 
-After installing dependencies, run the small smoke test to ensure the main
-page imports without raising errors (it won't start Streamlit):
+## 🖥️ Usage Guide
 
-```zsh
-source .venv/bin/activate
-python scripts/smoke_test_import.py
+Run the application:
+
+```bash
+streamlit run app.py
 ```
 
-If that prints "OK: imported pages.eod_workflow" then imports are fine. If it
-raises an error, read the traceback and install any missing OS-level
-dependencies (e.g., Tesseract for `pytesseract`) or Python packages.
+### 1. Pipeline Runner (EOD Workflow)
+Navigate to the **EOD Workflow** page.
+1.  **Step 1:** Select a Date and input the "Market News Summary" (Manual context). Save it.
+2.  **Step 2:** Click "Generate Economy Card". The AI will analyze ETF data + your news to create the Macro card.
+3.  **Step 3:** Select Tickers and click "Run Update". The AI analyzes price action/volume for each stock and generates Company Cards.
 
-Automated helper script
------------------------
+### 2. Card Editor
+Use the **Card Editor** tab in the EOD Workflow page to go back in time. You can view or edit the JSON structure of any card for any date. This is the "Single Source of Truth."
 
-There's a helper shell script at `scripts/setup_python_env.sh` that will:
-- attempt to use pyenv if available (and print helpful instructions if not),
-- create a `.venv`, and
-- install `requirements.txt` into it.
+### 3. Image Parser
+Navigate to the **Image Parser** page.
+*   Upload screenshots of news, charts, or documents.
+*   Select "AI Extraction" or "Tesseract OCR".
+*   Click **Save to Database Archive** to store the text permanently in the `data_archive` table.
 
-Run it with:
+---
 
-```zsh
-bash scripts/setup_python_env.sh
+## 🧩 Directory Structure
+
 ```
-
-Note: the script does not attempt to install Homebrew or pyenv for you — it
-will guide you if those are missing.
-
-Watchdog (recommended for Streamlit live-reload)
-------------------------------------------------
-
-Streamlit uses file watchers to detect code changes. Installing the Python
-package `watchdog` enables fast, event-driven notifications on macOS (via
-FSEvents) instead of slower polling. The setup script will attempt to ensure
-`watchdog` is installed, but on macOS you may need the Xcode Command Line
-Tools to build it if a prebuilt wheel isn't available for your Python:
-
-```zsh
-# Install Xcode Command Line Tools (if not present)
-xcode-select --install
-
-# With your virtualenv active, install watchdog (the helper script does this):
-pip install watchdog
+/
+├── app.py                 # Landing page
+├── modules/
+│   ├── ai_services.py     # AI Logic (Prompt Engineering)
+│   ├── config.py          # App Configuration
+│   ├── data_processing.py # Quantitative Data (yfinance)
+│   ├── db_utils.py        # Database Interactions
+│   ├── key_manager.py     # AI Key Rotation System
+│   ├── setup_db.py        # Database Schema Setup Script
+│   └── ui_components.py   # Streamlit UI Helpers
+├── pages/
+│   ├── eod_workflow.py    # Main Application Logic
+│   └── image_parser.py    # Image Intelligence Tool
+├── requirements.txt       # Python Dependencies
+└── README.md              # Documentation
 ```
-
-If `pip install watchdog` fails with compilation errors, ensure Xcode CLT is
-installed and that you are using a common Python distribution (Homebrew or
-pyenv-installed) so pip can fetch a prebuilt wheel. An alternative system
-watcher is Facebook's `watchman` (brew install watchman) but it's not required
-for Streamlit — `watchdog` is the typical solution.
-
-B) Migrating from the Old v1 Database
-
-If you have your old data in database/analysis_database.db and want to move it to the new, clean structure:
-
-Run the Setup Script: This creates the new, empty analysis_database.db in your root folder.
-
-python setup_db.py
-
-
-Confirm Migration Paths: Open the migrate_data.py script and ensure the paths are correct:
-
-OLD_DB_FILE = "database/analysis_database.db" (Your old data)
-
-NEW_DB_FILE = "analysis_database.db" (Your new empty DB)
-
-Run the Migration Script: This will safely copy all data from the old tables to the new ones.
-
-python migrate_data.py
-
-
-Daily Workflow
-
-Run the Application:
-
-streamlit run pages/eod_workflow.py
