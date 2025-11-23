@@ -1,3 +1,4 @@
+
 from datetime import date
 from modules.config import (
     DEFAULT_ECONOMY_CARD_JSON, 
@@ -59,7 +60,7 @@ def upsert_daily_inputs(selected_date: date, market_news: str) -> bool:
         if conn:
             conn.close()
 
-def get_daily_inputs(selected_date: date) -> (str, str):
+def get_daily_inputs(selected_date: date) -> tuple[str | None, str | None]:
     """Fetches the daily inputs for a specific date."""
     conn = None
     try:
@@ -100,7 +101,7 @@ def get_latest_daily_input_date() -> str:
 
 # --- Economy Card Functions ---
 
-def get_economy_card() -> (str, str):
+def get_economy_card() -> tuple[str, str | None]:
     """
     Gets the "living" economy card (most recent)
     """
@@ -124,7 +125,7 @@ def get_economy_card() -> (str, str):
         if conn:
             conn.close()
 
-def get_archived_economy_card(selected_date: date) -> (str, str):
+def get_archived_economy_card(selected_date: date) -> tuple[str | None, str | None]:
     """
     Gets a specific economy card AND its raw summary by date.
     """
@@ -164,7 +165,7 @@ def get_all_tickers_from_db() -> list[str]:
         if conn:
             conn.close()
 
-def get_company_card_and_notes(ticker: str, selected_date: date = None) -> (str, str, str):
+def get_company_card_and_notes(ticker: str, selected_date: date = None) -> tuple[str, str, str | None]:
     """
     Gets historical notes AND the most recent company card.
     """
@@ -262,7 +263,7 @@ def get_all_tickers_for_archive_date(selected_date: date) -> list[str]:
         if conn:
             conn.close()
 
-def get_archived_company_card(selected_date: date, ticker: str) -> (str, str):
+def get_archived_company_card(selected_date: date, ticker: str) -> tuple[str | None, str | None]:
     """Gets a specific company card and its raw summary from a specific date."""
     conn = None
     try:

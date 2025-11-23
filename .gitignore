@@ -2,6 +2,11 @@
 .streamlit/secrets.toml
 .streamlit/
 
+# Ignore Python cache folders
+__pycache__/
+**/__pycache__/
+*.pyc
+
 # Ignore local venv
 .venv/
 venv/

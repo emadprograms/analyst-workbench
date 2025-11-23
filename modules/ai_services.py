@@ -7,156 +7,99 @@ import time
 import logging
 from datetime import date
 from deepdiff import DeepDiff
-import streamlit as st  # <-- ADDED: Needed to access st.secrets
+import streamlit as st 
 
 # --- Core Module Imports ---
-from modules.config import API_URL, API_KEYS, DEFAULT_COMPANY_OVERVIEW_JSON, DEFAULT_ECONOMY_CARD_JSON
+# 1. FIX: Removed API_KEYS. 
+# 2. FIX: Imported KEY_MANAGER (The initialized instance)
+from modules.config import (
+    API_BASE_URL, 
+    MODEL_NAME,
+    KEY_MANAGER, 
+    DEFAULT_COMPANY_OVERVIEW_JSON, 
+    DEFAULT_ECONOMY_CARD_JSON
+)
+# 3. FIX: Added missing newline that was causing syntax errors
 from modules.data_processing import parse_raw_summary
 from modules.ui_components import AppLogger
-from modules.key_manager import KeyManager
 
-# --- NEW, ROBUST GLOBAL KEY MANAGER SETUP ---
-# Load secrets directly from Streamlit
-KEY_MANAGER = None
-try:
-    # 1. Load Turso Secrets
-    TURSO_DB_URL = st.secrets["turso"]["db_url"]
-    TURSO_AUTH_TOKEN = st.secrets["turso"]["auth_token"]
-    
-    # 2. Check for missing credentials
-    if not API_KEYS or len(API_KEYS) == 0:
-        logging.warning("No API keys found in st.secrets. KEY_MANAGER not initialized.")
-    elif not TURSO_DB_URL or not TURSO_AUTH_TOKEN:
-         logging.warning("Turso credentials not found in st.secrets. KEY_MANAGER not initialized.")
-    else:
-        
-        # --- THIS IS THE FIX ---
-        # Force the client to use HTTPS instead of WSS (WebSocket)
-        # by replacing the protocol.
-        HTTPS_DB_URL = TURSO_DB_URL.replace("libsql://", "https://")
-        logging.info(f"Original URL: {TURSO_DB_URL}, Forced HTTPS URL: {HTTPS_DB_URL}")
-        # --- END OF FIX ---
+# --- REMOVED: The entire "NEW, ROBUST GLOBAL KEY MANAGER SETUP" block ---
+# We do not initialize KeyManager here anymore. It is imported from modules.config.
 
-        # 3. All credentials are present, initialize the manager
-        KEY_MANAGER = KeyManager(
-            api_keys=API_KEYS,
-            db_url=HTTPS_DB_URL,        # <-- Pass the new HTTPS-forced URL
-            auth_token=TURSO_AUTH_TOKEN
-        )
-        logging.info(f"KeyManager initialized successfully with {len(API_KEYS)} keys and persistent Turso DB (via HTTPS).")
-
-except KeyError as e:
-    # This catches if ["turso"]["db_url"] etc. is missing
-    logging.critical(f"CRITICAL: Missing key in st.secrets: {e}. KEY_MANAGER not initialized.")
-    st.error(f"Error: Missing credentials in secrets.toml ({e}). App cannot start.")
-except Exception as e:
-    # This catches other errors
-    logging.critical(f"CRITICAL: Failed to initialize KeyManager: {e}")
-    st.error(f"A critical error occurred initializing the KeyManager: {e}")
-# --- END OF NEW GLOBAL SETUP ---
-
-
-# --- REFACTORED API Call function ---
-def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, max_retries=5) -> str | None:
+# --- The Robust API Caller ---
+def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_name: str, max_retries=5) -> str | None:
     """
-    Calls the Gemini API using the stateful KeyManager.
-    It automatically handles key rotation, cooldowns, and retries.
+    Calls Gemini API using dynamic model selection and quota management.
     """
     if not KEY_MANAGER:
-        # --- FIX: Removed level= keyword ---
-        logger.log("ERROR: KeyManager is not initialized. No API keys loaded.")
+        logger.log("❌ ERROR: KeyManager not initialized.")
         return None
     
     for i in range(max_retries):
         current_api_key = None
+        key_name = "Unknown"
+
         try:
-            # 1. Get a key from the manager
-            current_api_key, wait_time = KEY_MANAGER.get_key()
+            # 1. ACQUIRE: Request key specifically for this model's bucket
+            key_name, current_api_key, wait_time = KEY_MANAGER.get_key(target_model=model_name)
             
             if not current_api_key:
-                # --- FIX: Removed level= keyword ---
-                logger.log(f"WARNING: All keys are on cooldown. Next key available in {wait_time:.0f}s. (Attempt {i+1}/{max_retries})")
+                logger.log(f"⏳ All keys exhausted for {model_name}. Waiting {wait_time:.0f}s... (Attempt {i+1})")
                 if wait_time > 0 and i < max_retries - 1:
-                    # Wait for the next key to be free
                     time.sleep(wait_time)
-                    continue  # Try getting a key again
+                    continue
                 else:
-                    # --- FIX: Removed level= keyword ---
-                    logger.log("ERROR: All keys are on cooldown and max retries reached.")
+                    logger.log(f"❌ ERROR: Global rate limit reached for {model_name}.")
                     return None
             
-            logger.log(f"Attempt {i+1}/{max_retries} using key '...{current_api_key[-4:]}'")
+            logger.log(f"🔑 Acquired '{key_name}' | Model: {model_name} (Attempt {i+1})")
             
-            # --- Make the API Call (Same as your original code) ---
-            gemini_api_url = f"{API_URL}?key={current_api_key}"
-            payload = {"contents": [{"parts": [{"text": prompt}]}], "systemInstruction": {"parts": [{"text": system_prompt}]}}
+            # 2. USE: Construct Dynamic URL
+            # --- CHANGE IS HERE ---
+            gemini_url = f"{API_BASE_URL}/{model_name}:generateContent?key={current_api_key}"
+            
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}], 
+                "systemInstruction": {"parts": [{"text": system_prompt}]}
+            }
             headers = {'Content-Type': 'application/json'}
             
-            response = requests.post(gemini_api_url, headers=headers, data=json.dumps(payload), timeout=90)
+            response = requests.post(gemini_url, headers=headers, data=json.dumps(payload), timeout=60)
             
-            # --- AUTOMATICALLY REPORT STATUS ---
-            
+            # 3. REPORT: Pass model_name for correct counter increment
             if response.status_code == 200:
-                # 2a. Report SUCCESS
-                KEY_MANAGER.report_success(current_api_key)
+                KEY_MANAGER.report_success(current_api_key, model_id=model_name)
                 
-                # ... (rest of your original JSON parsing logic)
                 result = response.json()
-                candidates = result.get("candidates")
-                if candidates and len(candidates) > 0:
-                    content = candidates[0].get("content")
-                    if content:
-                        parts = content.get("parts")
-                        if parts and len(parts) > 0:
-                            text_part = parts[0].get("text")
-                            if text_part is not None:
-                                logger.log(f"API call successful with key '...{current_api_key[-4:]}'")
-                                return text_part.strip()
-                
-                # If parsing fails (but status was 200)
-                # We honor your original logic: log and retry
-                logger.log(f"Invalid API response (Key '...{current_api_key[-4:]}'): {json.dumps(result, indent=2)}")
-                # We don't penalize the key, but we will retry
-            
-            elif response.status_code in [429, 503]:
-                # 2b. Report FAILURE (Rate Limit or Server Unavailable)
-                # --- FIX: Removed level= keyword ---
-                logger.log(f"WARNING: API Error {response.status_code} on Key '...{current_api_key[-4:]}'. Reporting failure.")
-                KEY_MANAGER.report_failure(current_api_key)
-                # Loop will continue and get a new key after backoff
-            
+                try:
+                    return result["candidates"][0]["content"]["parts"][0]["text"].strip()
+                except (KeyError, IndexError):
+                    logger.log(f"⚠️ Invalid JSON: {result}")
+                    KEY_MANAGER.report_failure(current_api_key, is_server_error=True)
+                    continue 
+
+            elif response.status_code == 429:
+                logger.log(f"⛔ 429 Rate Limit on '{key_name}'. Adding Strike.")
+                KEY_MANAGER.report_failure(current_api_key, is_server_error=False)
+            elif response.status_code >= 500:
+                logger.log(f"☁️ {response.status_code} Server Error. No Penalty.")
+                KEY_MANAGER.report_failure(current_api_key, is_server_error=True)
             else:
-                # 2c. Report OTHER Failures (e.g., 400, 403, 500)
-                # --- FIX: Removed level= keyword ---
-                logger.log(f"ERROR: API Error {response.status_code}: {response.text} (Key '...{current_api_key[-4:]}')")
-                # We'll treat other server/client errors as a failure for this key
-                KEY_MANAGER.report_failure(current_api_key)
-                # Loop will continue and get a new key after backoff
+                logger.log(f"⚠️ API Error {response.status_code}: {response.text}")
+                KEY_MANAGER.report_failure(current_api_key, is_server_error=True)
 
-        except requests.exceptions.Timeout:
-            # --- FIX: Removed level= keyword ---
-            logger.log(f"WARNING: API Timeout (Key '...{current_api_key[-4:]}'). Retry {i+1}/{max_retries}...")
+        except Exception as e:
+            logger.log(f"💥 Exception: {str(e)}")
             if current_api_key:
-                KEY_MANAGER.report_failure(current_api_key)
-                
-        except requests.exceptions.RequestException as e:
-            # --- FIX: Removed level= keyword ---
-            logger.log(f"ERROR: API Request fail: {e} (Key '...{current_api_key[-4:]}'). Retry {i+1}/{max_retries}...")
-            if current_api_key:
-                KEY_MANAGER.report_failure(current_api_key)
+                KEY_MANAGER.report_failure(current_api_key, is_server_error=True)
         
-        # If we got here, it means the attempt failed (e.g., 429, 503, timeout)
-        # We will now wait before the next retry, as per your original logic.
         if i < max_retries - 1:
-            delay = 2**i
-            logger.log(f"   ...Retry in {delay}s...")
-            time.sleep(delay)
+            time.sleep(2 ** i)
 
-    # --- FIX: Removed level= keyword ---
-    logger.log("ERROR: API failed after {max_retries} retries.")
+    logger.log("❌ FATAL: Max retries exhausted.")
     return None
-
     
+
 # --- REFACTORED: update_company_card (PROMPT IS GOOD) ---
 def update_company_card(
     ticker: str, 
@@ -165,6 +108,7 @@ def update_company_card(
     historical_notes: str, 
     new_eod_summary: str, 
     new_eod_date: date, 
+    model_name:str,
     market_context_summary: str, 
     logger: AppLogger = None
 ):
@@ -410,7 +354,7 @@ def update_company_card(
     
     logger.log(f"3. Calling EOD AI Analyst for {ticker}...");
     
-    ai_response_text = call_gemini_api(prompt, system_prompt, logger)
+    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name)
     if not ai_response_text: 
         logger.log(f"Error: No AI response for {ticker}."); 
         return None
@@ -496,6 +440,7 @@ def update_company_card(
 def update_economy_card(
     current_economy_card: str, 
     daily_market_news: str, 
+    model_name: str,
     etf_summaries: str, 
     selected_date: date, 
     logger: AppLogger = None
@@ -635,7 +580,7 @@ def update_economy_card(
 
     logger.log("3. Calling Macro Strategist AI...")
     
-    ai_response_text = call_gemini_api(prompt, system_prompt, logger)
+    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name)
     if not ai_response_text:
         logger.log("Error: No response from AI for economy card update.")
         return None

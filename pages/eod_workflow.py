@@ -23,7 +23,8 @@ except ImportError:
 
 # --- Local Imports ---
 from modules.config import (
-    API_KEYS,
+    KEY_MANAGER,
+    AVAILABLE_MODELS,
     STOCK_TICKERS,
     ETF_TICKERS,
     DEFAULT_COMPANY_OVERVIEW_JSON,
@@ -63,17 +64,10 @@ from modules.ai_services import update_company_card, update_economy_card
 st.set_page_config(page_title="Analyst Pipeline (EOD)", layout="wide")
 st.title("Analyst Pipeline Engine (EOD & Editor)")
 
-# --- UI Validation Check for Gemini API Keys ---
-if not API_KEYS or not isinstance(API_KEYS, list) or len(API_KEYS) == 0:
-    st.error("Error: Gemini API keys not found in st.secrets.")
-    st.info("Please add your Gemini API keys to your `.streamlit/secrets.toml` file in a list format:")
-    st.code('''
-[gemini]
-api_keys = [
-    "AIzaSy...key1",
-    "AIzaSy...key2",
-]
-    ''')
+# --- NEW: Validation Check for Key Manager ---
+if not KEY_MANAGER:
+    st.error("❌ CRITICAL: Gemini Key Manager failed to initialize.")
+    st.info("Please check your [turso] credentials in `.streamlit/secrets.toml`.")
     st.stop()
 
 # --- Get and display the "Global Living Date" ---
@@ -110,7 +104,18 @@ tab_runner_eod, tab_editor = st.tabs([
 # --- TAB 1: Pipeline Runner (EOD) ---
 with tab_runner_eod:
     st.header("Date-Aware EOD Workflow")
-    st.info(f"{len(API_KEYS)} Gemini API keys available in rotation.")
+
+    # --- NEW: Model Selector ---
+    col_status, col_model = st.columns([2, 1])
+    with col_status:
+        st.info("✅ Gemini Rotation System: Active & Connected to Database")
+    with col_model:
+        selected_model = st.selectbox(
+            "Select AI Model", 
+            AVAILABLE_MODELS, 
+            index=0, 
+            help="Higher intelligence (Pro) uses more quota. Flash is faster."
+        )
 
     # --- FIX 2: Bind the date_input to session state using `key` ---
     selected_date = st.date_input(

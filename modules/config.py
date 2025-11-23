@@ -1,50 +1,53 @@
-import os
-from datetime import date
-import streamlit as st 
 
-# --- API Configuration ---
-MODEL_NAME = "gemini-2.5-pro" 
-API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent"
+import streamlit as st
+import logging
 
-# --- Load Gemini API Keys ---
+# --- Local Import ---
+from modules.key_manager import KeyManager 
+
+# --- Default Configuration constants ---
+# DEFINE THE TARGET MODEL HERE
+# Define available models for the UI
+AVAILABLE_MODELS = [
+    "gemini-2.0-flash",
+    "gemini-2.5-flash", 
+    "gemini-2.5-pro"
+]
+# 2. Construct the URL dynamically using the Model Name
+API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{AVAILABLE_MODELS}:generateContent"
+# --- Load Turso Database Configuration ---
+KEY_MANAGER = None
+
 try:
-    gemini_secrets = st.secrets.get("gemini", {})
-    API_KEYS = gemini_secrets.get("api_keys", [])
-    if not API_KEYS or not isinstance(API_KEYS, list) or len(API_KEYS) == 0:
-        st.error("Error: Gemini API keys not found in st.secrets.")
-        st.info("Please add [gemini] section with api_keys = [...] to your .streamlit/secrets.toml file.")
-        st.stop()
-except Exception as e:
-    # Fallback for when st.secrets isn't available (e.g., testing)
-    print(f"Warning: Could not load st.secrets (e.g., in a test). {e}")
-    API_KEYS = []
-
-# --- (NEW) Load Turso Database Configuration ---
-try:
+    # Load Turso Secrets
     turso_secrets = st.secrets.get("turso", {})
     TURSO_DB_URL = turso_secrets.get("db_url")
     TURSO_AUTH_TOKEN = turso_secrets.get("auth_token")
     
     if not TURSO_DB_URL or not TURSO_AUTH_TOKEN:
-        st.error("Error: Turso DB URL or Auth Token not found in st.secrets.")
-        st.info("Please add [turso] section to your .streamlit/secrets.toml file.")
-        st.stop()
+        logging.critical("CRITICAL: Turso DB URL or AuthS Token not found in st.secrets.")
+    else:
+        # Force HTTPS for stability
+        HTTPS_DB_URL = TURSO_DB_URL.replace("libsql://", "https://")
+        
+        # Initialize the Manager
+        # --- FIX IS HERE: Change 'db_token' to 'auth_token' ---
+        KEY_MANAGER = KeyManager(
+            db_url=HTTPS_DB_URL, 
+            auth_token=TURSO_AUTH_TOKEN 
+        )
+        logging.info("✅ KeyManager initialized successfully.")
+
 except Exception as e:
-    st.error(f"Failed to load Turso secrets. App cannot connect to DB. Error: {e}")
-    print(f"Warning: Could not load st.secrets (e.g., in a test). {e}")
-    TURSO_DB_URL = None
-    TURSO_AUTH_TOKEN = None
-
-
-# --- Ticker Grouping ---
+    logging.critical(f"CRITICAL: Failed to initialize KeyManager: {e}")
+# --- Ticker Lists (Preserved) ---
 STOCK_TICKERS = [
     "AAPL", "AMZN", "APP", "ABT", "PEP", "TSLA", "NVDA", "AMD",
     "SNOW", "NET", "PLTR", "MU", "ORCL", "TSM"
 ]
 ETF_TICKERS = [
   "SPY", "QQQ", "IWM", "DIA", "TLT", "XLK", "XLF", "XLP", "XLE",
-  "SMH", "XLI", "XLV", "UUP", "GLD",
-  "BTC-USD"
+  "SMH", "XLI", "XLV", "UUP", "GLD", "BTC-USD"
 ]
 ALL_TICKERS = sorted(STOCK_TICKERS + ETF_TICKERS)
 
