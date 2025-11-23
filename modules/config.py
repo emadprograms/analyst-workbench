@@ -1,21 +1,34 @@
-
 import streamlit as st
 import logging
+import os
 
 # --- Local Import ---
 from modules.key_manager import KeyManager 
 
-# --- Default Configuration constants ---
-# DEFINE THE TARGET MODEL HERE
-# Define available models for the UI
+# ==========================================
+# 1. API CONFIGURATION
+# ==========================================
+
+# Define available models for the UI (Used in Dropdowns)
 AVAILABLE_MODELS = [
     "gemini-2.0-flash",
     "gemini-2.5-flash", 
     "gemini-2.5-pro"
 ]
-# 2. Construct the URL dynamically using the Model Name
-API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{AVAILABLE_MODELS}:generateContent"
-# --- Load Turso Database Configuration ---
+
+# Default Model (Fallback)
+MODEL_NAME = "gemini-2.0-flash" 
+
+# --- FIX IS HERE: Define the Base URL without the model name ---
+API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+
+# Construct the legacy URL for backward compatibility (optional but safe)
+API_URL = f"{API_BASE_URL}/{MODEL_NAME}:generateContent"
+
+
+# ==========================================
+# 2. KEY MANAGER (The "Brain")
+# ==========================================
 KEY_MANAGER = None
 
 try:
@@ -25,13 +38,12 @@ try:
     TURSO_AUTH_TOKEN = turso_secrets.get("auth_token")
     
     if not TURSO_DB_URL or not TURSO_AUTH_TOKEN:
-        logging.critical("CRITICAL: Turso DB URL or AuthS Token not found in st.secrets.")
+        logging.critical("CRITICAL: Turso DB URL or Auth Token not found in st.secrets.")
     else:
         # Force HTTPS for stability
         HTTPS_DB_URL = TURSO_DB_URL.replace("libsql://", "https://")
         
         # Initialize the Manager
-        # --- FIX IS HERE: Change 'db_token' to 'auth_token' ---
         KEY_MANAGER = KeyManager(
             db_url=HTTPS_DB_URL, 
             auth_token=TURSO_AUTH_TOKEN 
@@ -40,7 +52,21 @@ try:
 
 except Exception as e:
     logging.critical(f"CRITICAL: Failed to initialize KeyManager: {e}")
-# --- Ticker Lists (Preserved) ---
+
+
+# ==========================================
+# 3. API KEYS (Legacy/Fallback Support)
+# ==========================================
+try:
+    gemini_secrets = st.secrets.get("gemini", {})
+    API_KEYS = gemini_secrets.get("api_keys", []) 
+except Exception:
+    API_KEYS = []
+
+
+# ==========================================
+# 4. TICKER LISTS
+# ==========================================
 STOCK_TICKERS = [
     "AAPL", "AMZN", "APP", "ABT", "PEP", "TSLA", "NVDA", "AMD",
     "SNOW", "NET", "PLTR", "MU", "ORCL", "TSM"
@@ -50,8 +76,6 @@ ETF_TICKERS = [
   "SMH", "XLI", "XLV", "UUP", "GLD", "BTC-USD"
 ]
 ALL_TICKERS = sorted(STOCK_TICKERS + ETF_TICKERS)
-
-
 # --- Default JSON Structures ---
 
 # --- REFACTORED: This now uses the new 'pattern' and 'keyActionLog' structure ---
