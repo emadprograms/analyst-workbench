@@ -364,14 +364,14 @@ def update_company_card(
     ai_response_text = json_match.group(1) if json_match else ai_response_text.strip()
     
     try:
-        # --- FIX: We are now parsing the AI's *new* output ---
         ai_data = json.loads(ai_response_text)
+        new_action = ai_data.pop("todaysAction", None)
         
-        # --- FIX: Extract the 'todaysAction' ---
-        new_action = ai_data.pop("todaysAction", None) # Use .pop() to get it and remove it
-
         if not new_action:
-            logger.log(f"Error: AI response for {ticker} is missing 'todaysAction'.")
+            logger.log("Error: AI response is missing required fields ('todaysAction').")
+            logger.log("--- DEBUG: RAW AI OUTPUT ---")
+            # This will print the raw JSON to your Streamlit log so you can inspect it
+            logger.log_code(json.dumps(ai_data, indent=2), language='json') 
             return None
         
         # --- FIX: Rebuild the full card in Python ---
