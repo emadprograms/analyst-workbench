@@ -30,6 +30,8 @@ API_URL = f"{API_BASE_URL}/{MODEL_NAME}:generateContent"
 # 2. KEY MANAGER (The "Brain")
 # ==========================================
 KEY_MANAGER = None
+TURSO_DB_URL = None
+TURSO_AUTH_TOKEN = None
 
 try:
     # Load Turso Secrets
