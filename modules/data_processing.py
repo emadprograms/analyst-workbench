@@ -82,7 +82,7 @@ def calculate_volume_profile(df, bins=50):
     if price_bins.empty:
         return np.nan, np.nan, np.nan
         
-    grouped = df.groupby(price_bins)['Volume'].sum()
+    grouped = df.groupby(price_bins, observed=False)['Volume'].sum()
     
     if grouped.empty:
         return np.nan, np.nan, np.nan
@@ -269,6 +269,8 @@ def generate_analysis_text(tickers_to_process, analysis_date):
         print(f"[DEBUG] generate_analysis_text: Data rows for {ticker}: {len(df_ticker)}")
         if df_ticker.empty:
             print(f"[DEBUG] generate_analysis_text: No data for ticker '{ticker}' on {analysis_date}")
+            # --- FIX: Output explicit error block instead of silent skip ---
+            full_analysis_text.append(f"Data Extraction Summary: {ticker} | {analysis_date}\n==================================================\n[ERROR] No data found (Volume=0 or Empty Fetch).")
             continue
 
         df_ticker.reset_index(drop=True, inplace=True)
@@ -384,7 +386,7 @@ def parse_raw_summary(raw_text: str) -> dict:
         data['orh'] = None
         
     data['or_narrative'] = find_value(r"Outcome Narrative:\s*(.*)", raw_text, str)
-    data['vwap_narrative'] = find_value(r"Key Interactions:\s*VWAP primarily acted as (.*)\.", raw_text, str)
+    data['vwap_narrative'] = find_value(r"Key Interactions:\s*VWAP primarily acted as ([^\n\.]*)", raw_text, str)
     
     return data
 

@@ -316,19 +316,22 @@ if uploaded_files:
                 conn = None
                 try:
                     conn = get_db_connection()
-                    # Note: 'data_archive' table is created in setup_db.py now.
-                    # We use UPSERT logic compatible with SQLite/LibSQL
-                    conn.execute(
-                        """
-                        INSERT INTO data_archive (date, ticker, raw_text_summary)
-                        VALUES (?, ?, ?)
-                        ON CONFLICT(date, ticker) DO UPDATE SET
-                            raw_text_summary = excluded.raw_text_summary
-                        """,
-                        (save_date.strftime('%Y-%m-%d'), db_category, st.session_state.final_text)
-                    )
-                    # No commit needed for Turso client
-                    st.success(f"✅ Saved to Database: '{final_cat}'")
+                    if not conn:
+                        st.error("Database Connection Failed. Cannot save to archive.")
+                    else:
+                        # Note: 'data_archive' table is created in setup_db.py now.
+                        # We use UPSERT logic compatible with SQLite/LibSQL
+                        conn.execute(
+                            """
+                            INSERT INTO data_archive (date, ticker, raw_text_summary)
+                            VALUES (?, ?, ?)
+                            ON CONFLICT(date, ticker) DO UPDATE SET
+                                raw_text_summary = excluded.raw_text_summary
+                            """,
+                            (save_date.strftime('%Y-%m-%d'), db_category, st.session_state.final_text)
+                        )
+                        # No commit needed for Turso client
+                        st.success(f"✅ Saved to Database: '{final_cat}'")
                 except LibsqlError as e:
                     st.error(f"Database Error: {e}")
                 except Exception as e:

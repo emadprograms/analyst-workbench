@@ -42,6 +42,10 @@ def upsert_daily_inputs(selected_date: date, market_news: str) -> bool:
     conn = None
     try:
         conn = get_db_connection()
+        if not conn:
+            print("Error: Database connection failed.")
+            return False
+
         # The Turso client auto-commits; no 'commit()' needed
         conn.execute(
             """
@@ -65,6 +69,10 @@ def get_daily_inputs(selected_date: date) -> tuple[str | None, str | None]:
     conn = None
     try:
         conn = get_db_connection()
+        if not conn:
+            print("Error: Database connection failed.")
+            return None, None
+
         rs = conn.execute(
             "SELECT market_news FROM daily_inputs WHERE date = ?",
             (selected_date.isoformat(),)
@@ -85,6 +93,10 @@ def get_latest_daily_input_date() -> str:
     conn = None
     try:
         conn = get_db_connection()
+        if not conn:
+             print("Error: Database connection failed.")
+             return None
+
         rs = conn.execute(
             "SELECT date FROM daily_inputs ORDER BY date DESC LIMIT 1"
         )
@@ -108,6 +120,10 @@ def get_economy_card() -> tuple[str, str | None]:
     conn = None
     try:
         conn = get_db_connection()
+        if not conn:
+            print("Error: Database connection failed.")
+            return DEFAULT_ECONOMY_CARD_JSON, None
+
         rs = conn.execute(
             "SELECT economy_card_json, date FROM economy_cards ORDER BY date DESC LIMIT 1"
         )
@@ -132,6 +148,10 @@ def get_archived_economy_card(selected_date: date) -> tuple[str | None, str | No
     conn = None
     try:
         conn = get_db_connection()
+        if not conn:
+            print("Error: Database connection failed.")
+            return None, None
+
         rs = conn.execute(
             "SELECT economy_card_json, raw_text_summary FROM economy_cards WHERE date = ?",
             (selected_date.isoformat(),)
@@ -154,6 +174,10 @@ def get_all_tickers_from_db() -> list[str]:
     conn = None
     try:
         conn = get_db_connection()
+        if not conn:
+            print("Error: Database connection failed.")
+            return []
+
         rs = conn.execute("SELECT DISTINCT ticker FROM stocks ORDER BY ticker ASC")
         # --- FIX: Use rs.rows ---
         rows = rs.rows
@@ -176,6 +200,10 @@ def get_company_card_and_notes(ticker: str, selected_date: date = None) -> tuple
 
     try:
         conn = get_db_connection()
+        if not conn:
+            print("Error: Database connection failed.")
+            return DEFAULT_COMPANY_OVERVIEW_JSON.replace("TICKER", ticker), "", None
+
         # 1. Get historical notes
         notes_rs = conn.execute(
             "SELECT historical_level_notes FROM stocks WHERE ticker = ?",
@@ -231,6 +259,10 @@ def get_all_archive_dates() -> list[str]:
     conn = None
     try:
         conn = get_db_connection()
+        if not conn:
+            print("Error: Database connection failed.")
+            return []
+
         rs = conn.execute(
             "SELECT DISTINCT date FROM economy_cards ORDER BY date DESC"
         )
@@ -249,6 +281,10 @@ def get_all_tickers_for_archive_date(selected_date: date) -> list[str]:
     conn = None
     try:
         conn = get_db_connection()
+        if not conn:
+            print("Error: Database connection failed.")
+            return []
+
         rs = conn.execute(
             "SELECT DISTINCT ticker FROM company_cards WHERE date = ? ORDER BY ticker ASC",
             (selected_date.isoformat(),)
@@ -268,6 +304,10 @@ def get_archived_company_card(selected_date: date, ticker: str) -> tuple[str | N
     conn = None
     try:
         conn = get_db_connection()
+        if not conn:
+            print("Error: Database connection failed.")
+            return None, None
+
         rs = conn.execute(
             "SELECT company_card_json, raw_text_summary FROM company_cards WHERE date = ? AND ticker = ?",
             (selected_date.isoformat(), ticker)
@@ -290,6 +330,10 @@ def get_all_table_names() -> list[str]:
     conn = None
     try:
         conn = get_db_connection()
+        if not conn:
+            print("Error: Database connection failed.")
+            return []
+
         rs = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         # --- FIX: Use rs.rows ---
         rows = rs.rows
@@ -307,6 +351,10 @@ def get_table_data(table_name: str) -> pd.DataFrame:
     conn = None
     try:
         conn = get_db_connection()
+        if not conn:
+            print("Error: Database connection failed.")
+            return pd.DataFrame()
+
         rs = conn.execute(f"SELECT * FROM {table_name}")
         # --- FIX: Use rs.rows and rs.columns ---
         rows = rs.rows
