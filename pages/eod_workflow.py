@@ -29,7 +29,7 @@ from modules.config import (
     ETF_TICKERS,
     DEFAULT_COMPANY_OVERVIEW_JSON,
     DEFAULT_ECONOMY_CARD_JSON,
-    # DATABASE_FILE <-- REMOVED
+    MODEL_NAME
 )
 
 # --- Corrected Imports ---
@@ -110,10 +110,15 @@ with tab_runner_eod:
     with col_status:
         st.info("✅ Gemini Rotation System: Active & Connected to Database")
     with col_model:
+        try:
+            default_index = AVAILABLE_MODELS.index(MODEL_NAME)
+        except ValueError:
+            default_index = 0
+
         selected_model = st.selectbox(
             "Select AI Model", 
             AVAILABLE_MODELS, 
-            index=0, 
+            index=default_index, 
             help="Higher intelligence (Pro) uses more quota. Flash is faster."
         )
 

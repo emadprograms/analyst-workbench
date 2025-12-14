@@ -13,11 +13,15 @@ from modules.key_manager import KeyManager
 AVAILABLE_MODELS = [
     "gemini-2.0-flash",
     "gemini-2.5-flash", 
-    "gemini-2.5-pro"
+    "gemini-2.5-flash-lite",
+    "gemma-3-27b-it",
+    "gemma-3-12b-it",
+    "gemini-2.5-pro", # Paid Tier Only
+    "gemini-3.0-pro"  # Paid Tier Only
 ]
 
 # Default Model (Fallback)
-MODEL_NAME = "gemini-2.0-flash" 
+MODEL_NAME = "gemini-2.5-flash-lite" 
 
 # --- FIX IS HERE: Define the Base URL without the model name ---
 API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
