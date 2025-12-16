@@ -51,6 +51,32 @@ def inspect():
         except Exception as e:
             print(f"Error reading status table: {e}")
 
+        # --- INSPECT ALL TABLES ---
+        print("\n--- Listing All Tables ---")
+        rs = client.execute("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name;")
+        tables = [row[0] for row in rs.rows]
+        print(f"Tables Found: {tables}")
+        
+        for table in tables:
+            print(f"\n--- Inspecting {table} ---")
+            try:
+                rs = client.execute(f"SELECT * FROM {table} LIMIT 1")
+                print(f"Columns: {list(rs.columns)}")
+            except Exception as e:
+                print(f"Error inspecting {table}: {e}")
+
+        # --- INSPECT MARKET_DATA SAMPLES ---
+        print("\n--- Inspecting Sample Data from market_data ---")
+        try:
+            rs = client.execute("SELECT * FROM market_data LIMIT 5")
+            for row in rs.rows:
+                print(list(row))
+        except Exception as e:
+            print(f"Error inspecting market_data samples: {e}")
+
+        client.close()
+        print("Inspection Complete.")
+
     except Exception as e:
         print(f"❌ Inspection Failed: {e}")
 

@@ -1,61 +1,101 @@
 import pandas as pd
-import yfinance as yf
+# import yfinance as yf <-- REMOVED
 import datetime as dt
 import numpy as np
 import re
+from modules.db_utils import get_db_connection # <-- NEW IMPORT
 
-# --- DATA FETCHING (FROM 'processor.py' - MORE ROBUST) ---
+# --- DATA FETCHING (FROM TURSO DB) ---
 
 def fetch_intraday_data(tickers_list, day, interval="5m"):
     """
-    Fetches intraday data for a list of tickers on a specific day
-    and returns a single, long-format DataFrame.
-    
-    FIX: Added ignore_tz=True to fix timezone comparison errors.
+    Fetches intraday data for a list of tickers from the Turso 'market_data' table.
+    Returns a single, long-format DataFrame with standard Capital columns.
     """
-    start_date = day
-    end_date = day + dt.timedelta(days=1)
-    print(f"[DEBUG] fetch_intraday_data: Fetching data for tickers: {tickers_list} on {day} (type: {type(tickers_list)})")
+    start_date_str = day.strftime('%Y-%m-%d')
+    # End date is start date + 1 day for SQL filtering
+    end_date_str = (day + dt.timedelta(days=1)).strftime('%Y-%m-%d')
+    
+    print(f"[DEBUG] fetch_intraday_data: Fetching DB data for {tickers_list} on {start_date_str}")
+    
+    conn = None
     try:
-        data = yf.download(
-            tickers=tickers_list,
-            start=start_date,
-            end=end_date,
-            interval=interval,
-            ignore_tz=True, # FIX: This ignores timezone info and solves the 'nan' bug
-            progress=False
-        )
-        if data.empty:
-            print(f"[DEBUG] fetch_intraday_data: No data returned for {tickers_list} on {day}")
+        conn = get_db_connection()
+        if not conn:
+            print("[ERROR] Database connection failed.")
             return pd.DataFrame()
 
-        print(f"[DEBUG] fetch_intraday_data: Data columns returned: {list(data.columns)}")
+        # Build placeholders for IN clause
+        placeholders = ', '.join(['?'] * len(tickers_list))
+        
+        # Prepare query args: tickers first, then date range
+        query_args = list(tickers_list)
+        query_args.append(f"{start_date_str} 00:00:00")
+        query_args.append(f"{end_date_str} 00:00:00")
+        
+        # Determine column names based on new schema map
+        # DB: timestamp, symbol, open, high, low, close, volume
+        sql = f"""
+            SELECT symbol, timestamp, open, high, low, close, volume 
+            FROM market_data 
+            WHERE symbol IN ({placeholders}) 
+            AND timestamp >= ? 
+            AND timestamp < ?
+            ORDER BY timestamp ASC
+        """
+        
+        rs = conn.execute(sql, query_args)
+        rows = rs.rows
+        
+        if not rows:
+            print(f"[DEBUG] No data found in DB for {tickers_list} on {start_date_str}")
+            return pd.DataFrame()
 
-        if len(tickers_list) > 1:
-            stacked_data = data.stack(level=1)
-            stacked_data = stacked_data.reset_index().rename(columns={'level_0': 'Datetime'})
-            stacked_data['Ticker'] = stacked_data['Ticker'].str.upper()
-        else:
-            # Single ticker as list: flatten columns if needed
-            if isinstance(data.columns, pd.MultiIndex):
-                # Flatten columns: ('Open', 'AAPL') -> 'Open'
-                data.columns = [col[0] for col in data.columns]
-            data['Ticker'] = tickers_list[0].upper()
-            stacked_data = data.reset_index()
+        # Convert to DataFrame
+        # explicitly map DB columns to what the processor expects
+        data = [
+            {
+                'Ticker': row[0], 
+                'Datetime': row[1], 
+                'Open': row[2], 
+                'High': row[3], 
+                'Low': row[4], 
+                'Close': row[5], 
+                'Volume': row[6]
+            } 
+            for row in rows
+        ]
+        
+        df = pd.DataFrame(data)
+        
+        # Ensure Datetime is actually a datetime object
+        df['Datetime'] = pd.to_datetime(df['Datetime'])
+        
+        # --- VERIFICATION LOGGING ---
+        try:
+            min_ts = df['Datetime'].min()
+            max_ts = df['Datetime'].max()
+            print(f"[VERIFY] Fetched {len(df)} rows for {tickers_list}.")
+            print(f"[VERIFY] Time Range: {min_ts} to {max_ts}")
+        except: pass
+        
+        # Ensure numeric types
+        cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+        for c in cols:
+            df[c] = pd.to_numeric(df[c])
 
-        cols = ['Ticker', 'Datetime', 'Open', 'High', 'Low', 'Close', 'Volume']
-        final_cols = [col for col in cols if col in stacked_data.columns]
-        stacked_data = stacked_data[final_cols]
+        # Filter out bad ticks
+        df = df[df['Volume'] > 0]
 
-        stacked_data = stacked_data.dropna(subset=['Open', 'High', 'Low', 'Close', 'Volume'])
-        stacked_data = stacked_data[stacked_data['Volume'] > 0]
+        print(f"[DEBUG] Returning {len(df)} rows from DB.")
+        return df
 
-        print(f"[DEBUG] fetch_intraday_data: Returning {len(stacked_data)} rows for {tickers_list} on {day}")
-        print(f"[DEBUG] fetch_intraday_data: Sample data (first 2 rows):\n{stacked_data.head(2)}")
-        return stacked_data
     except Exception as e:
-        print(f"Error fetching data: {e}")
+        print(f"[ERROR] DB Fetch Failed: {e}")
         return pd.DataFrame()
+    finally:
+        if conn:
+            conn.close()
 
 # --- ANALYSIS FUNCTIONS (UPGRADED from 'processor.py') ---
 
@@ -304,6 +344,10 @@ def generate_analysis_text(tickers_to_process, analysis_date):
             ticker_summary = f"""
 Data Extraction Summary: {ticker} | {analysis_date}
 ==================================================
+
+[VERIFICATION]
+Rows Fetched: {len(df_ticker)}
+Time Range: {df_ticker['Datetime'].min().strftime('%H:%M:%S')} - {df_ticker['Datetime'].max().strftime('%H:%M:%S')}
 
 1. Session Extremes & Timing:
    - Open: ${open_price:.2f}

@@ -214,9 +214,17 @@ with tab_runner_eod:
             # --- END MERGED STEP ---
 
             market_news, _ = get_daily_inputs(selected_date) # Get the manual news
-            current_economy_card_json, _ = get_economy_card()
+            current_economy_card_json, fetched_card_date = get_economy_card()
             
-            logger.log("2. Found Daily Inputs and most recent Economy Card.")
+            # --- VERIFICATION LOGGING ---
+            if fetched_card_date:
+                logger.log(f"2. Found Previous Economy Card dated: **{fetched_card_date}**")
+                if fetched_card_date == selected_date.isoformat():
+                    logger.log("   ⚠️ **NOTE:** You are re-running for the SAME date. The AI will see the previous run's output as context.")
+                else:
+                    logger.log(f"   (Context is from {fetched_card_date}, processing for {selected_date.isoformat()})")
+            else:
+                logger.log("2. No previous Economy Card found. Starting fresh (Default Template).")
             
             try:
                 logger.log("3. Calling AI to generate updated Economy Card...")
