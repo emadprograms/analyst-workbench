@@ -74,6 +74,38 @@ def inspect():
         except Exception as e:
             print(f"Error inspecting market_data samples: {e}")
 
+        # --- INSPECT KEYS & STATUS ---
+        print("\n--- Inspecting API Keys (Tiers) ---")
+        rs = client.execute("SELECT key_name, priority, tier FROM gemini_api_keys")
+        for row in rs.rows:
+            print(list(row))
+
+        print("\n--- Inspecting Key Status (Strikes) ---")
+        rs = client.execute("SELECT key_hash, strikes, last_success_day FROM gemini_key_status")
+        for row in rs.rows:
+            print(list(row))
+        
+        print("\n--- DETAILED STATUS for arshad.emad@01 ---")
+        # Join to get the hash
+        sql = """
+            SELECT k.key_name, s.* 
+            FROM gemini_api_keys k 
+            JOIN gemini_key_status s ON s.key_hash = k.key_value OR s.key_hash = lower(hex(sha256(k.key_value))) 
+            WHERE k.key_name LIKE 'arshad.emad@01%'
+        """
+        # Note: the join ON clause is tricky with hashes in SQL vs Python. 
+        # Easier to just list all status rows and map them manually if needed, 
+        # OR just print the status row matching the hash we saw in debug_keys.py.
+        # Let's rely on the debug_keys output, wait.
+        # Actually, let's just dump the whole table with headers.
+        
+        print("\n--- ALL STATUS ROWS (With Headers) ---")
+        rs = client.execute("SELECT * FROM gemini_key_status")
+        cols = list(rs.columns)
+        print(f"Columns: {cols}")
+        for row in rs.rows:
+            print(dict(zip(cols, row)))
+
         client.close()
         print("Inspection Complete.")
 

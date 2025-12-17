@@ -17,7 +17,7 @@ AVAILABLE_MODELS = [
     "gemma-3-27b-it",
     "gemma-3-12b-it",
     "gemini-2.5-pro", # Paid Tier Only
-    "gemini-3.0-pro"  # Paid Tier Only
+    "gemini-3-pro-preview"  # Paid Tier Only - Corrected from 3.0
 ]
 
 # Default Model (Fallback)

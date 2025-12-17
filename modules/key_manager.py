@@ -52,7 +52,7 @@ class KeyManager:
 
     # MAPPINGS: Model -> (Count Column, Timestamp Column)
     MODELS_PAID = { 
-        'gemini-3.0-pro': ('daily_3_pro', 'ts_3_pro'),
+        'gemini-3-pro-preview': ('daily_3_pro', 'ts_3_pro'), # Corrected ID
         'gemini-2.5-pro': ('daily_2_5_pro', 'ts_2_5_pro'),
         'gemini-2.0-flash': ('daily_2_0_flash', 'ts_2_0_flash')
     }
@@ -74,8 +74,8 @@ class KeyManager:
     }
     
     LIMITS_PAID = {
-        'gemini-3.0-pro': 50,
-        'gemini-2.5-pro': 100,
+        'gemini-3-pro-preview': 50, # Corrected ID
+        'gemini-2.5-pro': 2000, # Increased from 100 per user request
         'gemini-2.0-flash': 1000
     }
 
@@ -84,11 +84,11 @@ class KeyManager:
     FATAL_STRIKE_COUNT = 999
 
     def __init__(self, db_url: str, auth_token: str):
-        self.db_url = db_url
+        self.db_url = db_url.replace("libsql://", "https://") # Force HTTPS
         self.auth_token = auth_token
         
         try:
-            self.db_client = libsql_client.create_client_sync(url=db_url, auth_token=auth_token)
+            self.db_client = libsql_client.create_client_sync(url=self.db_url, auth_token=auth_token)
             self.db_client.execute(CREATE_KEYS_TABLE_SQL)
             self.db_client.execute(CREATE_STATUS_TABLE_SQL)
             self._validate_schema_or_die()
@@ -195,13 +195,18 @@ class KeyManager:
         valid_rotation = deque()
         min_cutoff_wait = float('inf') # Track minimum wait time needed
         
+        # log.info(f"Checking keys for {target_model} (Required Tier: {required_tier})")
+        
+        keys_checked = 0
         while self.available_keys:
             key_value = self.available_keys.popleft()
+            keys_checked += 1
             key_name = self.key_to_name.get(key_value, "Unknown")
             key_meta = self.key_metadata.get(key_value, {})
             key_tier = key_meta.get('tier', 'free')
 
             if key_tier != required_tier:
+                # log.debug(f"Skipping {key_name}: Key Tier '{key_tier}' != Req '{required_tier}'")
                 valid_rotation.append(key_value)
                 continue 
 
@@ -241,6 +246,7 @@ class KeyManager:
                         wait_for_this_key = self.MIN_INTERVAL_SEC - diff
             
             if rate_limited:
+                # log.info(f"Skipping {key_name}: Rate Limited. Wait {wait_for_this_key:.1f}s")
                 if wait_for_this_key > 0:
                     min_cutoff_wait = min(min_cutoff_wait, wait_for_this_key)
                 valid_rotation.append(key_value)

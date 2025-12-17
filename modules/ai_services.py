@@ -82,8 +82,9 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
                 logger.log(f"⛔ 429 Rate Limit on '{key_name}'. Adding Strike.")
                 KEY_MANAGER.report_failure(current_api_key, is_server_error=False)
             elif response.status_code >= 500:
-                logger.log(f"☁️ {response.status_code} Server Error. No Penalty.")
+                logger.log(f"☁️ {response.status_code} Server Error. Waiting 10s...")
                 KEY_MANAGER.report_failure(current_api_key, is_server_error=True)
+                time.sleep(10) # Give the server breathing room
             else:
                 logger.log(f"⚠️ API Error {response.status_code}: {response.text}")
                 KEY_MANAGER.report_failure(current_api_key, is_server_error=True)
