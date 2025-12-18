@@ -11,20 +11,29 @@ import streamlit as st
 
 # --- Core Module Imports ---
 # 1. FIX: Removed API_KEYS. 
-# 2. FIX: Imported KEY_MANAGER (The initialized instance)
+# 2. KEY_MANAGER is initialized locally now
 from modules.config import (
     API_BASE_URL, 
     MODEL_NAME,
-    KEY_MANAGER, 
     DEFAULT_COMPANY_OVERVIEW_JSON, 
     DEFAULT_ECONOMY_CARD_JSON
 )
+from modules.key_manager import KeyManager # <-- Imported Class
 # 3. FIX: Added missing newline that was causing syntax errors
 from modules.data_processing import parse_raw_summary
 from modules.ui_components import AppLogger
 
-# --- REMOVED: The entire "NEW, ROBUST GLOBAL KEY MANAGER SETUP" block ---
-# We do not initialize KeyManager here anymore. It is imported from modules.config.
+# --- GLOBAL KEY MANAGER INITIALIZATION ---
+# This breaks the circular dependency with config.py
+try:
+    if "KEY_MANAGER" not in globals():
+        KEY_MANAGER = KeyManager(db_path="news_data.db")
+        KEY_MANAGER.initialize_db()
+        KEY_MANAGER.init_keys_from_env()
+        logging.info("✅ KeyManager initialized successfully (in ai_services).")
+except Exception as e:
+    logging.critical(f"CRITICAL: Failed to initialize KeyManager: {e}")
+    KEY_MANAGER = None
 
 # --- The Robust API Caller ---
 def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_name: str, max_retries=5) -> str | None:

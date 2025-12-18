@@ -12,11 +12,11 @@ from libsql_client import LibsqlError
 
 # --- INTEGRATION IMPORTS ---
 from modules.config import (
-    KEY_MANAGER, 
     API_BASE_URL, 
     AVAILABLE_MODELS
 )
 from modules.db_utils import get_db_connection
+from modules.ai_services import KEY_MANAGER
 
 # --- Session State Initialization ---
 if 'logs' not in st.session_state:

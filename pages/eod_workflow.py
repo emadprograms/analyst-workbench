@@ -23,7 +23,6 @@ except ImportError:
 
 # --- Local Imports ---
 from modules.config import (
-    KEY_MANAGER,
     AVAILABLE_MODELS,
     STOCK_TICKERS,
     ETF_TICKERS,
@@ -33,6 +32,7 @@ from modules.config import (
 )
 
 # --- Corrected Imports ---
+from modules.ai_services import call_gemini_api, KEY_MANAGER
 from modules.data_processing import generate_analysis_text, parse_raw_summary, split_stock_summaries
 from modules.db_utils import (
     get_all_tickers_from_db, 
