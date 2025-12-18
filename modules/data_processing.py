@@ -79,13 +79,29 @@ def fetch_intraday_data(tickers_list, day, interval="5m"):
             print(f"[VERIFY] Time Range: {min_ts} to {max_ts}")
         except: pass
         
-        # Ensure numeric types
+        # ensure numeric types
         cols = ['Open', 'High', 'Low', 'Close', 'Volume']
         for c in cols:
             df[c] = pd.to_numeric(df[c])
 
-        # Filter out bad ticks
-        df = df[df['Volume'] > 0]
+        # --- DEBUG: CHECK PAXGUSDT BEFORE FILTER ---
+        pax_debug = df[df['Ticker'] == 'PAXGUSDT']
+        if not pax_debug.empty:
+            print(f"[DEBUG] PAXGUSDT Raw Rows: {len(pax_debug)}")
+            print(f"[DEBUG] PAXGUSDT Vol Stats: Min={pax_debug['Volume'].min()}, Max={pax_debug['Volume'].max()}")
+            # Check timestamps
+            print(f"[DEBUG] PAXGUSDT Time Range: {pax_debug['Datetime'].min()} - {pax_debug['Datetime'].max()}")
+
+        # Filter out bad ticks (Volume=0), but allow ^VIX (often 0 vol)
+        df = df[(df['Volume'] > 0) | (df['Ticker'] == '^VIX')]
+        
+        # --- DEBUG: CHECK PAXGUSDT AFTER FILTER ---
+        pax_debug_after = df[df['Ticker'] == 'PAXGUSDT']
+        if not pax_debug_after.empty:
+             print(f"[DEBUG] PAXGUSDT Rows After Vol Filter: {len(pax_debug_after)}")
+        else:
+             if not pax_debug.empty:
+                 print(f"[DEBUG] ❌ PAXGUSDT removed by Volume > 0 filter!")
 
         print(f"[DEBUG] Returning {len(df)} rows from DB.")
         return df
@@ -320,6 +336,7 @@ def generate_analysis_text(tickers_to_process, analysis_date):
             rth_df = df_ticker[df_ticker['Datetime'].dt.time >= dt.time(9, 30)]
             if rth_df.empty:
                 print(f"[DEBUG] generate_analysis_text: No RTH data for ticker {ticker}")
+                full_analysis_text.append(f"Data Extraction Summary: {ticker} | {analysis_date}\n==================================================\n[ERROR] Row data exists ({len(df_ticker)}), but NO RTH (9:30+) data found.")
                 continue
 
             open_price = rth_df['Open'].iloc[0]
@@ -346,6 +363,7 @@ Data Extraction Summary: {ticker} | {analysis_date}
 ==================================================
 
 [VERIFICATION]
+Source: Turso Database (market_data table)
 Rows Fetched: {len(df_ticker)}
 Time Range: {df_ticker['Datetime'].min().strftime('%H:%M:%S')} - {df_ticker['Datetime'].max().strftime('%H:%M:%S')}
 
@@ -443,8 +461,9 @@ def split_stock_summaries(raw_text: str) -> dict:
     summaries = {}
     
     # Pattern to find the start of each summary block.
-    # It captures the ticker name (e.g., "AAPL", "BRK.B").
-    pattern = re.compile(r"Data Extraction Summary:\s*([A-Z\.]+)\s*\|")
+    # It captures the ticker name (e.g., "AAPL", "BRK.B", "BTC-USD", "CL=F", "^VIX").
+    # FIX: Added -, =, ^, 0-9 to the character class
+    pattern = re.compile(r"Data Extraction Summary:\s*([A-Z0-9\.\-\=\^]+)\s*\|")
     
     # Find all starting points
     matches = list(pattern.finditer(raw_text))

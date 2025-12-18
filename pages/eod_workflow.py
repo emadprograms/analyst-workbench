@@ -153,11 +153,11 @@ with tab_runner_eod:
 
     with st.form("daily_inputs_form"):
         market_news_input = st.text_area(
-            "Overall Market/Company News Summary:",
+            "Raw Market/Company News Input:",
             value=saved_market_news or "", # Load saved news
-            height=120,
+            height=300, # Increased height for raw dumps
             key="daily_market_news",
-            help="Your high-level, qualitative summary of the day's market sentiment and major news."
+            help="Paste RAW news headlines, snippets, or bullet points from various sources here. The AI will synthesize the story."
         )
         
         if st.form_submit_button("💾 Save Manual Inputs", use_container_width=True):
@@ -206,15 +206,60 @@ with tab_runner_eod:
         with st.spinner(f"Updating Economy Card for {selected_date.isoformat()}..."):
             # --- MERGED STEP 2a: Run ETF Processor ---
             logger.log(f"1. Generating ETF Summaries for {selected_date.isoformat()}...")
+            logger.log(f"   Using ETFs: {ETF_TICKERS}")
+            
             etf_summaries = generate_analysis_text(ETF_TICKERS, selected_date)
+            
+            # --- FAIL-FAST CHECK (Missing Data) ---
+            if "[ERROR]" in etf_summaries or "No data found" in etf_summaries:
+                # Identify which ones failed for better user feedback
+                failed_etfs = []
+                # Simple check: extract ticker from lines containing [ERROR]
+                # Format: "Data Extraction Summary: TICKER | DATE... [ERROR]..."
+                # Since we have the map, let's use it.
+                etf_summary_map_check = split_stock_summaries(etf_summaries)
+                
+                # If map is empty but error exists, it might be a global fetch error
+                if not etf_summary_map_check:
+                     logger.log(f"❌ **STOPPING Economy Card:** Global data fetch failure (No data for ANY requested ETF).")
+                     st.stop()
+
+                for ticker, text in etf_summary_map_check.items():
+                    if "[ERROR]" in text or "No data found" in text:
+                        failed_etfs.append(ticker)
+                        logger.log(f"   ⚠️ Failure Details for {ticker}:")
+                        logger.log_code(text, "text")
+                
+                if failed_etfs:
+                    logger.log(f"❌ **STOPPING Economy Card:** Missing data for: {', '.join(failed_etfs)}")
+                    logger.log(f"   Please check the 'market_data' table in Turso for these specific tickers on {selected_date.isoformat()}.")
+                else:
+                    logger.log(f"❌ **STOPPING Economy Card:** Unknown extraction error.")
+
+                st.stop()
+
+            # --- DETAILED VERIFICATION LOGGING ---
+            # Parse the massive string to find verification blocks for each ETF
+            etf_summary_map = split_stock_summaries(etf_summaries)
+            for ticker, summary_text in etf_summary_map.items():
+                v_match = re.search(r"\[VERIFICATION\](.*?)(\n\n|$)", summary_text, re.DOTALL)
+                if v_match:
+                    v_info = v_match.group(1).strip()
+                    # Log a condensed version
+                    lines = v_info.split('\n')
+                    rows_line = next((l for l in lines if "Rows Fetched" in l), "Rows: ?")
+                    logger.log(f"   📊 **{ticker}**: Source: Turso DB | {rows_line}")
+
             if "Data Extraction Summary:" not in etf_summaries:
                 logger.log(f"❌ **Error:** Failed to generate ETF summaries. Processor returned: {etf_summaries}")
                 st.stop()
-            logger.log("   ...ETF summaries generated successfully.")
+            
+            logger.log("   ...All ETF summaries generated & verified successfully.")
             # --- END MERGED STEP ---
 
             market_news, _ = get_daily_inputs(selected_date) # Get the manual news
-            current_economy_card_json, fetched_card_date = get_economy_card()
+            # --- FIX: Fetch context strictly BEFORE valid date ---
+            current_economy_card_json, fetched_card_date = get_economy_card(before_date=selected_date.isoformat())
             
             # --- VERIFICATION LOGGING ---
             if fetched_card_date:
@@ -291,6 +336,24 @@ with tab_runner_eod:
     if not market_news_step3:
         st.warning(f"Please complete Step 1 (Save Manual Inputs) for {selected_date.isoformat()} before running this step.")
         st.stop()
+    
+    # --- GUARDRAIL: Check if Economy Card exists for selected_date ---
+    eco_exists = False
+    try:
+        # Use a quick connection to check existence
+        conn_check = get_db_connection()
+        if conn_check:
+            rs_check = conn_check.execute("SELECT 1 FROM economy_cards WHERE date = ?", (selected_date.isoformat(),))
+            if rs_check.rows:
+                eco_exists = True
+            conn_check.close()
+    except Exception:
+        pass # Fail safe implies eco_exists = False
+
+    if not eco_exists:
+        st.warning(f"Please complete Step 2 (Generate Economy Card) for {selected_date.isoformat()} before running this step.")
+        st.stop()
+    # -----------------------------------------------------------------
     
     st.caption("Select the tickers to process. The pipeline will run the data processor and AI update for each one.")
     
@@ -397,7 +460,21 @@ with tab_runner_eod:
                             failure_list.append(f"{ticker} (No Data)")
                             continue
 
+                        # --- FAIL-FAST CHECK (Missing Data) ---
+                        if "[ERROR]" in summary or "No data found" in summary:
+                            logger.log(f"❌ **STOPPING for {ticker}:** No data found in Turso DB.")
+                            logger.log("   (Skipping AI generation to prevent invalid card creation.)")
+                            failure_list.append(f"{ticker} (No DB Data)")
+                            continue
+                        
                         logger.log(f"--- Processing {ticker}... ---")
+                        
+                        # --- VERIFICATION LOGGING ---
+                        v_match = re.search(r"\[VERIFICATION\](.*?)(\n\n|$)", summary, re.DOTALL)
+                        if v_match:
+                            v_info = v_match.group(1).strip()
+                            # logger.log(f"📊 [DATA STATUS] {v_info.replace(chr(10), ' | ')}") # Single line version
+                            logger.log(f"📊 {v_info}") # Multi-line version for readability
                         
                         # This call uses db_utils, which is already fixed
                         previous_card_json, historical_notes, prev_card_date = get_company_card_and_notes(ticker, selected_date)

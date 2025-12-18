@@ -75,11 +75,14 @@ except Exception:
 # ==========================================
 STOCK_TICKERS = [
     "AAPL", "AMZN", "APP", "ABT", "PEP", "TSLA", "NVDA", "AMD",
-    "SNOW", "NET", "PLTR", "MU", "ORCL", "TSM"
+    "SNOW", "NET", "PLTR", "MU", "ORCL", "TSM",
+    "ADBE", "AVGO", "BABA", "GOOGL", "LRCX", "META", "MSFT", 
+    "NDAQ", "PANW", "QCOM", "SHOP"
 ]
 ETF_TICKERS = [
-  "SPY", "QQQ", "IWM", "DIA", "TLT", "XLK", "XLF", "XLP", "XLE",
-  "SMH", "XLI", "XLV", "UUP", "GLD", "BTC-USD"
+    "SPY", "QQQ", "IWM", "DIA", "TLT", "XLK", "XLF", "XLP", "XLE",
+    "SMH", "XLI", "XLV", "UUP", "PAXGUSDT", "BTCUSDT",
+    "XLC", "XLU", "EURUSDT", "CL=F", "^VIX"
 ]
 ALL_TICKERS = sorted(STOCK_TICKERS + ETF_TICKERS)
 # --- Default JSON Structures ---

@@ -157,9 +157,9 @@ def update_company_card(
 
     # --- FINAL Main 'Masterclass' Prompt ---
     prompt = f"""
-    [Overall Market Context for Today]
-    (This is the macro "Headwind" or "Tailwind" for the day. Use this for the 'newsReaction' field. It also contains company-specific news.)
-    {market_context_summary or "No overall market context was provided."}
+    [Raw Market Context for Today]
+    (This contains RAW, unstructured news headlines and snippets from various sources. You must synthesize the macro "Headwind" or "Tailwind" yourself from this data. It also contains company-specific news.)
+    {market_context_summary or "No raw market news was provided."}
 
     [Historical Notes for {ticker}]
     (CRITICAL STATIC CONTEXT: These are the MAJOR structural levels. LEVELS ARE PARAMOUNT.)
@@ -477,7 +477,7 @@ def update_economy_card(
     system_prompt = (
         "You are a macro-economic strategist. Your task is to update the *entire* global 'Economy Card' JSON. "
         "Your primary goal is a **two-part synthesis**: "
-        "1. Identify the **narrative ('Why')** from the `[Market Wrap News]`. "
+        "1. **Synthesize the narrative ('Why')** from the `[Raw Market News]` input. DO NOT expect a pre-written wrap; you must decode the raw headlines yourself. "
         "2. Find the **level-based evidence ('How')** in the `[Key ETF Summaries]` (VWAP, POC, ORL/ORH) to **prove or disprove** that narrative. "
         "You must continue the story from the previous card, evaluating how today's data confirms, contradicts, or changes the established trend."
     )
@@ -494,9 +494,9 @@ def update_economy_card(
     (This is the day-by-day story so far. Use this for context.)
     {json.dumps(recent_log_entries, indent=2)}
 
-    [Market Wrap News (The 'Why' / Narrative)]
-    (This is the qualitative 'story' for the day.)
-    {daily_market_news or "No market wrap news was provided."}
+    [Raw Market News Input (The 'Why' / Narrative Source)]
+    (This contains RAW news headlines and snippets. You must synthesize the narrative 'Story' yourself from this data.)
+    {daily_market_news or "No raw market news was provided."}
 
     [Key ETF Summaries (The 'How' / Level-Based Evidence)]
     (This is the quantitative, level-based 'proof'. Use VWAP, POC, ORL/ORH, VAH/VAL to confirm the narrative.)
@@ -514,7 +514,7 @@ def update_economy_card(
         * This gives you the established narrative. (e.g., "SPY is in a 3-day bearish channel, failing at $450.")
 
     2.  **Evaluate "Today's Data" (The 40% Weight):**
-        * **Synthesize BOTH data sources.** Read the `[Market Wrap News]` for the narrative (e.g., "breadth was weak").
+        * **Synthesize BOTH data sources.** Decode the `[Raw Market News Input]` for the narrative (e.g., "breadth was weak").
         * **Then, verify** that narrative using the `[Key ETF Summaries]` (e.g., "This is confirmed: IWM and DIA broke their ORLs and closed below VWAP, while QQQ held its VAL.").
         * The *quality* of the move (proven by levels) is more important than the direction.
 
@@ -526,23 +526,23 @@ def update_economy_card(
 
     **Detailed "Story-Building" Rules:**
 
-    * **`keyEconomicEvents`:** Populate this *directly* from the "REAR VIEW" and "COMING UP" sections of the `[Market Wrap News]`.
+    * **`keyEconomicEvents`:** Populate this *directly* by synthesizing the "REAR VIEW" and "COMING UP" events found in the `[Raw Market News Input]`.
     * **`indexAnalysis` (Story-Building):**
         * Read the `indexAnalysis` from the `[Previous Day's Card]`.
-        * Using today's `[Market Wrap News]` *and* the specific levels from the `[Key ETF Summaries]`, write the **new, updated** analysis.
-        * **You MUST cite level-based evidence.** (e.g., "SPY *failed at* $450 resistance, as noted in the Market Wrap, and this was **confirmed by the ETF data** showing a close below VWAP ($448.50) and the POC ($449.00).").
+        * Using today's synthesized narrative from `[Raw Market News Input]` *and* the specific levels from the `[Key ETF Summaries]`, write the **new, updated** analysis.
+        * **You MUST cite level-based evidence.** (e.g., "SPY *failed at* $450 resistance, as implied by the news, and this was **confirmed by the ETF data** showing a close below VWAP ($448.50) and the POC ($449.00).").
     * **`sectorRotation` (Story-Building):**
         * Read the `sectorRotation` analysis from the `[Previous Day's Card]`.
         * Using today's ETF data (XLK, XLF, etc.), update the `leadingSectors`, `laggingSectors`, and `rotationAnalysis`.
         * **Cite level-based evidence.** (e.g., "Tech (XLK) *was* a leading sector for 5 days but saw profit-taking today, **closing below its VAH ($303.78)**, moving it to lagging...").
     * **`interMarketAnalysis` (Story-Building):**
         * Read the `interMarketAnalysis` from the `[Previous Day's Card]`.
-        * Using the `[Market Wrap News]` ("FIXED INCOME", "CRUDE", "FX" sections) *and* the `[Key ETF Summaries]` for TLT, GLD, UUP, **continue the narrative**.
-        * (e.g., "Bonds (TLT) *continued* their decline, *confirming* the risk-on flow by **breaking below VAL ($89.60)**..." or "The Dollar (UUP) was choppy, **crossing VWAP ($28.23) multiple times** as the Market Wrap noted...").
-    * **`todaysAction` (The Log):** Create a *new, single log entry* for today's macro action, referencing both the Market Wrap narrative and key ETF level interactions.
+        * Using the `[Raw Market News Input]` (looking for mentions of "FIXED INCOME", "CRUDE", "FX" etc.) *and* the `[Key ETF Summaries]` for TLT, GLD, UUP, **continue the narrative**.
+        * (e.g., "Bonds (TLT) *continued* their decline, *confirming* the risk-on flow by **breaking below VAL ($89.60)**..." or "The Dollar (UUP) was choppy, **crossing VWAP ($28.23) multiple times** as the news noted...").
+    * **`todaysAction` (The Log):** Create a *new, single log entry* for today's macro action, referencing both the synthesized narrative and key ETF level interactions.
 
     **MISSING DATA RULE (CRITICAL):**
-    * If `[Market Wrap News]` or `[Key ETF Summaries]` are missing, empty, or clearly irrelevant, you **MUST** state this in the relevant analytical fields.
+    * If `[Raw Market News Input]` or `[Key ETF Summaries]` are missing, empty, or clearly irrelevant, you **MUST** state this in the relevant analytical fields.
     * **DO NOT** silently copy yesterday's data.
     * *(Example: `indexAnalysis.SPY`: "No new ETF data was provided to update the analysis.")*
 
@@ -553,8 +553,8 @@ def update_economy_card(
       "marketNarrative": "Your new high-level narrative (based on the Master Rule).",
       "marketBias": "Your new bias (e.g., 'Bullish', 'Bearish', 'Neutral') (based on the Master Rule).",
       "keyEconomicEvents": {{
-        "last_24h": "Your summary from Market Wrap 'REAR VIEW'.",
-        "next_24h": "Your summary from Market Wrap 'COMING UP'."
+        "last_24h": "Your summary of past events synthesized from the raw news.",
+        "next_24h": "Your summary of upcoming events synthesized from the raw news."
       }},
       "sectorRotation": {{
         "leadingSectors": ["List", "of", "leading", "sectors"],

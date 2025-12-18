@@ -80,10 +80,35 @@ def inspect():
         for row in rs.rows:
             print(list(row))
 
-        print("\n--- Inspecting Key Status (Strikes) ---")
-        rs = client.execute("SELECT key_hash, strikes, last_success_day FROM gemini_key_status")
-        for row in rs.rows:
-            print(list(row))
+        print("\n--- Inspecting EURUSDT Data for Nov 24, 2025 ---")
+        rs = client.execute("SELECT * FROM market_data WHERE symbol = 'EURUSDT' AND timestamp >= '2025-11-24 00:00:00' AND timestamp < '2025-11-25 00:00:00' LIMIT 5")
+        if not rs.rows:
+            print("❌ No data found for EURUSDT on 2025-11-24.")
+            # Debug: Check surrounding dates
+            rs_check = client.execute("SELECT min(timestamp), max(timestamp), count(*) FROM market_data WHERE symbol = 'EURUSDT'")
+            print(f"DEBUG: EURUSDT Range: {list(rs_check.rows[0])}")
+        else:
+            print(f"✅ Found {len(rs.rows)} rows (Sample):")
+            for row in rs.rows:
+                print(list(row))
+        
+        print("\n--- Inspecting ^VIX Data ---")
+        rs = client.execute("SELECT * FROM market_data WHERE symbol = '^VIX' ORDER BY timestamp DESC LIMIT 5")
+        if not rs.rows:
+            print("❌ No data found for ^VIX.")
+        else:
+            print(f"✅ Found {len(rs.rows)} rows (Sample):")
+            for row in rs.rows:
+                # row[6] is volume
+                print(f"Timestamp: {row[0]}, Vol: {row[6]}")
+        
+        # Check specific date 2025-11-24
+        print("\n--- Inspecting ^VIX Data for Nov 24, 2025 ---")
+        rs = client.execute("SELECT * FROM market_data WHERE symbol = '^VIX' AND timestamp >= '2025-11-24 00:00:00' AND timestamp < '2025-11-25 00:00:00' LIMIT 5")
+        if not rs.rows:
+             print("❌ No data found for ^VIX on 2025-11-24.")
+        else:
+             print(f"✅ Found rows on Nov 24. First Volume: {rs.rows[0][6]}")
         
         print("\n--- DETAILED STATUS for arshad.emad@01 ---")
         # Join to get the hash

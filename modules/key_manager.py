@@ -241,9 +241,13 @@ class KeyManager:
                     ts_col = config[1]
                     last_model_ts = state.get(ts_col, 0)
                     diff = current_time - last_model_ts
-                    if diff < self.MIN_INTERVAL_SEC:
+                    
+                    # --- HOTFIX: BYPASS LIMIT FOR 2.5 PRO (User Request) ---
+                    limit_to_use = 0 if target_model == 'gemini-2.5-pro' else self.MIN_INTERVAL_SEC
+
+                    if diff < limit_to_use:
                         rate_limited = True
-                        wait_for_this_key = self.MIN_INTERVAL_SEC - diff
+                        wait_for_this_key = limit_to_use - diff
             
             if rate_limited:
                 # log.info(f"Skipping {key_name}: Rate Limited. Wait {wait_for_this_key:.1f}s")

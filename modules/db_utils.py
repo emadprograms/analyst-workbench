@@ -113,9 +113,10 @@ def get_latest_daily_input_date() -> str:
 
 # --- Economy Card Functions ---
 
-def get_economy_card() -> tuple[str, str | None]:
+def get_economy_card(before_date: str | None = None) -> tuple[str, str | None]:
     """
-    Gets the "living" economy card (most recent)
+    Gets the "living" economy card (most recent).
+    If before_date is provided (YYYY-MM-DD), gets the most recent card BEFORE that date.
     """
     conn = None
     try:
@@ -124,9 +125,14 @@ def get_economy_card() -> tuple[str, str | None]:
             print("Error: Database connection failed.")
             return DEFAULT_ECONOMY_CARD_JSON, None
 
-        rs = conn.execute(
-            "SELECT economy_card_json, date FROM economy_cards ORDER BY date DESC LIMIT 1"
-        )
+        if before_date:
+            query = "SELECT economy_card_json, date FROM economy_cards WHERE date < ? ORDER BY date DESC LIMIT 1"
+            params = (before_date,)
+        else:
+            query = "SELECT economy_card_json, date FROM economy_cards ORDER BY date DESC LIMIT 1"
+            params = ()
+
+        rs = conn.execute(query, params)
         # --- FIX: Use rs.rows ---
         row = rs.rows[0] if rs.rows else None
         
