@@ -16,7 +16,9 @@ from modules.config import (
     API_BASE_URL, 
     MODEL_NAME,
     DEFAULT_COMPANY_OVERVIEW_JSON, 
-    DEFAULT_ECONOMY_CARD_JSON
+    DEFAULT_ECONOMY_CARD_JSON,
+    TURSO_DB_URL, # Imported
+    TURSO_AUTH_TOKEN # Imported
 )
 from modules.key_manager import KeyManager # <-- Imported Class
 # 3. FIX: Added missing newline that was causing syntax errors
@@ -27,9 +29,8 @@ from modules.ui_components import AppLogger
 # This breaks the circular dependency with config.py
 try:
     if "KEY_MANAGER" not in globals():
-        KEY_MANAGER = KeyManager(db_path="news_data.db")
-        KEY_MANAGER.initialize_db()
-        KEY_MANAGER.init_keys_from_env()
+        KEY_MANAGER = KeyManager(db_url=TURSO_DB_URL, auth_token=TURSO_AUTH_TOKEN)
+        # KEY_MANAGER.init_keys_from_env()  <-- Removed, handled by __init__ or DB
         logging.info("✅ KeyManager initialized successfully (in ai_services).")
 except Exception as e:
     logging.critical(f"CRITICAL: Failed to initialize KeyManager: {e}")

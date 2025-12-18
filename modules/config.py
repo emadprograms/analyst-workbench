@@ -45,19 +45,9 @@ try:
     
     if not TURSO_DB_URL or not TURSO_AUTH_TOKEN:
         logging.critical("CRITICAL: Turso DB URL or Auth Token not found in st.secrets.")
-    else:
-        # Force HTTPS for stability
-        HTTPS_DB_URL = TURSO_DB_URL.replace("libsql://", "https://")
-        
-        # Initialize the Manager
-        KEY_MANAGER = KeyManager(
-            db_url=HTTPS_DB_URL, 
-            auth_token=TURSO_AUTH_TOKEN 
-        )
-        logging.info("✅ KeyManager initialized successfully.")
 
 except Exception as e:
-    logging.critical(f"CRITICAL: Failed to initialize KeyManager: {e}")
+    logging.critical(f"Error loading secrets: {e}")
 
 
 # ==========================================
