@@ -92,8 +92,10 @@ def fetch_intraday_data(tickers_list, day, interval="5m"):
             # Check timestamps
             print(f"[DEBUG] PAXGUSDT Time Range: {pax_debug['Datetime'].min()} - {pax_debug['Datetime'].max()}")
 
-        # Filter out bad ticks (Volume=0), but allow ^VIX (often 0 vol)
-        df = df[(df['Volume'] > 0) | (df['Ticker'] == '^VIX')]
+        # Filter out bad ticks (Volume=0), but allow indices/crypto/fx (often 0 vol)
+        # ^VIX: Vol always 0. PAXG/BTC/EUR: Crypto/FX often 0 vol in feeds.
+        allowed_zero_vol = ['^VIX', 'PAXGUSDT', 'BTCUSDT', 'EURUSDT', 'CL=F']
+        df = df[(df['Volume'] > 0) | (df['Ticker'].isin(allowed_zero_vol))]
         
         # --- DEBUG: CHECK PAXGUSDT AFTER FILTER ---
         pax_debug_after = df[df['Ticker'] == 'PAXGUSDT']
