@@ -479,6 +479,11 @@ with tab_runner_eod:
                         # This call uses db_utils, which is already fixed
                         previous_card_json, historical_notes, prev_card_date = get_company_card_and_notes(ticker, selected_date)
                         
+                        if prev_card_date:
+                            logger.log(f"   🔙 Context Loaded from: **{prev_card_date}** (Strictly previous to {selected_date})")
+                        else:
+                            logger.log(f"   🆕 No previous card found (New Context will be created).")
+                        
                         # (Logging unchanged)
                         
                         new_card_str = update_company_card(
