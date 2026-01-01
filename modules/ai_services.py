@@ -39,33 +39,35 @@ except Exception as e:
 # --- The Robust API Caller ---
 def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_name: str, max_retries=5) -> str | None:
     """
-    Calls Gemini API using dynamic model selection and quota management.
+    Calls Gemini API using a single PAID key (Simple Mode).
     """
     if not KEY_MANAGER:
         logger.log("❌ ERROR: KeyManager not initialized.")
         return None
     
-    for i in range(max_retries):
-        current_api_key = None
-        key_name = "Unknown"
+    # 1. ACQUIRE: Get the "Paid" key directly (No rotation/logic)
+    current_api_key = KEY_MANAGER.get_simple_paid_key()
+    
+    if not current_api_key:
+        logger.log("❌ ERROR: No API key found in database.")
+        return None
 
+    # 2. THROTTLE: Custom 1 RPM logic for Gemini 3.0 (User Request)
+    if model_name == "gemini-3-pro-preview":
         try:
-            # 1. ACQUIRE: Request key specifically for this model's bucket
-            key_name, current_api_key, wait_time = KEY_MANAGER.get_key(target_model=model_name)
-            
-            if not current_api_key:
-                logger.log(f"⏳ All keys exhausted for {model_name}. Waiting {wait_time:.0f}s... (Attempt {i+1})")
-                if wait_time > 0 and i < max_retries - 1:
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    logger.log(f"❌ ERROR: Global rate limit reached for {model_name}.")
-                    return None
-            
-            logger.log(f"🔑 Acquired '{key_name}' | Model: {model_name} (Attempt {i+1})")
-            
-            # 2. USE: Construct Dynamic URL
-            # --- CHANGE IS HERE ---
+            last_ts = st.session_state.get('last_gemini3_ts', 0)
+            now = time.time()
+            wait = 60 - (now - last_ts)
+            if wait > 0:
+                logger.log(f"⏳ Gemini 3.0 Rate Limit: Waiting {wait:.0f}s...")
+                time.sleep(wait)
+            st.session_state['last_gemini3_ts'] = time.time()
+        except Exception:
+            pass # Ignore if not in Streamlit context
+
+    for i in range(max_retries):
+        try:
+            # 2. USE: Construct URL
             gemini_url = f"{API_BASE_URL}/{model_name}:generateContent?key={current_api_key}"
             
             payload = {
@@ -76,36 +78,27 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
             
             response = requests.post(gemini_url, headers=headers, data=json.dumps(payload), timeout=60)
             
-            # 3. REPORT: Pass model_name for correct counter increment
+            # 3. REPORT (Logging Only, No DB Writes)
             if response.status_code == 200:
-                KEY_MANAGER.report_success(current_api_key, model_id=model_name)
-                
                 result = response.json()
                 try:
                     return result["candidates"][0]["content"]["parts"][0]["text"].strip()
                 except (KeyError, IndexError):
-                    logger.log(f"⚠️ Invalid JSON: {result}")
-                    KEY_MANAGER.report_failure(current_api_key, is_server_error=True)
+                    logger.log(f"⚠️ Invalid JSON Structure: {result}")
+                    # No DB reporting
                     continue 
 
-            elif response.status_code == 429:
-                logger.log(f"⛔ 429 Rate Limit on '{key_name}'. Adding Strike.")
-                KEY_MANAGER.report_failure(current_api_key, is_server_error=False)
             elif response.status_code >= 500:
-                logger.log(f"☁️ {response.status_code} Server Error. Waiting 10s...")
-                KEY_MANAGER.report_failure(current_api_key, is_server_error=True)
-                time.sleep(10) # Give the server breathing room
+                logger.log(f"☁️ {response.status_code} Server Error: {response.text}")
+                time.sleep(15) # Keep the 15s wait for server stability
             else:
                 logger.log(f"⚠️ API Error {response.status_code}: {response.text}")
-                KEY_MANAGER.report_failure(current_api_key, is_server_error=True)
 
         except Exception as e:
             logger.log(f"💥 Exception: {str(e)}")
-            if current_api_key:
-                KEY_MANAGER.report_failure(current_api_key, is_server_error=True)
         
         if i < max_retries - 1:
-            time.sleep(2 ** i)
+            time.sleep(2) # Simple backoff
 
     logger.log("❌ FATAL: Max retries exhausted.")
     return None
@@ -362,6 +355,8 @@ def update_company_card(
       "todaysAction": "A single, detailed log entry for *only* today's action, *using the language from your Masterclass analysis*."
     }}
     """
+    
+    logger.log(f"3. Calling EOD AI Analyst for {ticker}...");
     
     logger.log(f"3. Calling EOD AI Analyst for {ticker}...");
     

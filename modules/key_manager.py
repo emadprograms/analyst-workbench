@@ -74,7 +74,7 @@ class KeyManager:
     }
     
     LIMITS_PAID = {
-        'gemini-3-pro-preview': 50, # Corrected ID
+        'gemini-3-pro-preview': 250, # Corrected ID
         'gemini-2.5-pro': 2000, # Increased from 100 per user request
         'gemini-2.0-flash': 1000
     }
@@ -159,6 +159,22 @@ class KeyManager:
         if not rs.rows: return []
         return [self._row_to_dict(rs.columns, row) for row in rs.rows]
 
+    # --- SIMPLE MODE (User Request) ---
+    def get_simple_paid_key(self):
+        """
+        Directly fetches the first available PAID key. 
+        No checks, no rotation, no logic.
+        """
+        try:
+            rs = self.db_client.execute("SELECT key_value FROM gemini_api_keys WHERE tier='paid' ORDER BY priority ASC LIMIT 1")
+            if rs.rows:
+                return rs.rows[0][0]
+            # Fallback to ANY key if no paid key found
+            rs_any = self.db_client.execute("SELECT key_value FROM gemini_api_keys ORDER BY priority ASC LIMIT 1")
+            return rs_any.rows[0][0] if rs_any.rows else None
+        except Exception:
+            return None
+
     # --- CORE LOGIC ---
 
     def _refresh_keys_from_db(self):
@@ -242,8 +258,8 @@ class KeyManager:
                     last_model_ts = state.get(ts_col, 0)
                     diff = current_time - last_model_ts
                     
-                    # --- HOTFIX: BYPASS LIMIT FOR 2.5 PRO (User Request) ---
-                    limit_to_use = 0 if target_model == 'gemini-2.5-pro' else self.MIN_INTERVAL_SEC
+                    # --- HOTFIX: BYPASS LIMIT FOR 2.5 PRO and 3.0 PRO (User Request) ---
+                    limit_to_use = 0 if target_model in ['gemini-2.5-pro', 'gemini-3-pro-preview'] else self.MIN_INTERVAL_SEC
 
                     if diff < limit_to_use:
                         rate_limited = True
