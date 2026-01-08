@@ -96,9 +96,11 @@ if 'processing_date' not in st.session_state:
 
 
 # --- Define Tabs ---
-tab_runner_eod, tab_editor = st.tabs([
+# --- Define Tabs ---
+tab_runner_eod, tab_editor, tab_filter = st.tabs([
     "Pipeline Runner (EOD)",
-    "Card Editor", # Renamed
+    "Unified Card Editor", 
+    "Bias Filter" # New Request
 ])
 
 # --- TAB 1: Pipeline Runner (EOD) ---
@@ -753,3 +755,220 @@ with tab_editor:
                         disabled=(current_idx >= len(tickers_on_date) - 1),
                         key="archive_next_btn" 
                     )
+
+# --- TAB 3: Research Center (Renamed from Bias Filter) ---
+with tab_filter:
+    st.header("Research Center")
+    st.caption("Deep dive into market setup trends and screening.")
+    
+    # Create Sub-Tabs
+    subtab_screener, subtab_trend = st.tabs(["Setup Screener", "Trend Analyzer"])
+    
+    # --- SUB-TAB 1: SETUP SCREENER (Original Filter Logic) ---
+    with subtab_screener:
+        st.subheader("Setup Bias Screener")
+        
+        archive_dates_filter = get_all_archive_dates()
+        if not archive_dates_filter:
+            st.warning("No data found to filter.")
+            st.stop()
+            
+        # Reuse selector style
+        selected_filter_date_str = st.selectbox(
+            "Select Date to Screen",
+            archive_dates_filter,
+            index=0,
+            key="filter_date_selector"
+        )
+        
+        if selected_filter_date_str:
+            selected_filter_date = datetime.strptime(selected_filter_date_str, "%Y-%m-%d").date()
+            st.divider()
+            
+            # Bias Options
+            bias_options = [
+                "Bullish",
+                "Bearish"
+            ]
+            
+            selected_bias = st.radio("Select Bias to Filter For:", bias_options, horizontal=True)
+            
+            st.divider()
+            
+            if st.button(f"🔍 Scan for '{selected_bias}' Setups", use_container_width=True):
+                conn_filter = None
+                try:
+                    conn_filter = get_db_connection()
+                    # Get all tickers for this date
+                    tickers_on_date = get_all_tickers_for_archive_date(selected_filter_date)
+                    
+                    matches = []
+                    
+                    with st.spinner(f"Scanning {len(tickers_on_date)} cards..."):
+                        for ticker in tickers_on_date:
+                            # Fetch card
+                            card_json, _ = get_archived_company_card(selected_filter_date, ticker)
+                            if not card_json: continue
+                            
+                            try:
+                                card_data = json.loads(card_json)
+                                # Extract Screener Briefing
+                                briefing = card_data.get("screener_briefing", "")
+                                
+                                # Regex for Setup_Bias
+                                # Looking for: "Setup_Bias: [Value]"
+                                match = re.search(r"Setup_Bias:\s*(.*?)(?:\n|$)", briefing, re.IGNORECASE)
+                                
+                                if match:
+                                    actual_bias = match.group(1).strip()
+                                    
+                                    # Check for match (Case-insensitive)
+                                    if selected_bias.lower() in actual_bias.lower():
+                                        matches.append({
+                                            "ticker": ticker,
+                                            "bias": actual_bias,
+                                            "briefing": briefing,
+                                            "full_card": card_json
+                                        })
+                            except Exception:
+                                continue
+                    
+                    # Validation Logic
+                    if not matches:
+                        st.warning(f"No companies found with Setup Bias: **{selected_bias}**")
+                    else:
+                        st.success(f"Found {len(matches)} companies with **{selected_bias}** bias!")
+                        
+                        for m in matches:
+                            with st.expander(f"**{m['ticker']}** | {m['bias']}", expanded=True):
+                                # --- 1. Parse Briefing for Better Display ---
+                                briefing_text = m['briefing']
+                                briefing_dict = {}
+                                for line in briefing_text.split('\n'):
+                                    if ':' in line:
+                                        k, v = line.split(':', 1)
+                                        briefing_dict[k.strip()] = v.strip()
+                                
+                                # --- 2. Display Key Fields (Wrapped) ---
+                                # Justification is the priority
+                                st.markdown(f"**Justification:** {briefing_dict.get('Justification', 'N/A')}")
+                                
+                                col_f1, col_f2 = st.columns(2)
+                                with col_f1:
+                                    st.markdown(f"**Catalyst:** {briefing_dict.get('Catalyst', 'N/A')}")
+                                    st.markdown(f"**Pattern:** {briefing_dict.get('Pattern', 'N/A')}")
+                                with col_f2:
+                                    st.success(f"**Plan A:** {briefing_dict.get('Plan_A', 'N/A')} ({briefing_dict.get('Plan_A_Level', '')})")
+                                    if 'Plan_B' in briefing_dict:
+                                        st.warning(f"**Plan B:** {briefing_dict.get('Plan_B', 'N/A')} ({briefing_dict.get('Plan_B_Level', '')})")
+                                
+                                st.divider()
+
+                                # --- 3. View Full Card (Components) ---
+                                with st.expander("📄 View Full Card (Expanded UI)", expanded=False):
+                                    # Use the specific unique edit key so it doesn't conflict
+                                    display_view_market_note_card(
+                                        json.loads(m['full_card']), 
+                                        edit_mode_key=f"edit_mode_filter_{m['ticker']}"
+                                    )
+                                
+                except Exception as e:
+                    st.error(f"Error filtering cards: {e}")
+                finally:
+                    if conn_filter:
+                        conn_filter.close()
+
+    # --- SUB-TAB 2: TREND ANALYZER (New Request) ---
+    with subtab_trend:
+        st.subheader("Trend Analyzer (Last 30 Days)")
+        st.caption("Visualize how the AI's 'Trend Bias' for a company has evolved over time.")
+        
+        all_tickers_trend = get_all_tickers_from_db()
+        if not all_tickers_trend:
+            st.warning("No tickers found in database.")
+        else:
+            selected_ticker_trend = st.selectbox(
+                "Select Ticker to Analyze",
+                all_tickers_trend,
+                index=0,
+                key="trend_ticker_selector"
+            )
+            
+            if selected_ticker_trend:
+                st.divider()
+                
+                # Fetch History (Raw SQL for speed)
+                conn_trend = None
+                try:
+                    conn_trend = get_db_connection()
+                    
+                    # Fetch last 30 entries for this ticker, sorted ASCENDING by date
+                    rs_trend = conn_trend.execute(
+                        "SELECT date, company_card_json FROM company_cards WHERE ticker = ? ORDER BY date ASC LIMIT 30",
+                        (selected_ticker_trend,)
+                    )
+                    
+                    if not rs_trend.rows:
+                        st.info(f"No historical data found for {selected_ticker_trend}.")
+                    else:
+                        trend_data = []
+                        
+                        import pandas as pd # Import locally just in case
+                        
+                        for row in rs_trend.rows:
+                            d = row['date']
+                            try:
+                                c = json.loads(row['company_card_json'])
+                                # Parse 'confidence' field. Format: "Trend_Bias: [Value] (Story...)"
+                                conf_str = c.get("confidence", "")
+                                
+                                # Regex to extract the Bias
+                                # Matches: "Trend_Bias: Bearish" or "Trend_Bias: Neutral (Bullish Lean)"
+                                bias_match = re.search(r"Trend_Bias:\s*(.*?)(?:\s*\(|\s*-|$)", conf_str, re.IGNORECASE)
+                                
+                                if bias_match:
+                                    bias_text = bias_match.group(1).strip()
+                                    
+                                    # Map to Numeric Score
+                                    score = 0
+                                    lower_bias = bias_text.lower()
+                                    
+                                    if "bullish" in lower_bias and "neutral" not in lower_bias:
+                                        score = 2     # Pure Bullish
+                                    elif "bullish" in lower_bias and "neutral" in lower_bias:
+                                        score = 1     # Neutral (Bullish Lean)
+                                    elif "neutral" in lower_bias and "lean" not in lower_bias:
+                                        score = 0     # Pure Neutral
+                                    elif "bearish" in lower_bias and "neutral" in lower_bias:
+                                        score = -1    # Neutral (Bearish Lean)
+                                    elif "bearish" in lower_bias and "neutral" not in lower_bias:
+                                        score = -2    # Pure Bearish
+                                    
+                                    trend_data.append({
+                                        "Date": d,
+                                        "Bias Score": score,
+                                        "Bias Label": bias_text
+                                    })
+                            except Exception:
+                                pass
+                        
+                        if not trend_data:
+                            st.warning("Could not extract trend bias data from history.")
+                        else:
+                            df_trend = pd.DataFrame(trend_data)
+                            df_trend.set_index("Date", inplace=True)
+                            
+                            st.markdown(f"#### Trend Bias History: {selected_ticker_trend}")
+                            
+                            # Custom Chart
+                            st.line_chart(df_trend['Bias Score'])
+                            
+                            with st.expander("View Data Table"):
+                                st.dataframe(df_trend)
+                                st.caption("Score Key: Bullish=2, Bull Lean=1, Neutral=0, Bear Lean=-1, Bearish=-2")
+                                
+                except Exception as e:
+                    st.error(f"Error fetching trend history: {e}")
+                finally:
+                    if conn_trend:
+                        conn_trend.close()
