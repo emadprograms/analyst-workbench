@@ -761,11 +761,17 @@ with tab_filter:
     st.header("Research Center")
     st.caption("Deep dive into market setup trends and screening.")
     
-    # Create Sub-Tabs
-    subtab_screener, subtab_trend = st.tabs(["Setup Screener", "Trend Analyzer"])
-    
-    # --- SUB-TAB 1: SETUP SCREENER (Original Filter Logic) ---
-    with subtab_screener:
+    # Mode Selection (Dropdown instead of Tabs)
+    research_mode = st.selectbox(
+        "Select Research Mode",
+        ["Setup Screener", "Trend Analyzer"],
+        index=0,
+        key="research_mode_selector"
+    )
+    st.divider()
+
+    # --- MODE 1: SETUP SCREENER (Original Filter Logic) ---
+    if research_mode == "Setup Screener":
         st.subheader("Setup Bias Screener")
         
         archive_dates_filter = get_all_archive_dates()
@@ -878,8 +884,8 @@ with tab_filter:
                     if conn_filter:
                         conn_filter.close()
 
-    # --- SUB-TAB 2: TREND ANALYZER (New Request) ---
-    with subtab_trend:
+    # --- MODE 2: TREND ANALYZER (New Request) ---
+    elif research_mode == "Trend Analyzer":
         st.subheader("Trend Analyzer (Last 30 Days)")
         st.caption("Visualize how the AI's 'Trend Bias' for a company has evolved over time.")
         
