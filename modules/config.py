@@ -22,7 +22,7 @@ AVAILABLE_MODELS = [
 ]
 
 # Default Model (Fallback)
-MODEL_NAME = "gemini-2.5-flash-lite" 
+MODEL_NAME = "gemini-3-pro-preview" 
 
 # --- FIX IS HERE: Define the Base URL without the model name ---
 API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"

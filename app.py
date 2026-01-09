@@ -100,7 +100,7 @@ if 'processing_date' not in st.session_state:
 tab_runner_eod, tab_editor, tab_filter = st.tabs([
     "Pipeline Runner (EOD)",
     "Unified Card Editor", 
-    "Bias Filter" # New Request
+    "Research Center" # Renamed
 ])
 
 # --- TAB 1: Pipeline Runner (EOD) ---
@@ -758,13 +758,12 @@ with tab_editor:
 
 # --- TAB 3: Research Center (Renamed from Bias Filter) ---
 with tab_filter:
-    st.header("Research Center")
-    st.caption("Deep dive into market setup trends and screening.")
+    # Header Removed as per user request
     
     # Mode Selection (Dropdown instead of Tabs)
     research_mode = st.selectbox(
         "Select Research Mode",
-        ["Setup Screener", "Trend Analyzer"],
+        ["Setup Screener", "Setup Analyzer"],
         index=0,
         key="research_mode_selector"
     )
@@ -884,10 +883,10 @@ with tab_filter:
                     if conn_filter:
                         conn_filter.close()
 
-    # --- MODE 2: TREND ANALYZER (New Request) ---
-    elif research_mode == "Trend Analyzer":
-        st.subheader("Trend Analyzer (Last 30 Days)")
-        st.caption("Visualize how the AI's 'Trend Bias' for a company has evolved over time.")
+    # --- MODE 2: SETUP ANALYZER (Renamed) ---
+    elif research_mode == "Setup Analyzer":
+        st.subheader("Setup Analyzer (Last 90 Days)")
+        st.caption("Visualize how the AI's 'Setup Bias' for a company has evolved over time.")
         
         all_tickers_trend = get_all_tickers_from_db()
         if not all_tickers_trend:
@@ -908,9 +907,9 @@ with tab_filter:
                 try:
                     conn_trend = get_db_connection()
                     
-                    # Fetch last 30 entries for this ticker, sorted ASCENDING by date
+                    # Fetch last 90 entries (Quarter) for this ticker, sorted DESCENDING (Newest First)
                     rs_trend = conn_trend.execute(
-                        "SELECT date, company_card_json FROM company_cards WHERE ticker = ? ORDER BY date ASC LIMIT 30",
+                        "SELECT date, company_card_json FROM company_cards WHERE ticker = ? ORDER BY date DESC LIMIT 90",
                         (selected_ticker_trend,)
                     )
                     
@@ -921,34 +920,51 @@ with tab_filter:
                         
                         import pandas as pd # Import locally just in case
                         
-                        for row in rs_trend.rows:
+                        # Process rows (Newest first from DB)
+                        rows_to_process = rs_trend.rows
+                        
+                         # Reverse to have Oldest -> Newest for Plotting
+                        for row in reversed(rows_to_process):
                             d = row['date']
                             try:
                                 c = json.loads(row['company_card_json'])
-                                # Parse 'confidence' field. Format: "Trend_Bias: [Value] (Story...)"
-                                conf_str = c.get("confidence", "")
+                                # Parse 'screener_briefing' field (Same as Setup Screener)
+                                briefing = c.get("screener_briefing", "")
                                 
-                                # Regex to extract the Bias
-                                # Matches: "Trend_Bias: Bearish" or "Trend_Bias: Neutral (Bullish Lean)"
-                                bias_match = re.search(r"Trend_Bias:\s*(.*?)(?:\s*\(|\s*-|$)", conf_str, re.IGNORECASE)
+                                # Regex for Setup_Bias
+                                # Matches: "Setup_Bias: Bearish" or "Setup_Bias: Neutral (Bullish Lean)" - Capture full line
+                                bias_match = re.search(r"Setup_Bias:\s*(.*?)(?:\n|$)", briefing, re.IGNORECASE)
                                 
                                 if bias_match:
                                     bias_text = bias_match.group(1).strip()
                                     
-                                    # Map to Numeric Score
+                                    # Map to Numeric Score (Granular)
                                     score = 0
                                     lower_bias = bias_text.lower()
                                     
-                                    if "bullish" in lower_bias and "neutral" not in lower_bias:
-                                        score = 2     # Pure Bullish
-                                    elif "bullish" in lower_bias and "neutral" in lower_bias:
-                                        score = 1     # Neutral (Bullish Lean)
-                                    elif "neutral" in lower_bias and "lean" not in lower_bias:
-                                        score = 0     # Pure Neutral
-                                    elif "bearish" in lower_bias and "neutral" in lower_bias:
-                                        score = -1    # Neutral (Bearish Lean)
+                                    # 1. Complex/Compound States
+                                    if "bullish consolidation" in lower_bias:
+                                        score = 1.5
+                                    elif "bearish consolidation" in lower_bias:
+                                        score = -1.5
+                                    
+                                    # 2. Leans
+                                    elif "neutral" in lower_bias and "bullish lean" in lower_bias:
+                                        score = 1.0
+                                    elif "neutral" in lower_bias and "bearish lean" in lower_bias:
+                                        score = -1.0
+
+                                    # 3. Base States (Stronger than lean, stronger than consolidation?)
+                                    # User implied "Bullish" > "Bullish Consolidation" > "Lean"
+                                    # But Consolidation might be seen as 1.5 (between Lean and Pure). 
+                                    elif "bullish" in lower_bias and "neutral" not in lower_bias:
+                                        score = 2.0
                                     elif "bearish" in lower_bias and "neutral" not in lower_bias:
-                                        score = -2    # Pure Bearish
+                                        score = -2.0
+                                        
+                                    # 4. Pure Neutral
+                                    elif "neutral" in lower_bias:
+                                        score = 0.0
                                     
                                     trend_data.append({
                                         "Date": d,
@@ -964,14 +980,14 @@ with tab_filter:
                             df_trend = pd.DataFrame(trend_data)
                             df_trend.set_index("Date", inplace=True)
                             
-                            st.markdown(f"#### Trend Bias History: {selected_ticker_trend}")
+                            st.markdown(f"#### Setup Bias History: {selected_ticker_trend}")
                             
                             # Custom Chart
                             st.line_chart(df_trend['Bias Score'])
                             
                             with st.expander("View Data Table"):
                                 st.dataframe(df_trend)
-                                st.caption("Score Key: Bullish=2, Bull Lean=1, Neutral=0, Bear Lean=-1, Bearish=-2")
+                                st.caption("Score Key: Bullish=2, Bull Consolidation=1.5, Bull Lean=1, Neutral=0, Bear Lean=-1, Bear Consolidation=-1.5, Bearish=-2")
                                 
                 except Exception as e:
                     st.error(f"Error fetching trend history: {e}")

@@ -70,8 +70,25 @@ def fetch_intraday_data(tickers_list, day, interval="5m"):
         
         # Ensure Datetime is actually a datetime object
         df['Datetime'] = pd.to_datetime(df['Datetime'])
-        
-        # --- VERIFICATION LOGGING ---
+
+        # --- FIX: Timezone Conversion (UTC -> Eastern) ---
+        # Database stores UTC. We must convert to Eastern for analysis tools (Opening Range, RTH, etc.)
+        try:
+            # 1. Localize to UTC (assuming DB is naive UTC)
+            if df['Datetime'].dt.tz is None:
+                df['Datetime'] = df['Datetime'].dt.tz_localize('UTC')
+            else:
+                df['Datetime'] = df['Datetime'].dt.tz_convert('UTC')
+            
+            # 2. Convert to US/Eastern
+            df['Datetime'] = df['Datetime'].dt.tz_convert('US/Eastern')
+            
+            # 3. Remove timezone info but keep local time (so 09:30 is 09:30)
+            df['Datetime'] = df['Datetime'].dt.tz_localize(None)
+            
+            print(f"[DEBUG] Converted timestamps to US/Eastern. New range: {df['Datetime'].min()} - {df['Datetime'].max()}")
+        except Exception as e:
+            print(f"[ERROR] Timezone conversion failed: {e}")
         try:
             min_ts = df['Datetime'].min()
             max_ts = df['Datetime'].max()
