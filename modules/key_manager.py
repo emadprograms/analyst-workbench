@@ -5,6 +5,9 @@ import logging
 import random
 import hashlib
 import libsql_client
+import traceback
+import requests
+import json
 
 log = logging.getLogger(__name__)
 
@@ -19,76 +22,130 @@ CREATE TABLE IF NOT EXISTS gemini_api_keys (
 );
 """
 
-# --- TABLE 2: STATUS (V5 - Gemma) ---
+# --- TABLE 2: STATUS (V6 - RPM) ---
 CREATE_STATUS_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS gemini_key_status (
     key_hash TEXT PRIMARY KEY NOT NULL,
-    strikes INTEGER NOT NULL DEFAULT 0,
-    release_time REAL NOT NULL DEFAULT 0,
-    last_success_day TEXT NOT NULL DEFAULT '',
-    last_used_ts REAL NOT NULL DEFAULT 0,
     
-    daily_free_lite INTEGER NOT NULL DEFAULT 0,
-    daily_free_flash INTEGER NOT NULL DEFAULT 0,
-    daily_free_gemma_27b INTEGER NOT NULL DEFAULT 0,
-    daily_free_gemma_12b INTEGER NOT NULL DEFAULT 0,
+    -- RPM / TPM TRACKING
+    rpm_requests INTEGER NOT NULL DEFAULT 0,
+    rpm_window_start REAL NOT NULL DEFAULT 0,
+    tpm_tokens INTEGER NOT NULL DEFAULT 0,
 
-    daily_3_pro INTEGER NOT NULL DEFAULT 0,
-    daily_2_5_pro INTEGER NOT NULL DEFAULT 0,
-    daily_2_0_flash INTEGER NOT NULL DEFAULT 0,
-
-    ts_3_pro REAL NOT NULL DEFAULT 0,
-    ts_2_5_pro REAL NOT NULL DEFAULT 0,
-    ts_2_0_flash REAL NOT NULL DEFAULT 0
+    -- HEALTH TRACKING
+    strikes INTEGER NOT NULL DEFAULT 0,
+    release_time REAL NOT NULL DEFAULT 0
 );
 """
 
 class KeyManager:
-    # --- CONFIGURATION ---
+    """
+    GEMINI KEY MANAGER V8 - MODEL INDEPENDENCE & TOKEN GUARD
+    
+    ARCHITECTURE OVERVIEW:
+    1. Model Isolation: Usage for 'gemini-3-pro' does not affect 'gemini-3-flash' limits, 
+       even on the same physical API key. This uses the 'gemini_model_usage' table.
+    2. Strict Tiering: Keys are marked as 'paid' or 'free'. Paid model configurations 
+       will ONLY use 'paid' keys. Free configs will ONLY use 'free' keys.
+    3. Token Guard: Pre-calculates estimated request size. Rejects requests that 
+       exceed absolute model capacity (-1.0 wait) or asks to wait if usage > minute limit.
+    4. LibSQL Bug Workaround: Uses Raw HTTP Pipeline (requests) for all DB writes 
+       to bypass client parsing issues.
+    """
+    
+    # --- CONFIGURATION (V8: SPLIT CONFIGS) ---
     TIER_FREE = 'free'
     TIER_PAID = 'paid'
-    
-    MIN_INTERVAL_SEC = 60 
 
-    # MAPPINGS: Model -> (Count Column, Timestamp Column)
-    MODELS_PAID = { 
-        'gemini-3-pro-preview': ('daily_3_pro', 'ts_3_pro'), # Corrected ID
-        'gemini-2.5-pro': ('daily_2_5_pro', 'ts_2_5_pro'),
-        'gemini-2.0-flash': ('daily_2_0_flash', 'ts_2_0_flash')
-    }
-    
-    # Free Tier Mapping: Model -> Count Column
-    MODELS_FREE = {
-        'gemini-2.5-flash-lite': 'daily_free_lite',
-        'gemini-2.5-flash': 'daily_free_flash',
-        'gemma-3-27b-it': 'daily_free_gemma_27b',
-        'gemma-3-12b-it': 'daily_free_gemma_12b'
+    # MODELS_CONFIG: Maps 'Display Key' (used in app) -> {internal_model_id, tier, limits}
+    # IMPORTANT: The same physical model (e.g. Gemini 3 Pro) exists in two tiers:
+    # - 'paid' tier: Higher RPM/TPM limits (requires paid API keys)
+    # - 'free' tier: Default Gemini limits (requires free API keys)
+    MODELS_CONFIG = {
+        # --- PAID TIER (Higher Limits) ---
+        'gemini-3-pro-paid': {
+            'model_id': 'gemini-3-pro-preview',
+            'tier': 'paid',
+            'display': 'Gemini 3 Pro (Paid)',
+            'limits': {'rpm': 25, 'tpm': 1000000, 'rpd': 250} # RPD ADDED
+        },
+        'gemini-3-flash-paid': {
+            'model_id': 'gemini-3-flash-preview', 
+            'tier': 'paid',
+            'display': 'Gemini 3 Flash (Paid)',
+            'limits': {'rpm': 1000, 'tpm': 4000000, 'rpd': 10000}
+        },
+        'gemini-2.5-pro-paid': {
+            'model_id': 'gemini-2.5-pro',
+            'tier': 'paid',
+            'display': 'Gemini 2.5 Pro (Paid)',
+            'limits': {'rpm': 150, 'tpm': 2000000, 'rpd': 10000}
+        },
+        'gemini-2.5-flash-paid': {
+            'model_id': 'gemini-2.5-flash',
+            'tier': 'paid',
+            'display': 'Gemini 2.5 Flash (Paid)',
+            'limits': {'rpm': 1000, 'tpm': 4000000, 'rpd': 10000}
+        },
+        'gemini-2.5-flash-lite-paid': {
+            'model_id': 'gemini-2.5-flash-lite',
+            'tier': 'paid',
+            'display': 'Gemini 2.5 Flash Lite (Paid)',
+            'limits': {'rpm': 4000, 'tpm': 4000000, 'rpd': 1000000} # Unlimited effectively
+        },
+        'gemini-2.0-flash-paid': {
+            'model_id': 'gemini-2.0-flash',
+            'tier': 'paid',
+            'display': 'Gemini 2.0 Flash (Paid)',
+            'limits': {'rpm': 1000, 'tpm': 4000000, 'rpd': 10000} 
+        },
+
+        # --- FREE TIER (Standard Limits) ---
+        'gemini-3-flash-free': {
+             'model_id': 'gemini-3-flash-preview',
+             'tier': 'free',
+             'display': 'Gemini 3 Flash (Free)',
+             'limits': {'rpm': 5, 'tpm': 250000, 'rpd': 10000}
+        },
+        'gemini-2.5-flash-free': {
+             'model_id': 'gemini-2.5-flash',
+             'tier': 'free',
+             'display': 'Gemini 2.5 Flash (Free)',
+             'limits': {'rpm': 5, 'tpm': 250000, 'rpd': 10000} 
+        },
+        'gemini-2.5-flash-lite-free': {
+             'model_id': 'gemini-2.5-flash-lite',
+             'tier': 'free',
+             'display': 'Gemini 2.5 Flash Lite (Free)',
+             'limits': {'rpm': 10, 'tpm': 250000, 'rpd': 10000}
+        },
+        
+        # --- GEMMA FAMILY ---
+        'gemma-3-27b': {
+            'model_id': 'gemma-3-27b-it',
+            'tier': 'free', 
+            'display': 'Gemma 3 27B',
+            'limits': {'rpm': 30, 'tpm': 15000, 'rpd': 10000}
+        },
+         'gemma-3-12b': {
+            'model_id': 'gemma-3-12b-it',
+            'tier': 'free',
+            'display': 'Gemma 3 12B',
+            'limits': {'rpm': 30, 'tpm': 15000, 'rpd': 10000}
+        }
     }
 
-    # Limits (Dynamic)
-    LIMITS_FREE = {
-        'gemini-2.5-flash-lite': 18,
-        'gemini-2.5-flash': 18,
-        'gemma-3-27b-it': 28,
-        'gemma-3-12b-it': 28
-    }
-    
-    LIMITS_PAID = {
-        'gemini-3-pro-preview': 250, # Corrected ID
-        'gemini-2.5-pro': 2000, # Increased from 100 per user request
-        'gemini-2.0-flash': 1000
-    }
-
-    COOLDOWN_PERIODS = {1: 60, 2: 600, 3: 3600, 4: 86400} 
+    COOLDOWN_PERIODS = {1: 10, 2: 60, 3: 300, 4: 3600} 
     MAX_STRIKES = 5
     FATAL_STRIKE_COUNT = 999
 
     def __init__(self, db_url: str, auth_token: str):
-        self.db_url = db_url.replace("libsql://", "https://") # Force HTTPS
+        self.db_url = db_url.replace("libsql://", "https://") 
         self.auth_token = auth_token
         
         try:
             self.db_client = libsql_client.create_client_sync(url=self.db_url, auth_token=auth_token)
+            # Create tables omitted here as they are assumed to exist/migrated
             self.db_client.execute(CREATE_KEYS_TABLE_SQL)
             self.db_client.execute(CREATE_STATUS_TABLE_SQL)
             self._validate_schema_or_die()
@@ -109,27 +166,23 @@ class KeyManager:
         self._refresh_keys_from_db()
 
     def _validate_schema_or_die(self):
+        # V8 Validation: Check ONLY for model_usage table availability
         try:
-            rs = self.db_client.execute("SELECT * FROM gemini_key_status LIMIT 0")
-            cols = list(rs.columns)
-            required = ['daily_free_gemma_27b', 'ts_3_pro']
-            missing = [c for c in required if c not in cols]
-            if missing:
-                raise RuntimeError(f"CRITICAL: DB missing columns {missing}. Run reset_db.py.")
+            rs = self.db_client.execute("SELECT * FROM gemini_model_usage LIMIT 0")
         except Exception as e:
-            if "CRITICAL" in str(e): raise e
+            if "no such table" in str(e):
+                msg = f"CRITICAL: DB missing V8 table 'gemini_model_usage'. Run modules/apply_schema.py."
+                log.critical(msg)
+                raise Exception(msg)
             pass
-
+            
+    # ... (hash/crud omitted, same as before) ...
     def _hash_key(self, key: str) -> str:
         return hashlib.sha256(key.encode('utf-8')).hexdigest()
     
-    def _get_current_day(self):
-        return time.strftime('%Y-%m-%d', time.gmtime())
-    
     def _row_to_dict(self, columns, row):
         return dict(zip(columns, row))
-
-    # --- CRUD ---
+        
     def add_key(self, name: str, value: str, tier: str = 'free', display_order: int = 10):
         try:
             self.db_client.execute(
@@ -159,24 +212,6 @@ class KeyManager:
         if not rs.rows: return []
         return [self._row_to_dict(rs.columns, row) for row in rs.rows]
 
-    # --- SIMPLE MODE (User Request) ---
-    def get_simple_paid_key(self):
-        """
-        Directly fetches the first available PAID key. 
-        No checks, no rotation, no logic.
-        """
-        try:
-            rs = self.db_client.execute("SELECT key_value FROM gemini_api_keys WHERE tier='paid' ORDER BY priority ASC LIMIT 1")
-            if rs.rows:
-                return rs.rows[0][0]
-            # Fallback to ANY key if no paid key found
-            rs_any = self.db_client.execute("SELECT key_value FROM gemini_api_keys ORDER BY priority ASC LIMIT 1")
-            return rs_any.rows[0][0] if rs_any.rows else None
-        except Exception:
-            return None
-
-    # --- CORE LOGIC ---
-
     def _refresh_keys_from_db(self):
         keys_rs = self.db_client.execute("SELECT key_name, key_value, tier FROM gemini_api_keys")
         self.name_to_key = {}
@@ -203,117 +238,146 @@ class KeyManager:
 
         random.shuffle(self.available_keys)
 
-    def get_key(self, target_model: str, exclude_name=None) -> tuple[str | None, str | None, float]:
+    @staticmethod
+    def estimate_tokens(text: str) -> int:
+        """
+        Rough Token Estimation (1 token ~= 4 chars).
+        Use this BEFORE calling get_key to ensure the request fits in the chosen bucket.
+        """
+        if not text: return 0
+        return len(text) // 4 + 1
+
+    def get_key(self, config_id: str, estimated_tokens: int = 0) -> tuple[str | None, str | None, float, str | None]:
+        """
+        V8: Retrieves an available key for the given config_id.
+        
+        ARGS:
+            config_id: The key from MODELS_CONFIG (e.g., 'gemini-3-pro-paid').
+            estimated_tokens: The rough size of the request.
+            
+        RETURNS:
+            (key_name, key_value, wait_time, model_id)
+            - wait_time == 0.0: Success! Use the key.
+            - wait_time == -1.0: FATAL. Request exceeds absolute model capacity.
+            - wait_time > 0.0: COMPACITY REACHED. Seconds to wait for next minute window.
+            - model_id: The internal string Google expects (e.g. 'gemini-3-pro-preview').
+        """
         self._reclaim_keys()
-        current_time = time.time()
         
-        required_tier = self.TIER_PAID if target_model in self.MODELS_PAID else self.TIER_FREE
-        valid_rotation = deque()
-        min_cutoff_wait = float('inf') # Track minimum wait time needed
-        
-        # log.info(f"Checking keys for {target_model} (Required Tier: {required_tier})")
-        
-        keys_checked = 0
-        while self.available_keys:
-            key_value = self.available_keys.popleft()
-            keys_checked += 1
-            key_name = self.key_to_name.get(key_value, "Unknown")
-            key_meta = self.key_metadata.get(key_value, {})
-            key_tier = key_meta.get('tier', 'free')
+        config = self.MODELS_CONFIG.get(config_id)
+        if not config:
+            log.warning(f"Unknown config_id '{config_id}', using safe defaults.")
+            rpm_limit = 5; tpm_limit = 32000; rpd_limit = 10000; required_tier = 'free'
+            target_model_id = 'unknown'
+        else:
+            rpm_limit = config['limits']['rpm']
+            tpm_limit = config['limits']['tpm']
+            rpd_limit = config['limits'].get('rpd', 10000)
+            required_tier = config.get('tier') 
+            target_model_id = config.get('model_id')
+            if required_tier not in ['paid', 'free']: required_tier = 'free' 
 
-            if key_tier != required_tier:
-                # log.debug(f"Skipping {key_name}: Key Tier '{key_tier}' != Req '{required_tier}'")
-                valid_rotation.append(key_value)
-                continue 
-
-            if exclude_name and key_name == exclude_name:
-                valid_rotation.append(key_value) 
+        # NEW: FATAL CHECK (Request > Model Limit)
+        if estimated_tokens > tpm_limit:
+            # Special signal: -1.0 means "Impossible"
+            return None, None, -1.0, target_model_id
+        
+        rotation = deque()
+        best_wait = float('inf')
+        
+        checked_count = 0
+        limit_checked_count = len(self.available_keys) 
+        
+        while self.available_keys and checked_count < limit_checked_count:
+            key_val = self.available_keys.popleft()
+            checked_count += 1
+            
+            # 1. STRICT TIER 
+            key_tier = self.key_metadata[key_val].get('tier', 'free')
+            if required_tier == 'paid' and key_tier != 'paid':
+                rotation.append(key_val)
                 continue
-
-            # DB State Check
-            key_hash = self.key_to_hash[key_value]
-            try:
-                rs = self.db_client.execute("SELECT * FROM gemini_key_status WHERE key_hash = ?", [key_hash])
-                state = self._row_to_dict(rs.columns, rs.rows[0]) if rs.rows else {}
-            except Exception as e:
-                log.error(f"DB Error: {e}"); state = {}
-
-            # --- RATE LIMIT CHECK (V4) ---
-            rate_limited = False
-            wait_for_this_key = 0.0
-            
-            if required_tier == self.TIER_FREE:
-                # FREE: STRICT GLOBAL LOCK
-                last_used = state.get('last_used_ts', 0)
-                diff = current_time - last_used
-                if diff < self.MIN_INTERVAL_SEC:
-                    rate_limited = True
-                    wait_for_this_key = self.MIN_INTERVAL_SEC - diff
-            
-            elif required_tier == self.TIER_PAID:
-                # PAID: PER-MODEL LOCK
-                config = self.MODELS_PAID.get(target_model) 
-                if config:
-                    ts_col = config[1]
-                    last_model_ts = state.get(ts_col, 0)
-                    diff = current_time - last_model_ts
-                    
-                    # --- HOTFIX: BYPASS LIMIT FOR 2.5 PRO and 3.0 PRO (User Request) ---
-                    limit_to_use = 0 if target_model in ['gemini-2.5-pro', 'gemini-3-pro-preview'] else self.MIN_INTERVAL_SEC
-
-                    if diff < limit_to_use:
-                        rate_limited = True
-                        wait_for_this_key = limit_to_use - diff
-            
-            if rate_limited:
-                # log.info(f"Skipping {key_name}: Rate Limited. Wait {wait_for_this_key:.1f}s")
-                if wait_for_this_key > 0:
-                    min_cutoff_wait = min(min_cutoff_wait, wait_for_this_key)
-                valid_rotation.append(key_value)
+            if required_tier == 'free' and key_tier != 'free':
+                rotation.append(key_val)
                 continue
-
-            # --- DAILY LIMIT CHECK ---
-            current_day = self._get_current_day()
-            db_day = state.get('last_success_day', '')
-            is_new_day = db_day != current_day
-
-            strikes = state.get('strikes', 0)
-            if strikes >= self.FATAL_STRIKE_COUNT:
-                self.dead_keys.add(key_value); continue
-
-            usage_ok = True
             
-            if required_tier == self.TIER_FREE:
-                col_name = self.MODELS_FREE.get(target_model)
-                if col_name:
-                    count = 0 if is_new_day else state.get(col_name, 0)
-                    # DYNAMIC LIMIT LOOKUP
-                    limit = self.LIMITS_FREE.get(target_model, 18) 
-                    if count >= limit: usage_ok = False
+            # 2. HEALTH
+            if key_val in self.dead_keys:
+                rotation.append(key_val)
+                continue
+                
+            # 3. LIMITS (V8: Model Specific)
+            wait = self._check_key_limits(key_val, target_model_id, rpm_limit, tpm_limit, rpd_limit, estimated_tokens)
             
-            elif required_tier == self.TIER_PAID:
-                config = self.MODELS_PAID.get(target_model)
-                if config:
-                    count_col = config[0]
-                    count = 0 if is_new_day else state.get(count_col, 0)
-                    limit = self.LIMITS_PAID.get(target_model, 100)
-                    if count >= limit: usage_ok = False
+            if wait == 0:
+                self.available_keys.extendleft(reversed(rotation)) 
+                self.available_keys.append(key_val) 
+                return self.key_to_name[key_val], key_val, 0.0, target_model_id
             
-            if not usage_ok:
-                valid_rotation.append(key_value); continue
+            best_wait = min(best_wait, wait)
+            rotation.append(key_val)
+            
+        self.available_keys.extend(rotation)
+        if best_wait == float('inf'): return None, None, 0.0, target_model_id
+        return None, None, best_wait, target_model_id
 
-            # Found good key
-            self.available_keys.extendleft(reversed(valid_rotation))
-            return key_name, key_value, 0.0
-
-        self.available_keys.extend(valid_rotation)
+    def _check_key_limits(self, key_val: str, model_id: str, rpm_limit: int, tpm_limit: int, rpd_limit: int, estimated_tokens: int = 0) -> float:
+        """Returns seconds to wait. 0.0 if ready. Uses V8 model_usage table."""
+        key_hash = self.key_to_hash.get(key_val)
+        if not key_hash: return 0.0
         
-        # Calculate dynamic wait
-        final_wait = 5.0
-        if min_cutoff_wait != float('inf'):
-            final_wait = max(5.0, min_cutoff_wait + 1.0) # Add 1s buffer for safety
+        try:
+            # V8: Query gemini_model_usage
+            rs = self.db_client.execute(
+                "SELECT rpm_requests, rpm_window_start, tpm_tokens, strikes, rpd_requests, last_used_day FROM gemini_model_usage WHERE key_hash = ? AND model_id = ?", 
+                [key_hash, model_id]
+            )
+            if not rs.rows: return 0.0
             
-        return None, None, final_wait 
+            row = self._row_to_dict(rs.columns, rs.rows[0])
+            if row['strikes'] >= self.MAX_STRIKES: return 86400.0
+            
+            now = time.time()
+            today_str = time.strftime('%Y-%m-%d', time.gmtime(now))
+            
+            # CHECK RPD
+            last_day = row.get('last_used_day', '')
+            daily_req = row.get('rpd_requests', 0)
+            
+            if last_day == today_str and daily_req >= rpd_limit:
+                 return 3600.0 
+            
+            # CHECK RPM/TPM
+            start = row['rpm_window_start']
+            count_req = row['rpm_requests']
+            count_tok = row['tpm_tokens']
+            
+            if now - start >= 60: return 0.0
+            
+            if count_req >= rpm_limit: return max(1.0, 60 - (now - start))
+            
+            # PRE_CHECK TOKEN CAPACITY (TPM)
+            if (count_tok + estimated_tokens) > tpm_limit:
+                # Token limit exceeded for this minute
+                return max(1.0, 60 - (now - start))
+                
+            return 0.0
+        except Exception:
+            return 0.0
+
+    def get_key_stats(self, key_value: str, model_id: str = None):
+        """V8: Returns stats for a key. If model_id provided, returns specific model stats."""
+        key_hash = self.key_to_hash.get(key_value)
+        if not key_hash: return {}
+        try:
+             if model_id:
+                 rs = self.db_client.execute("SELECT * FROM gemini_model_usage WHERE key_hash = ? AND model_id = ?", [key_hash, model_id])
+                 return self._row_to_dict(rs.columns, rs.rows[0]) if rs.rows else {}
+             else:
+                 # Just return generic health from key_status (legacy) or summary
+                 # For V8 migration, we focus on model usage.
+                 return {}
+        except: return {}
 
     def _reclaim_keys(self):
         current_time = time.time()
@@ -322,78 +386,110 @@ class KeyManager:
         for key in released:
             del self.cooldown_keys[key]
             self.available_keys.append(key)
-
-    def report_success(self, key: str, model_id: str):
-        key_hash = self.key_to_hash[key]
-        current_day = self._get_current_day()
-        current_ts = time.time()
+    
+    # --- RAW HTTP HELPER (Bypassing buggy client) ---
+    def _raw_http_execute(self, sql: str, args: list):
+        """Standard LibSQL HTTP Pipeline execution to avoid client parsing bugs."""
+        url = f"{self.db_url}/v2/pipeline"
+        headers = {"Authorization": f"Bearer {self.auth_token}", "Content-Type": "application/json"}
         
-        key_meta = self.key_metadata.get(key, {})
-        key_tier = key_meta.get('tier', 'free')
-
-        col_to_inc = 'daily_free_lite' # Fallback
-        ts_col_update = "" 
-
-        if key_tier == self.TIER_PAID:
-            config = self.MODELS_PAID.get(model_id)
-            if config:
-                col_to_inc = config[0]
-                ts_col_update = f", {config[1]} = {current_ts}" 
-            else:
-                col_to_inc = 'daily_3_pro' 
-        else:
-            col_to_inc = self.MODELS_FREE.get(model_id, 'daily_free_lite')
-
+        encoded_args = []
+        for a in args:
+            if isinstance(a, int): encoded_args.append({"type": "integer", "value": str(a)})
+            elif isinstance(a, float): encoded_args.append({"type": "float", "value": a})
+            elif isinstance(a, str): encoded_args.append({"type": "text", "value": a})
+            elif a is None: encoded_args.append({"type": "null"})
+            else: encoded_args.append({"type": "text", "value": str(a)})
+            
+        payload = {"requests": [{"type": "execute", "stmt": {"sql": sql, "args": encoded_args}}]}
+        
         try:
-            rs = self.db_client.execute("SELECT last_success_day FROM gemini_key_status WHERE key_hash = ?", [key_hash])
-            last_day = rs.rows[0][0] if rs.rows else ""
-            
-            if last_day != current_day:
-                # Reset ALL counters (Including Gemma)
-                cols = [
-                    'daily_free_lite', 'daily_free_flash', 'daily_free_gemma_27b', 'daily_free_gemma_12b',
-                    'daily_3_pro', 'daily_2_5_pro', 'daily_2_0_flash'
-                ]
-                set_clause = ", ".join([f"{c} = 0" for c in cols])
-                
-                sql = f"""
-                INSERT INTO gemini_key_status (key_hash, last_success_day, last_used_ts, strikes, {col_to_inc})
-                VALUES (?, ?, ?, 0, 1)
-                ON CONFLICT(key_hash) DO UPDATE SET
-                last_success_day = excluded.last_success_day,
-                last_used_ts = excluded.last_used_ts,
-                strikes = 0,
-                {set_clause},
-                {col_to_inc} = 1
-                {ts_col_update};
-                """
-                self.db_client.execute(sql, [key_hash, current_day, current_ts])
-            else:
-                sql = f"""
-                INSERT INTO gemini_key_status (key_hash, last_success_day, last_used_ts, {col_to_inc})
-                VALUES (?, ?, ?, 1)
-                ON CONFLICT(key_hash) DO UPDATE SET
-                {col_to_inc} = gemini_key_status.{col_to_inc} + 1,
-                last_used_ts = excluded.last_used_ts,
-                last_success_day = excluded.last_success_day,
-                strikes = 0
-                {ts_col_update};
-                """
-                self.db_client.execute(sql, [key_hash, current_day, current_ts])
-                
+            resp = requests.post(url, json=payload, headers=headers, timeout=5)
+            if resp.status_code != 200:
+                msg = f"Raw DB Exec Failed: {resp.status_code} {resp.text}"
+                log.error(msg)
+                raise Exception(msg)
         except Exception as e:
-            log.error(f"Report Success Failed: {e}")
-            
-        self.available_keys.append(key)
+            log.error(f"Raw DB Conn Failed: {e}")
+            raise e
 
-    def report_failure(self, key: str, is_server_error=False):
-        if is_server_error:
+    def report_usage(self, key: str, tokens: int = 0, model_id: str = 'unknown'):
+        """
+        V8: Reports usage to isolated model buckets.
+        
+        IMPORTANT: model_id MUST be the internal ID (e.g., 'gemini-3-pro-preview'), 
+        NOT the config_id. This ensures that usage is tracked correctly even 
+        if multiple configs share the same internal model.
+        """
+        key_hash = self.key_to_hash[key]
+        now = time.time()
+        today_str = time.strftime('%Y-%m-%d', time.gmtime(now))
+        
+        try:
+            # 1. Get current state from MODEL usage table
+            rs = self.db_client.execute(
+                "SELECT rpm_requests, rpm_window_start, tpm_tokens, rpd_requests, last_used_day FROM gemini_model_usage WHERE key_hash = ? AND model_id = ?", 
+                [key_hash, model_id]
+            )
+            
+            if rs.rows:
+                # UPDATE
+                row = self._row_to_dict(rs.columns, rs.rows[0])
+                current_start = row['rpm_window_start']
+                current_count = row['rpm_requests']
+                current_tokens = row['tpm_tokens']
+                
+                # Update Minutes
+                if now - current_start >= 60:
+                    new_count = 1
+                    new_start = now
+                    new_tokens = tokens
+                else:
+                    new_count = current_count + 1
+                    new_start = current_start
+                    new_tokens = current_tokens + tokens
+                
+                # Update Days
+                last_day = row.get('last_used_day', '')
+                current_rpd = row.get('rpd_requests', 0)
+                
+                if last_day != today_str:
+                    new_rpd = 1
+                else:
+                    new_rpd = current_rpd + 1
+                
+                # USE RAW REQUEST
+                self._raw_http_execute(
+                    """UPDATE gemini_model_usage SET 
+                       rpm_requests = ?, rpm_window_start = ?, tpm_tokens = ?, 
+                       rpd_requests = ?, last_used_day = ?,
+                       strikes = 0 
+                       WHERE key_hash = ? AND model_id = ?""",
+                    [new_count, new_start, new_tokens, new_rpd, today_str, key_hash, model_id]
+                )
+            else:
+                # INSERT
+                self._raw_http_execute(
+                    """INSERT INTO gemini_model_usage 
+                       (key_hash, model_id, rpm_requests, rpm_window_start, tpm_tokens, 
+                        rpd_requests, last_used_day, strikes) 
+                       VALUES (?, ?, 1, ?, ?, 1, ?, 0)""",
+                    [key_hash, model_id, now, tokens, today_str]
+                )
+                
+            self.available_keys.append(key)
+        except Exception as e:
+            import traceback
+            log.error(f"Report Usage Failed: {e}\n{traceback.format_exc()}")
+
+    def report_failure(self, key: str, is_info_error=False):
+        if is_info_error:
             self.available_keys.append(key)
             return
             
         strikes = self.key_failure_strikes.get(key, 0) + 1
         self.key_failure_strikes[key] = strikes
-        penalty = self.COOLDOWN_PERIODS.get(strikes, 86400)
+        penalty = self.COOLDOWN_PERIODS.get(strikes, 60)
         
         self.cooldown_keys[key] = time.time() + penalty
         

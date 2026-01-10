@@ -112,15 +112,17 @@ with tab_runner_eod:
     with col_status:
         st.info("✅ Gemini Rotation System: Active & Connected to Database")
     with col_model:
+        model_options = list(AVAILABLE_MODELS.keys())
         try:
-            default_index = AVAILABLE_MODELS.index(MODEL_NAME)
+            default_index = model_options.index(MODEL_NAME)
         except ValueError:
             default_index = 0
 
         selected_model = st.selectbox(
             "Select AI Model", 
-            AVAILABLE_MODELS, 
+            model_options, 
             index=default_index, 
+            format_func=lambda x: AVAILABLE_MODELS.get(x, x),
             help="Higher intelligence (Pro) uses more quota. Flash is faster."
         )
 
