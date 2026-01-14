@@ -512,3 +512,41 @@ def split_stock_summaries(raw_text: str) -> dict:
             summaries[ticker] = summary_text
             
     return summaries
+
+# --- AGENTIC ADDITION: DATA HELPER ---
+def calculate_bias_score(bias_text: str) -> float:
+    """
+    Converts a Setup Bias text string into a numerical score for comparison.
+    Used for Trend Analysis and Structure Break detection.
+    
+    Mapping:
+    - Bullish: 2.0
+    - Bullish Consolidation: 1.5
+    - Neural (Bullish Lean): 1.0
+    - Neutral: 0.0
+    - Neutral (Bearish Lean): -1.0
+    - Bearish Consolidation: -1.5
+    - Bearish: -2.0
+    """
+    lower_bias = bias_text.lower()
+    score = 0.0
+    
+    # 1. Complex/Compound States (Consolidation)
+    if "bullish consolidation" in lower_bias:
+        score = 1.5
+    elif "bearish consolidation" in lower_bias:
+        score = -1.5
+    
+    # 2. Leans (Neutral with Lean)
+    elif "neutral" in lower_bias and "bullish lean" in lower_bias:
+        score = 1.0
+    elif "neutral" in lower_bias and "bearish lean" in lower_bias:
+        score = -1.0
+
+    # 3. Base States (Stronger than lean, stronger than consolidation?)
+    elif "bullish" in lower_bias and "neutral" not in lower_bias:
+        score = 2.0
+    elif "bearish" in lower_bias and "neutral" not in lower_bias:
+        score = -2.0
+        
+    return score

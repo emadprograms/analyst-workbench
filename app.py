@@ -33,7 +33,7 @@ from modules.config import (
 
 # --- Corrected Imports ---
 from modules.ai_services import call_gemini_api, KEY_MANAGER
-from modules.data_processing import generate_analysis_text, parse_raw_summary, split_stock_summaries
+from modules.data_processing import generate_analysis_text, parse_raw_summary, split_stock_summaries, calculate_bias_score
 from modules.db_utils import (
     get_all_tickers_from_db, 
     upsert_daily_inputs, 
@@ -453,9 +453,9 @@ with tab_runner_eod:
 
             with st.spinner("Running EOD updates for selected companies..."):
                 # --- NEW: Get connection outside loop ---
-                conn_stock_save = None
+                # Connection moved inside loop to prevent timeouts
                 try:
-                    conn_stock_save = get_db_connection()
+                    pass # conn_stock_save init removed
                     # --- MERGED STEP 3b: Run AI Loop ---
                     for ticker in selected_tickers:
                         summary = summaries_by_ticker.get(ticker)
@@ -512,16 +512,25 @@ with tab_runner_eod:
                             
                             # --- NEW: Use connection from outside loop ---
                             # --- Save to the 'company_cards' table ---
-                            conn_stock_save.execute(
-                                """
-                                INSERT INTO company_cards (date, ticker, raw_text_summary, company_card_json)
-                                VALUES (?, ?, ?, ?)
-                                ON CONFLICT(date, ticker) DO UPDATE SET
-                                    raw_text_summary = excluded.raw_text_summary,
-                                    company_card_json = excluded.company_card_json
-                                """,
-                                (selected_date.isoformat(), ticker, summary, new_card_json_formatted)
-                            )
+                            # --- FIX: Open New Connection PER TICKER ---
+                            # Prevent idle timeouts by opening strictly for the save op
+                            conn_save_local = get_db_connection()
+                            if conn_save_local:
+                                try:
+                                    conn_save_local.execute(
+                                        """
+                                        INSERT INTO company_cards (date, ticker, raw_text_summary, company_card_json)
+                                        VALUES (?, ?, ?, ?)
+                                        ON CONFLICT(date, ticker) DO UPDATE SET
+                                            raw_text_summary = excluded.raw_text_summary,
+                                            company_card_json = excluded.company_card_json
+                                        """,
+                                        (selected_date.isoformat(), ticker, summary, new_card_json_formatted)
+                                    )
+                                finally:
+                                    conn_save_local.close()
+                            else:
+                                raise Exception("Failed to acquire DB connection for save.")
                             # No .commit() needed
                             logger.log(f"✅ **Success:** Updated and archived card for {ticker}.")
                             success_list.append(ticker)
@@ -537,8 +546,7 @@ with tab_runner_eod:
                 except Exception as e:
                     logger.log(f"❌ **FATAL Error:** An unexpected error occurred during the update loop: {e}")
                 finally:
-                    if conn_stock_save:
-                        conn_stock_save.close() # <-- NEW
+                    pass # No outer connection to close
 
             st.subheader("Update Summary")
             if success_list:
@@ -765,7 +773,7 @@ with tab_filter:
     # Mode Selection (Dropdown instead of Tabs)
     research_mode = st.selectbox(
         "Select Research Mode",
-        ["Setup Screener", "Setup Analyzer"],
+        ["Setup Screener", "Setup Analyzer", "Structure Breaks"],
         index=0,
         key="research_mode_selector"
     )
@@ -941,32 +949,7 @@ with tab_filter:
                                     bias_text = bias_match.group(1).strip()
                                     
                                     # Map to Numeric Score (Granular)
-                                    score = 0
-                                    lower_bias = bias_text.lower()
-                                    
-                                    # 1. Complex/Compound States
-                                    if "bullish consolidation" in lower_bias:
-                                        score = 1.5
-                                    elif "bearish consolidation" in lower_bias:
-                                        score = -1.5
-                                    
-                                    # 2. Leans
-                                    elif "neutral" in lower_bias and "bullish lean" in lower_bias:
-                                        score = 1.0
-                                    elif "neutral" in lower_bias and "bearish lean" in lower_bias:
-                                        score = -1.0
-
-                                    # 3. Base States (Stronger than lean, stronger than consolidation?)
-                                    # User implied "Bullish" > "Bullish Consolidation" > "Lean"
-                                    # But Consolidation might be seen as 1.5 (between Lean and Pure). 
-                                    elif "bullish" in lower_bias and "neutral" not in lower_bias:
-                                        score = 2.0
-                                    elif "bearish" in lower_bias and "neutral" not in lower_bias:
-                                        score = -2.0
-                                        
-                                    # 4. Pure Neutral
-                                    elif "neutral" in lower_bias:
-                                        score = 0.0
+                                    score = calculate_bias_score(bias_text)
                                     
                                     trend_data.append({
                                         "Date": d,
@@ -993,6 +976,186 @@ with tab_filter:
                                 
                 except Exception as e:
                     st.error(f"Error fetching trend history: {e}")
-                finally:
                     if conn_trend:
                         conn_trend.close()
+
+    # --- MODE 3: STRUCTURE BREAKS (New Feature) ---
+    elif research_mode == "Structure Breaks":
+        st.subheader("Structure Break Identifier")
+        st.caption("Identify companies that flipped their structural bias (Bearish ↔ Bullish) on a specific day.")
+        
+        break_dates = get_all_archive_dates()
+        if not break_dates:
+            st.warning("No data found.")
+        else:
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                selected_break_date_str = st.selectbox(
+                    "Select Analysis Date",
+                    break_dates,
+                    index=0,
+                    key="break_date_selector"
+                )
+            
+            if st.button("🔍 Scan for Reversals", use_container_width=True):
+                conn_break = None
+                try:
+                    conn_break = get_db_connection()
+                    target_date = datetime.strptime(selected_break_date_str, "%Y-%m-%d").date()
+                    
+                    # 1. Find Previous Available Date
+                    # We look for the most recent date BEFORE the target_date
+                    rs_prev = conn_break.execute(
+                        "SELECT DISTINCT date FROM company_cards WHERE date < ? ORDER BY date DESC LIMIT 1",
+                        (selected_break_date_str,)
+                    )
+                    
+                    prev_date_str = None
+                    if rs_prev.rows:
+                        prev_date_str = rs_prev.rows[0][0]
+                        
+                    if not prev_date_str:
+                        st.error(f"No historical data found prior to {selected_break_date_str} to compare against.")
+                    else:
+                        st.info(f"Comparing **{selected_break_date_str}** vs Previous Session: **{prev_date_str}**")
+                        
+                        # 2. Fetch Data for BOTH dates
+                        # Helper to map Ticker -> {Bias: str, Score: float, Briefing: str}
+                        def get_bias_map(date_str):
+                            mapping = {}
+                            rs = conn_break.execute(
+                                "SELECT ticker, company_card_json FROM company_cards WHERE date = ?",
+                                (date_str,)
+                            )
+                            for row in rs.rows:
+                                tick = row[0]
+                                try:
+                                    card = json.loads(row[1])
+                                    briefing = card.get("screener_briefing", "")
+                                    match = re.search(r"Setup_Bias:\s*(.*?)(?:\n|$)", briefing, re.IGNORECASE)
+                                    if match:
+                                        b_text = match.group(1).strip()
+                                        score = calculate_bias_score(b_text)
+                                        mapping[tick] = {
+                                            'bias': b_text, 
+                                            'score': score,
+                                            'briefing': briefing
+                                        }
+                                except: pass
+                            return mapping
+
+                        current_map = get_bias_map(selected_break_date_str)
+                        prev_map = get_bias_map(prev_date_str)
+                        
+                        # 3. Detect Reversals
+                        bullish_inductions = [] # Bearish -> Bullish
+                        bearish_rejections = [] # Bullish -> Bearish
+                        
+                        for ticker, curr_data in current_map.items():
+                            if ticker in prev_map:
+                                prev_data = prev_map[ticker]
+                                p_score = prev_data['score']
+                                c_score = curr_data['score']
+                                
+                                # BULLISH INDUCTION (Bear/Neutral -> Bull)
+                                if p_score <= 0 and c_score > 0:
+                                    bullish_inductions.append({
+                                        'ticker': ticker,
+                                        'from': prev_data['bias'],
+                                        'to': curr_data['bias'],
+                                        'briefing': curr_data['briefing']
+                                    })
+                                    
+                                # BEARISH REJECTION (Bull/Neutral -> Bear)
+                                if p_score >= 0 and c_score < 0:
+                                    bearish_rejections.append({
+                                        'ticker': ticker,
+                                        'from': prev_data['bias'],
+                                        'to': curr_data['bias'],
+                                        'briefing': curr_data['briefing']
+                                    })
+
+                        # 4. Display Results
+                        st.subheader("Structural Reversals")
+                        
+                        col_bull, col_bear = st.columns(2)
+                        
+                        def format_briefing(text):
+                            """Parses and formats the Screener Briefing string into structured UI."""
+                            # 1. remove Top Level Header if present
+                            clean_text = re.sub(r"Setup_Bias:.*?\n", "", text, flags=re.IGNORECASE).strip()
+                            
+                            # Helper: Sanitize Markdown/LaTeX artifacts
+                            def sanitize(s, escape_dollar=True):
+                                if not s: return None
+                                # Remove backticks (prevents green code blocks)
+                                s = s.replace("`", "")
+                                if escape_dollar:
+                                    # Escape dollar signs (prevents LaTeX italics)
+                                    s = s.replace("$", r"\$")
+                                return s.strip()
+
+                            # 2. Extract Fields using Regex
+                            # We look for Key: Value patterns
+                            # ADDED: Plan_A_Level and Plan_B_Level to the lookahead to prevent overlap
+                            def extract(key, escape_dollar=True):
+                                match = re.search(f"{key}:\\s*(.*?)(?=\\s*(?:Justification|Catalyst|Pattern|Plan_A|Plan_A_Level|Plan_B|Plan_B_Level|S_Levels|R_Levels):|$)", clean_text, re.IGNORECASE | re.DOTALL)
+                                return sanitize(match.group(1), escape_dollar) if match else None
+
+                            justification = extract("Justification")
+                            catalyst = extract("Catalyst")
+                            pattern = extract("Pattern")
+                            plan_a = extract("Plan_A")
+                            plan_a_level = extract("Plan_A_Level")
+                            plan_b = extract("Plan_B")
+                            plan_b_level = extract("Plan_B_Level")
+                            # Levels are inside code blocks, so DO NOT escape $
+                            s_levels = extract("S_Levels", escape_dollar=False)
+                            r_levels = extract("R_Levels", escape_dollar=False)
+
+                            # 3. Render
+                            if justification:
+                                st.markdown(f"**Justification:** {justification}")
+                            
+                            st.divider()
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                if pattern: st.markdown(f"**🎨 Pattern:** {pattern}")
+                                if catalyst: st.markdown(f"**📢 Catalyst:** {catalyst}")
+                            with c2:
+                                if s_levels: st.markdown(f"**Support:** `{s_levels}`")
+                                if r_levels: st.markdown(f"**Resistance:** `{r_levels}`")
+
+                            st.divider()
+                            
+                            # Plans
+                            if plan_a:
+                                # Clean up if logic duplicated the level in the plan text (unlikely with fixed regex, but safety first)
+                                st.markdown(f"**:green[Plan A]:** {plan_a}" + (f" @ **{plan_a_level}**" if plan_a_level else ""))
+                            
+                            if plan_b:
+                                st.markdown(f"**:red[Plan B]:** {plan_b}" + (f" @ **{plan_b_level}**" if plan_b_level else ""))
+
+                        with col_bull:
+                            st.markdown("### 🐂 Bullish Retrievals (Bear → Bull)")
+                            if not bullish_inductions:
+                                st.caption("No bullish reversals found.")
+                            else:
+                                for item in bullish_inductions:
+                                    with st.expander(f"**{item['ticker']}**: {item['from']} ➡️ **{item['to']}**", expanded=True):
+                                        format_briefing(item['briefing'])
+                                    
+                        with col_bear:
+                            st.markdown("### 🐻 Bearish Rejections (Bull → Bear)")
+                            if not bearish_rejections:
+                                st.caption("No bearish reversals found.")
+                            else:
+                                for item in bearish_rejections:
+                                    with st.expander(f"**{item['ticker']}**: {item['from']} ➡️ **{item['to']}**", expanded=True):
+                                         format_briefing(item['briefing'])
+
+                except Exception as e:
+                    st.error(f"Error checking structure breaks: {e}")
+                finally:
+                    if conn_break:
+                        conn_break.close()

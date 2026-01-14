@@ -24,6 +24,12 @@ from modules.key_manager import KeyManager # <-- Imported Class
 # 3. FIX: Added missing newline that was causing syntax errors
 from modules.data_processing import parse_raw_summary
 from modules.ui_components import AppLogger
+from modules.db_utils import get_db_connection
+from modules.impact_engine import (
+    get_session_bars_from_db, 
+    get_previous_session_stats, 
+    analyze_market_context
+)
 
 # --- GLOBAL KEY MANAGER INITIALIZATION ---
 # This breaks the circular dependency with config.py
@@ -173,6 +179,29 @@ def update_company_card(
     trade_date_str = new_eod_date.isoformat()
 
     # --- FINAL Main 'Masterclass' Prompt ---
+    # --- IMPACT ENGINE INTEGRATION ---
+    impact_context_json = "No Data Available"
+    
+    conn = get_db_connection()
+    if conn:
+        try:
+            # Fetch Data for Engine
+            df = get_session_bars_from_db(conn, ticker, trade_date_str, f"{trade_date_str} 23:59:59", logger)
+            ref_stats = get_previous_session_stats(conn, ticker, trade_date_str, logger)
+            
+            # Run Engine
+            context_card = analyze_market_context(df, ref_stats, ticker)
+            impact_context_json = json.dumps(context_card, indent=2)
+            logger.log(f"✅ Generated Impact Context Card for {ticker}")
+        except Exception as e:
+            logger.log(f"⚠️ Impact Engine Failed for {ticker}: {e}")
+            impact_context_json = f"Error generating context: {e}"
+        finally:
+            conn.close()
+    else:
+        logger.log("⚠️ DB Connection Failed - Skipping Impact Engine")
+
+    # --- FINAL Main 'Masterclass' Prompt ---
     prompt = f"""
     [Raw Market Context for Today]
     (This contains RAW, unstructured news headlines and snippets from various sources. You must synthesize the macro "Headwind" or "Tailwind" yourself from this data. It also contains company-specific news.)
@@ -183,16 +212,16 @@ def update_company_card(
     {historical_notes or "No historical notes provided."}
     
     [Previous Card (Read-Only)]
-    (This is the established structure, plans, and `keyActionLog` so far. Read this for the 3-5 day context AND to find the previous 'recentCatalyst' and 'fundamentalContext' data.) 
+    (This is established structure, plans, and `keyActionLog` so far. Read this for the 3-5 day context AND to find the previous 'recentCatalyst' and 'fundamentalContext' data.) 
     {json.dumps(previous_overview_card_dict, indent=2)}
 
     [Log of Recent Key Actions (Read-Only)]
     (This is the day-by-day story so far. Use this for context.)
     {json.dumps(recent_log_entries, indent=2)}
 
-    [Today's New Price Action Summary (for {trade_date_str})]
-    (This is the objective, level-based data for the day you must analyze.)
-    {new_eod_summary}
+    [Today's New Price Action Summary (IMPACT CONTEXT CARD)]
+    (Use this structured 'Value Migration Log' and 'Impact Levels' to determine the 'Nature' of the session.)
+    {impact_context_json}
 
     [Your Task for {trade_date_str}]
     Your task is to populate the JSON template below. You MUST use the following trading model to generate your analysis.
@@ -271,16 +300,19 @@ def update_company_card(
         * **Example 2 (No Confirmation):** "Low-volume breakout. The move above $420 resistance was on low, unconvincing volume, signaling a 'Stable Market' (Committed Seller) exhaustion, not 'Unstable' (Desperate Buyer) panic."
 
     **7. `behavioralSentiment` Section (The "Micro" / Today's Analysis):**
-        * **`emotionalTone` (Pattern + Proof of Reasoning):**
-            * This is your **Justification**, not a description. You MUST show your work by following this 3-part logic:
-            * **1. Observation (The "What"):** State the objective price action from `[Today's Summary]` (e.g., "Price formed a higher-low pattern...").
-            * **2. Inference (The "So What?"):** State what this action *means* according to the Masterclass philosophy. (e.g., "This action is the *opposite* of a 'price vacuum' (which would signal `Desperate Sellers`). It proves buyers who were 'absent' are now becoming more aggressive.").
-            * **3. Conclusion (The "Why"):** State the *psychological event* this signals. (e.g., "Therefore, this price action is the classic signal of **seller exhaustion** and a shift to *competing* **Committed Buyers**.").
-            * **Final Format:** "Label - Reasoning: [Your full 3-part proof]"
-            * **Example:** "Accumulation (Stable) - Reasoning: **(1. Observation)** The `[Price Summary]` shows sellers were unable to achieve a new low with conviction, instead forming a higher-low pattern. **(2. Inference)** This action is *not* a 'price vacuum' (which would signal `Desperate Sellers`); it proves that buyers who were 'absent' are now competing more aggressively. **(3. Conclusion)** This directly signals **seller exhaustion** and a shift to competing **Committed Buyers** as defined in the Masterclass."
-        * **`newsReaction` (Headwind/Tailwind):**
-            * This is your *relative strength* analysis. Compare the stock's `emotionalTone` to the `[Overall Market Context]`.
-            * (e.g., "Market was bearish (headwind), but the stock held its $266 support in an 'Accumulation' pattern. This shows *extreme relative strength*...")
+        * **`emotionalTone` (The 3-Act Pattern + Proof of Reasoning):**
+            * This is your **Justification**, not a description. You MUST show your work by analyzing the **3-Part Session Arc** (`Pre-Market` -> `RTH` -> `Post-Market`):
+            * **1. Act I (Intent):** What did `sessions.pre_market` try to do? (e.g., "Bulls attempted a gap up...").
+            * **2. Act II (The Conflict - RTH):** Did `sessions.regular_hours` validate or invalidate that intent? Analyze the 'Value Migration'. (e.g., "...but RTH invalidated the gap immediately, migrating value LOWER on high volume.").
+            * **3. Act III (Resolution):** How did `sessions.post_market` close? (e.g., "Weak close near lows confirms rejection.").
+            * **Then, label the psychological event.**
+            * **Final Format:** "Label - Reasoning: [Your full 3-Act proof]"
+            * **Example:** "Accumulation (Stable) - Reasoning: **(Act I)** Pre-market held support. **(Act II)** RTH confirmed this by defending the low and migrating value higher into a 'Wide Expansion' range. **(Act III)** Post-market held gains. This consistency signals **Committed Buyers** are in control."
+        * **`newsReaction` (The Surprise / Correlation Analysis):**
+            * **You MUST detect the 'Disconnect':** Compare the **Pre-Market News Theme** vs. the **RTH Price Response**.
+            * **Scenario A (Validation):** News was Bad -> Price Sold Off. (Standard Headwind).
+            * **Scenario B (Surprise/Invalidation - CRITICAL):** News was Bad (e.g., 'Sell America' theme in Pre-Market) -> **Price IGNORED it and Rallied** (RTH). 
+            * **Rule:** If price *invalidates* the news theme, you MUST label this as a **MAJOR SIGNAL** of underlying conviction. (e.g., "Bullish Surprise - Stock ignored the 'Sell America' pre-market theme and rallied, proving extreme relative strength.").
         * **`buyerVsSeller` (The Conclusion):**
             * This is your *final synthesis* of the `emotionalTone` and `newsReaction`.
             * (e.g., "Committed Buyers are in firm control. They not only showed a 'Stable Accumulation' pattern at $415 but did so *against* a weak, bearish market, confirming their high conviction.")
@@ -490,16 +522,51 @@ def update_economy_card(
 
     logger.log("2. Building Economy Card Update Prompt...")
     
+    trade_date_str = selected_date.isoformat()
+
+    # --- IMPACT ENGINE INTEGRATION (ECONOMY) ---
+    etf_impact_data = {}
+    
+    # Expanded Asset List (20 Assets)
+    target_etfs = [
+        # Major Indices
+        "SPY", "QQQ", "IWM", "DIA",
+        # Sectors
+        "XLK", "XLF", "XLE", "XLV", "XLI", "XLC", "XLP", "XLU", "SMH",
+        # Commodities & Macro
+        "TLT", "UUP", "BTCUSDT", "PAXGUSDT", "CL=F", "EURUSDT", "^VIX"
+    ]
+    
+    conn = get_db_connection()
+    if conn:
+        try:
+            for etf in target_etfs:
+                try:
+                    df = get_session_bars_from_db(conn, etf, trade_date_str, f"{trade_date_str} 23:59:59", logger)
+                    ref_stats = get_previous_session_stats(conn, etf, trade_date_str, logger)
+                    context_card = analyze_market_context(df, ref_stats, etf)
+                    etf_impact_data[etf] = context_card
+                    logger.log(f"   ...Generated Impact Context for {etf}")
+                except Exception as inner_e:
+                    logger.log(f"   ...Failed to generate context for {etf}: {inner_e}")
+                    etf_impact_data[etf] = {"error": str(inner_e)}
+        except Exception as e:
+             logger.log(f"⚠️ Economy Engine Failed: {e}")
+        finally:
+            conn.close()
+    
+    etf_summaries = json.dumps(etf_impact_data, indent=2)
+
     # --- FIX: Rebuilt System Prompt ---
     system_prompt = (
         "You are a macro-economic strategist. Your task is to update the *entire* global 'Economy Card' JSON. "
         "Your primary goal is a **two-part synthesis**: "
         "1. **Synthesize the narrative ('Why')** from the `[Raw Market News]` input. DO NOT expect a pre-written wrap; you must decode the raw headlines yourself. "
-        "2. Find the **level-based evidence ('How')** in the `[Key ETF Summaries]` (VWAP, POC, ORL/ORH) to **prove or disprove** that narrative. "
+        "2. Find the **level-based evidence ('How')** in the `[Key ETF Summaries]` (Impact Context Cards) to **prove or disprove** that narrative. "
         "You must continue the story from the previous card, evaluating how today's data confirms, contradicts, or changes the established trend."
     )
     
-    trade_date_str = selected_date.isoformat()
+    # trade_date_str already defined at top
 
     # --- FIX: Rebuilt Main Prompt with two-part synthesis logic ---
     prompt = f"""
@@ -515,9 +582,9 @@ def update_economy_card(
     (This contains RAW news headlines and snippets. You must synthesize the narrative 'Story' yourself from this data.)
     {daily_market_news or "No raw market news was provided."}
 
-    [Key ETF Summaries (The 'How' / Level-Based Evidence)]
-    (This is the quantitative, level-based 'proof'. Use VWAP, POC, ORL/ORH, VAH/VAL to confirm the narrative.)
-    {etf_summaries or "No ETF summaries were provided."}
+    [Key ETF Summaries (The 'How' / IMPACT CONTEXT CARDS)]
+    (This is the quantitative, level-based 'proof'. Use the 'Value Migration Log' and 'Impact Levels' for SPY, QQQ, etc. to confirm the narrative.)
+    {etf_summaries}
 
     [Your Task for {trade_date_str}]
     Based on *all* the information above, generate a new, complete JSON object by following
@@ -544,18 +611,20 @@ def update_economy_card(
     **Detailed "Story-Building" Rules:**
 
     * **`keyEconomicEvents`:** Populate this *directly* by synthesizing the "REAR VIEW" and "COMING UP" events found in the `[Raw Market News Input]`.
-    * **`indexAnalysis` (Story-Building):**
+    * **`indexAnalysis` (Story-Building with 3-Act Logic):**
         * Read the `indexAnalysis` from the `[Previous Day's Card]`.
-        * Using today's synthesized narrative from `[Raw Market News Input]` *and* the specific levels from the `[Key ETF Summaries]`, write the **new, updated** analysis.
-        * **You MUST cite level-based evidence.** (e.g., "SPY *failed at* $450 resistance, as implied by the news, and this was **confirmed by the ETF data** showing a close below VWAP ($448.50) and the POC ($449.00).").
-    * **`sectorRotation` (Story-Building):**
+        * Using today's synthesized narrative *and* the specific `sessions` data from the 20 ETFs, write the **new, updated** analysis.
+        * **You MUST analyze the 'Session Arc' (Pre -> RTH -> Post):**
+        * (e.g., "SPY showed a 'fake-out' gap in Pre-Market, but RTH invalidated it by closing below VWAP. This weakness was **confirmed** by IWM failing to hold its Pre-Market low.").
+        * **Cite level-based evidence.** (e.g., "QQQ ended the RTH session below its POC ($385.50), signaling a failed rally...").
+    * **`sectorRotation` (Story-Building with 3-Act Logic):**
         * Read the `sectorRotation` analysis from the `[Previous Day's Card]`.
-        * Using today's ETF data (XLK, XLF, etc.), update the `leadingSectors`, `laggingSectors`, and `rotationAnalysis`.
-        * **Cite level-based evidence.** (e.g., "Tech (XLK) *was* a leading sector for 5 days but saw profit-taking today, **closing below its VAH ($303.78)**, moving it to lagging...").
-    * **`interMarketAnalysis` (Story-Building):**
+        * Using today's **3-Session ETF data** (XLK, XLF, etc.), update the `leadingSectors`, `laggingSectors`, and `rotationAnalysis`.
+        * **Analyze the Session Arc:** (e.g., "Tech (XLK) gapped up in Pre-Market but saw heavy profit-taking in RTH, **closing below its VAH ($303.78)**, moving it to lagging...").
+    * **`interMarketAnalysis` (Story-Building with 3-Act Logic):**
         * Read the `interMarketAnalysis` from the `[Previous Day's Card]`.
-        * Using the `[Raw Market News Input]` (looking for mentions of "FIXED INCOME", "CRUDE", "FX" etc.) *and* the `[Key ETF Summaries]` for TLT, GLD, UUP, **continue the narrative**.
-        * (e.g., "Bonds (TLT) *continued* their decline, *confirming* the risk-on flow by **breaking below VAL ($89.60)**..." or "The Dollar (UUP) was choppy, **crossing VWAP ($28.23) multiple times** as the news noted...").
+        * Using the `[Raw Market News Input]` *and* the **3-Session Impact Data** for TLT, GLD, UUP, **continue the narrative**.
+        * **Analyze the Session Arc:** (e.g., "Bonds (TLT) *continued* their decline, gaping down in Act I and confirming weakness in Act II by **breaking below VAL ($89.60)**..." or "The Dollar (UUP) was choppy, **crossing VWAP ($28.23) multiple times** during RTH...").
     * **`todaysAction` (The Log):** Create a *new, single log entry* for today's macro action, referencing both the synthesized narrative and key ETF level interactions.
 
     **MISSING DATA RULE (CRITICAL):**
