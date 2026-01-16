@@ -22,7 +22,7 @@ except ImportError:
     US_EASTERN = EST()
 
 # --- Local Imports ---
-from modules.config import (
+from modules.core.config import (
     AVAILABLE_MODELS,
     STOCK_TICKERS,
     ETF_TICKERS,
@@ -32,9 +32,9 @@ from modules.config import (
 )
 
 # --- Corrected Imports ---
-from modules.ai_services import call_gemini_api, KEY_MANAGER
-from modules.data_processing import generate_analysis_text, parse_raw_summary, split_stock_summaries, calculate_bias_score
-from modules.db_utils import (
+from modules.ai.ai_services import call_gemini_api, KEY_MANAGER, update_company_card, update_economy_card
+from modules.data.data_processing import generate_analysis_text, parse_raw_summary, split_stock_summaries, calculate_bias_score
+from modules.data.db_utils import (
     get_all_tickers_from_db, 
     upsert_daily_inputs, 
     get_daily_inputs, 
@@ -47,14 +47,14 @@ from modules.db_utils import (
     get_db_connection, # <-- This now returns a Turso client
     get_latest_daily_input_date 
 )
-from modules.ui_components import (
+from modules.core.ui_components import (
     AppLogger,
     display_view_market_note_card,
     display_editable_market_note_card,
     display_view_economy_card,
     display_editable_economy_card
 )
-from modules.ai_services import update_company_card, update_economy_card
+
 
 
 ################################################################################
@@ -490,7 +490,7 @@ with tab_runner_eod:
                         
                         # (Logging unchanged)
                         
-                        new_card_str = update_company_card(
+                            new_card_str = update_company_card(
                             ticker=ticker,
                             previous_card_json=previous_card_json,
                             previous_card_date=prev_card_date, 

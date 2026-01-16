@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from unittest.mock import MagicMock, patch
 from datetime import date, datetime
-from modules.data_processing import (
+from modules.data.data_processing import (
     fetch_intraday_data,
     calculate_vwap,
     calculate_volume_profile,
@@ -41,59 +41,67 @@ def empty_df():
 
 # --- FETCH TESTS (SUCCESS) ---
 
-@patch('modules.data_processing.yf.download')
-def test_fetch_intraday_data_success(mock_download, sample_intraday_df):
-    """Test successful data fetching."""
-    mock_df = sample_intraday_df.copy()
-    mock_df.set_index('Datetime', inplace=True)
-    mock_df.drop(columns=['Ticker'], inplace=True)
-    mock_download.return_value = mock_df
+# --- FETCH TESTS (DB MOCK) ---
 
+@patch('modules.data.data_processing.get_db_connection')
+def test_fetch_intraday_data_success(mock_get_db, sample_intraday_df):
+    """Test successful data fetching via DB."""
+    # Setup Mock DB
+    mock_conn = MagicMock()
+    mock_get_db.return_value = mock_conn
+    
+    # Mock Rows logic
+    # The function expects rows as tuples/lists: (symbol, timestamp, open, high, low, close, volume)
+    # The sample_df has these columns.
+    
+    rows = []
+    # We need to match the SQL select order: symbol, timestamp, open, high, low, close, volume
+    # sample_intraday_df has 'Ticker' as symbol.
+    
+    for idx, row in sample_intraday_df.iterrows():
+        # Timestamp in DB is likely string or datetime. Code converts `row[1]` to datetime.
+        # Let's provide strings as DBs usually return strings/objects.
+        ts_str = row['Datetime'].strftime('%Y-%m-%d %H:%M:%S')
+        rows.append((
+            'TEST', 
+            ts_str, 
+            row['Open'], 
+            row['High'], 
+            row['Low'], 
+            row['Close'], 
+            row['Volume']
+        ))
+        
+    mock_rs = MagicMock()
+    mock_rs.rows = rows
+    mock_conn.execute.return_value = mock_rs
+    
+    # Call function
     result = fetch_intraday_data(['TEST'], date(2023, 10, 27))
+    
     assert not result.empty
     assert 'Ticker' in result.columns
     assert len(result) == len(sample_intraday_df)
+    assert result.iloc[0]['Ticker'] == 'TEST'
 
-@patch('modules.data_processing.yf.download')
-def test_fetch_intraday_data_empty(mock_download):
-    """Test handling of empty data."""
-    mock_download.return_value = pd.DataFrame()
+@patch('modules.data.data_processing.get_db_connection')
+def test_fetch_intraday_data_empty_db(mock_get_db):
+    """Test when DB returns no rows."""
+    mock_conn = MagicMock()
+    mock_get_db.return_value = mock_conn
+    mock_rs = MagicMock()
+    mock_rs.rows = []
+    mock_conn.execute.return_value = mock_rs
+    
     result = fetch_intraday_data(['TEST'], date(2023, 10, 27))
     assert result.empty
 
-# --- FETCH TESTS (EDGE CASES & FAILURES) ---
-
-@patch('modules.data_processing.yf.download')
-def test_fetch_intraday_data_exception(mock_download):
-    """Test when yf.download raises an exception (network error)."""
-    mock_download.side_effect = Exception("Connection timed out")
+@patch('modules.data.data_processing.get_db_connection')
+def test_fetch_intraday_data_conn_failure(mock_get_db):
+    """Test when DB connection fails."""
+    mock_get_db.return_value = None # Connection failed
+    
     result = fetch_intraday_data(['TEST'], date(2023, 10, 27))
-    # Should return empty DF, not crash
-    assert isinstance(result, pd.DataFrame)
-    assert result.empty
-
-@patch('modules.data_processing.yf.download')
-def test_fetch_intraday_data_corrupt_columns(mock_download, sample_intraday_df):
-    """Test when yf.download returns data missing critical columns (e.g., Volume)."""
-    mock_df = sample_intraday_df.copy()
-    mock_df.set_index('Datetime', inplace=True)
-    mock_df.drop(columns=['Volume', 'Ticker'], inplace=True) # Remove Volume
-    mock_download.return_value = mock_df
-
-    result = fetch_intraday_data(['TEST'], date(2023, 10, 27))
-    # Code checks for Volume > 0, so if missing, it likely drops everything or returns empty
-    # The robust function builds final_cols list. If Volume is missing, it might return data without Volume,
-    # BUT line `stacked_data = stacked_data.dropna(subset=[... 'Volume'])` will fail if col is missing
-    # OR return empty if it handles the KeyError.
-    # Let's check implementation:
-    # `final_cols = [col for col in cols if col in stacked_data.columns]`
-    # Then `stacked_data.dropna(subset=...)`
-    # If Volume isn't in final_cols, it won't be in subset?
-    # Wait, dropna subset must be columns present.
-    # Actually, the code hardcodes subset=['Open', 'High', 'Low', 'Close', 'Volume'].
-    # So if Volume is missing, dropna might raise KeyError.
-    # Let's see if the code handles it. The broad try/except should catch it and return empty.
-
     assert result.empty
 
 # --- GENERATION TESTS (FAILURES) ---
@@ -108,7 +116,7 @@ def test_generate_analysis_text_empty_list():
     result = generate_analysis_text([], date(2023, 10, 27))
     assert "[ERROR]" in result
 
-@patch('modules.data_processing.fetch_intraday_data')
+@patch('modules.data.data_processing.fetch_intraday_data')
 def test_generate_analysis_text_fetch_empty(mock_fetch):
     """Test when fetch returns empty dataframe."""
     mock_fetch.return_value = pd.DataFrame()

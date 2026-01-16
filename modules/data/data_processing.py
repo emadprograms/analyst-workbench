@@ -3,7 +3,7 @@ import pandas as pd
 import datetime as dt
 import numpy as np
 import re
-from modules.db_utils import get_db_connection # <-- NEW IMPORT
+from modules.data.db_utils import get_db_connection # <-- NEW IMPORT
 
 # --- DATA FETCHING (FROM TURSO DB) ---
 

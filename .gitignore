@@ -10,3 +10,6 @@ __pycache__/
 # Ignore local venv
 .venv/
 venv/
+
+# Ignore local cache
+cache/

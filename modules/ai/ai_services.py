@@ -12,7 +12,7 @@ import streamlit as st
 # --- Core Module Imports ---
 # 1. FIX: Removed API_KEYS. 
 # 2. KEY_MANAGER is initialized locally now
-from modules.config import (
+from modules.core.config import (
     API_BASE_URL, 
     MODEL_NAME,
     DEFAULT_COMPANY_OVERVIEW_JSON, 
@@ -20,16 +20,12 @@ from modules.config import (
     TURSO_DB_URL, # Imported
     TURSO_AUTH_TOKEN # Imported
 )
-from modules.key_manager import KeyManager # <-- Imported Class
+from modules.core.key_manager import KeyManager # <-- Imported Class
 # 3. FIX: Added missing newline that was causing syntax errors
-from modules.data_processing import parse_raw_summary
-from modules.ui_components import AppLogger
-from modules.db_utils import get_db_connection
-from modules.impact_engine import (
-    get_session_bars_from_db, 
-    get_previous_session_stats, 
-    analyze_market_context
-)
+from modules.data.data_processing import parse_raw_summary
+from modules.core.ui_components import AppLogger
+from modules.data.db_utils import get_db_connection
+from modules.analysis.impact_engine import get_or_compute_context
 
 # --- GLOBAL KEY MANAGER INITIALIZATION ---
 # This breaks the circular dependency with config.py
@@ -185,14 +181,10 @@ def update_company_card(
     conn = get_db_connection()
     if conn:
         try:
-            # Fetch Data for Engine
-            df = get_session_bars_from_db(conn, ticker, trade_date_str, f"{trade_date_str} 23:59:59", logger)
-            ref_stats = get_previous_session_stats(conn, ticker, trade_date_str, logger)
-            
-            # Run Engine
-            context_card = analyze_market_context(df, ref_stats, ticker)
+            # --- CACHING IMPLEMENTED VIA get_or_compute_context ---
+            context_card = get_or_compute_context(conn, ticker, trade_date_str, logger)
             impact_context_json = json.dumps(context_card, indent=2)
-            logger.log(f"✅ Generated Impact Context Card for {ticker}")
+            logger.log(f"✅ Loaded Impact Context Card for {ticker}")
         except Exception as e:
             logger.log(f"⚠️ Impact Engine Failed for {ticker}: {e}")
             impact_context_json = f"Error generating context: {e}"
@@ -542,13 +534,12 @@ def update_economy_card(
         try:
             for etf in target_etfs:
                 try:
-                    df = get_session_bars_from_db(conn, etf, trade_date_str, f"{trade_date_str} 23:59:59", logger)
-                    ref_stats = get_previous_session_stats(conn, etf, trade_date_str, logger)
-                    context_card = analyze_market_context(df, ref_stats, etf)
+                    # --- CACHING IMPLEMENTED ---
+                    context_card = get_or_compute_context(conn, etf, trade_date_str, logger)
                     etf_impact_data[etf] = context_card
-                    logger.log(f"   ...Generated Impact Context for {etf}")
+                    # logger.log(f"   ...Loaded Impact Context for {etf}") # Too verbose?
                 except Exception as inner_e:
-                    logger.log(f"   ...Failed to generate context for {etf}: {inner_e}")
+                    logger.log(f"   ...Failed to load context for {etf}: {inner_e}")
                     etf_impact_data[etf] = {"error": str(inner_e)}
         except Exception as e:
              logger.log(f"⚠️ Economy Engine Failed: {e}")

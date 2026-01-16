@@ -5,8 +5,8 @@ import json
 import pandas as pd
 from libsql_client import LibsqlError
 
-from modules.data_processing import generate_analysis_text, split_stock_summaries
-from modules.db_utils import (
+from modules.data.data_processing import generate_analysis_text, split_stock_summaries
+from modules.data.db_utils import (
     upsert_daily_inputs,
     get_daily_inputs,
     get_economy_card,
@@ -25,10 +25,10 @@ def mock_data_df():
 
 # --- HAPPY PATH TEST ---
 
-@patch('modules.ai_services.update_company_card')
-@patch('modules.ai_services.update_economy_card')
-@patch('modules.data_processing.fetch_intraday_data') # Mock yfinance
-@patch('modules.db_utils.get_db_connection') # Mock DB
+@patch('modules.ai.ai_services.update_company_card')
+@patch('modules.ai.ai_services.update_economy_card')
+@patch('modules.data.data_processing.fetch_intraday_data') # Mock yfinance
+@patch('modules.data.db_utils.get_db_connection') # Mock DB
 def test_eod_workflow_full_cycle(mock_db_conn, mock_fetch_data, mock_ai_eco, mock_ai_stock, mock_data_df):
     """Simulates the full End-to-End workflow (Happy Path)."""
 
@@ -83,8 +83,8 @@ def test_eod_workflow_full_cycle(mock_db_conn, mock_fetch_data, mock_ai_eco, moc
 
 # --- EDGE CASE TESTS (FAILURES) ---
 
-@patch('modules.ai_services.update_company_card')
-@patch('modules.db_utils.get_db_connection')
+@patch('modules.ai.ai_services.update_company_card')
+@patch('modules.data.db_utils.get_db_connection')
 def test_integration_ai_failure(mock_db_conn, mock_ai_stock):
     """Test when AI returns None (exhausted/error)."""
     mock_client = MagicMock()
@@ -114,7 +114,7 @@ def test_integration_ai_failure(mock_db_conn, mock_ai_stock):
     assert new_card is None
     # In the real app, this triggers `failure_list.append(ticker)`
 
-@patch('modules.db_utils.get_db_connection')
+@patch('modules.data.db_utils.get_db_connection')
 def test_integration_db_failure_on_save(mock_db_conn):
     """Test when Database raises error during save."""
     mock_client = MagicMock()
@@ -132,8 +132,8 @@ def test_integration_db_failure_on_save(mock_db_conn):
         pass # The function actually catches LibsqlError and prints it.
              # We verify it didn't crash the test.
 
-@patch('modules.ai_services.KEY_MANAGER')
-@patch('modules.ai_services.call_gemini_api')
+@patch('modules.ai.ai_services.KEY_MANAGER')
+@patch('modules.ai.ai_services.call_gemini_api')
 def test_integration_key_manager_exhaustion(mock_call_api, mock_key_manager):
     """
     Test when Key Manager returns no keys.
@@ -148,7 +148,7 @@ def test_integration_key_manager_exhaustion(mock_call_api, mock_key_manager):
     result = mock_call_api("prompt", "sys_prompt", MagicMock(), "model")
     assert result is None
 
-@patch('modules.ai_services.update_company_card')
+@patch('modules.ai.ai_services.update_company_card')
 def test_integration_data_fetch_failure(mock_ai_stock):
     """
     Test workflow logic when data fetch fails (returns [ERROR] block).

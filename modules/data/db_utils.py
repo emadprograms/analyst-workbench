@@ -1,6 +1,6 @@
 
 from datetime import date
-from modules.config import (
+from modules.core.config import (
     DEFAULT_ECONOMY_CARD_JSON, 
     DEFAULT_COMPANY_OVERVIEW_JSON,
     TURSO_DB_URL,

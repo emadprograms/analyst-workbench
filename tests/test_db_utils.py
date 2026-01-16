@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from datetime import date
-from modules.db_utils import (
+from modules.data.db_utils import (
     upsert_daily_inputs,
     get_daily_inputs,
     get_latest_daily_input_date,
@@ -19,7 +19,7 @@ from modules.db_utils import (
 
 @pytest.fixture
 def mock_db_client():
-    with patch('modules.db_utils.get_db_connection') as mock_conn:
+    with patch('modules.data.db_utils.get_db_connection') as mock_conn:
         client = MagicMock()
         mock_conn.return_value = client
         yield client
@@ -109,7 +109,7 @@ def test_get_archived_company_card(mock_db_client):
 
 # --- FAILURE TESTS (DB DOWN) ---
 
-@patch('modules.db_utils.get_db_connection')
+@patch('modules.data.db_utils.get_db_connection')
 def test_db_connection_failed(mock_conn):
     """Test behavior when DB connection returns None."""
     mock_conn.return_value = None

@@ -1,8 +1,10 @@
 import pandas as pd
 import numpy as np
+import json
+import os
 from datetime import datetime, timedelta, time as dt_time
 from pytz import timezone as pytz_timezone
-from modules.ui_components import AppLogger
+from modules.core.ui_components import AppLogger
 
 US_EASTERN = pytz_timezone('US/Eastern')
 MARKET_OPEN_TIME = dt_time(9, 30)
@@ -371,4 +373,50 @@ def analyze_market_context(df, ref_levels, ticker="UNKNOWN") -> dict:
         }
     }
     
+    return context_card
+
+
+# ==========================================
+# CACHING LAYER (Context Freezing)
+# ==========================================
+
+def get_or_compute_context(client, ticker: str, date_str: str, logger: AppLogger):
+    """
+    Checks for a locally cached 'Impact Context Card' JSON first.
+    If found -> Returns cached JSON (0 DB Reads).
+    If missing -> Fetches DB data, Computes, Saves to Cache, Returning JSON.
+    
+    Cache Path: cache/context/{ticker}_{date}.json
+    """
+    cache_dir = "cache/context"
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir)
+
+    cache_file = f"{cache_dir}/{ticker}_{date_str}.json"
+    
+    # 1. Try Cache Hit
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, "r") as f:
+                data = json.load(f)
+            logger.log(f"   🧊 Loaded Context from Cache ({ticker})")
+            return data
+        except Exception:
+            logger.log(f"   ⚠️ Cache Corrupt for {ticker}, re-computing...")
+
+    # 2. Cache Miss -> Compute
+    # Fetch Data (High Cost)
+    df = get_session_bars_from_db(client, ticker, date_str, f"{date_str} 23:59:59", logger)
+    ref_stats = get_previous_session_stats(client, ticker, date_str, logger)
+    
+    # Compute Context (CPU Cost)
+    context_card = analyze_market_context(df, ref_stats, ticker)
+    
+    # 3. Save to Cache (Freeze)
+    try:
+        with open(cache_file, "w") as f:
+            json.dump(context_card, f, indent=2)
+    except Exception as e:
+        logger.log(f"   ⚠️ Failed to write cache: {e}")
+
     return context_card
