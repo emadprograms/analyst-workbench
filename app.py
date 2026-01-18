@@ -490,7 +490,7 @@ with tab_runner_eod:
                         
                         # (Logging unchanged)
                         
-                            new_card_str = update_company_card(
+                        new_card_str = update_company_card(
                             ticker=ticker,
                             previous_card_json=previous_card_json,
                             previous_card_date=prev_card_date, 
