@@ -8,3 +8,5 @@ pytesseract
 google-generativeai
 pytest 
 libsql-client
+infisical-python>=2.0.0
+toml

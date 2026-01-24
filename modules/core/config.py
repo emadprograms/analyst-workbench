@@ -37,18 +37,30 @@ API_URL = f"{API_BASE_URL}/{MODEL_NAME}:generateContent"
 # ==========================================
 # 2. KEY MANAGER (The "Brain")
 # ==========================================
+from modules.core.infisical_manager import InfisicalManager
+
+# Initialize Infisical Manager
+infisical_mgr = InfisicalManager(logger=logging.getLogger(__name__))
+
 KEY_MANAGER = None
 TURSO_DB_URL = None
 TURSO_AUTH_TOKEN = None
 
 try:
-    # Load Turso Secrets
-    turso_secrets = st.secrets.get("turso", {})
-    TURSO_DB_URL = turso_secrets.get("db_url")
-    TURSO_AUTH_TOKEN = turso_secrets.get("auth_token")
+    # Attempt to load Turso secrets via Infisical
+    # NOTE: Mapping discovered via probe
+    TURSO_DB_URL = infisical_mgr.get_secret("turso_emadprograms_analystworkbench_DB_URL")
+    TURSO_AUTH_TOKEN = infisical_mgr.get_secret("turso_emadprograms_analystworkbench_AUTH_TOKEN")
     
+    # Fallback to local secrets if Infisical fails/returns None
     if not TURSO_DB_URL or not TURSO_AUTH_TOKEN:
-        logging.critical("CRITICAL: Turso DB URL or Auth Token not found in st.secrets.")
+        logging.info("Infisical returned no Turso credentials, checking local st.secrets...")
+        turso_secrets = st.secrets.get("turso", {})
+        if not TURSO_DB_URL: TURSO_DB_URL = turso_secrets.get("db_url")
+        if not TURSO_AUTH_TOKEN: TURSO_AUTH_TOKEN = turso_secrets.get("auth_token")
+
+    if not TURSO_DB_URL or not TURSO_AUTH_TOKEN:
+        logging.critical("CRITICAL: Turso DB URL or Auth Token not found (Infisical or st.secrets).")
 
 except Exception as e:
     logging.critical(f"Error loading secrets: {e}")
@@ -58,8 +70,17 @@ except Exception as e:
 # 3. API KEYS (Legacy/Fallback Support)
 # ==========================================
 try:
-    gemini_secrets = st.secrets.get("gemini", {})
-    API_KEYS = gemini_secrets.get("api_keys", []) 
+    # Attempt to load Gemini keys via Infisical
+    # Expecting comma-separated string: "key1,key2,key3"
+    api_keys_str = infisical_mgr.get_secret("GEMINI_API_KEYS")
+    
+    if api_keys_str:
+        API_KEYS = [k.strip() for k in api_keys_str.split(",") if k.strip()]
+    else:
+        # Fallback to local secrets
+        gemini_secrets = st.secrets.get("gemini", {})
+        API_KEYS = gemini_secrets.get("api_keys", []) 
+        
 except Exception:
     API_KEYS = []
 
