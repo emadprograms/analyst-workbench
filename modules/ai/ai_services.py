@@ -49,6 +49,7 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
     
     # Estimate tokens for quota check
     est_tok = KEY_MANAGER.estimate_tokens(prompt + system_prompt)
+    logger.log(f"📝 Request Size Estimate: ~{est_tok} tokens")
 
     for i in range(max_retries):
         current_api_key = None
@@ -87,9 +88,18 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
             
             # 3. REPORT: Pass internal model_id for correct counter increment
             if response.status_code == 200:
-                KEY_MANAGER.report_usage(current_api_key, tokens=est_tok, model_id=real_model_id)
-                
                 result = response.json()
+                
+                # V8 FIX: Use REAL usage data if available
+                usage_meta = result.get("usageMetadata", {})
+                real_tokens = usage_meta.get("totalTokenCount", est_tok) # fallback to estimate
+                
+                # Log the correction if significant
+                if real_tokens > est_tok * 1.2:
+                    logger.log(f"   ...Usage Correction: Est {est_tok} -> Real {real_tokens}")
+                    
+                KEY_MANAGER.report_usage(current_api_key, tokens=real_tokens, model_id=real_model_id)
+
                 try:
                     return result["candidates"][0]["content"]["parts"][0]["text"].strip()
                 except (KeyError, IndexError):
@@ -98,8 +108,17 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
                     continue 
 
             elif response.status_code == 429:
-                logger.log(f"⛔ 429 Rate Limit on '{key_name}'. Adding Strike.")
-                KEY_MANAGER.report_failure(current_api_key, is_info_error=False)
+                err_text = response.text
+                if "limit: 0" in err_text or "Quota exceeded" in err_text:
+                    logger.log(f"⛔ BILLING ISSUE on '{key_name}'. Google says Quota is 0.")
+                    logger.log(f"   ACTION: Go to Google Cloud Console -> Billing -> Link a Card to project.")
+                    # Do NOT cooldown for billing issues, just fail hard or keep trying other keys?
+                    # valid keys might exist, so we report failure but maybe mark as 'dead' for this run?
+                    KEY_MANAGER.report_failure(current_api_key, is_info_error=False) 
+                else:
+                    logger.log(f"⛔ 429 Rate Limit on '{key_name}'. Triggering 60s Cooldown.")
+                    logger.log(f"   Details: {err_text}")
+                    KEY_MANAGER.report_failure(current_api_key, is_info_error=False)
             elif response.status_code >= 500:
                 logger.log(f"☁️ {response.status_code} Server Error. Waiting 10s...")
                 KEY_MANAGER.report_failure(current_api_key, is_info_error=True)

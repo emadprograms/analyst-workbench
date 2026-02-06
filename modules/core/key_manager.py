@@ -245,7 +245,7 @@ class KeyManager:
         Use this BEFORE calling get_key to ensure the request fits in the chosen bucket.
         """
         if not text: return 0
-        return len(text) // 4 + 1
+        return int(len(text) / 2.5) + 1
 
     def get_key(self, config_id: str, estimated_tokens: int = 0) -> tuple[str | None, str | None, float, str | None]:
         """
@@ -305,6 +305,19 @@ class KeyManager:
             if key_val in self.dead_keys:
                 rotation.append(key_val)
                 continue
+
+            # NEW: Respect the Cooldown Penalty Box
+            if key_val in self.cooldown_keys:
+                release_time = self.cooldown_keys[key_val]
+                if time.time() < release_time:
+                    # Key is still in penalty box
+                    wait_for_this_key = release_time - time.time()
+                    best_wait = min(best_wait, wait_for_this_key)
+                    rotation.append(key_val)
+                    continue
+                else:
+                    # Time served. Release it.
+                    del self.cooldown_keys[key_val]
                 
             # 3. LIMITS (V8: Model Specific)
             wait = self._check_key_limits(key_val, target_model_id, rpm_limit, tpm_limit, rpd_limit, estimated_tokens)
@@ -334,8 +347,10 @@ class KeyManager:
             )
             if not rs.rows: return 0.0
             
+            # row = self._row_to_dict(rs.columns, rs.rows[0])
+            # if row['strikes'] >= self.MAX_STRIKES: return 86400.0
+            
             row = self._row_to_dict(rs.columns, rs.rows[0])
-            if row['strikes'] >= self.MAX_STRIKES: return 86400.0
             
             now = time.time()
             today_str = time.strftime('%Y-%m-%d', time.gmtime(now))
@@ -487,17 +502,18 @@ class KeyManager:
             self.available_keys.append(key)
             return
             
-        strikes = self.key_failure_strikes.get(key, 0) + 1
-        self.key_failure_strikes[key] = strikes
-        penalty = self.COOLDOWN_PERIODS.get(strikes, 60)
+        # V8 FIX: No more strikes. Just a temporary cooldown/penalty.
+        # We treat every 429 as a "wait 60 seconds" event for this specific key.
+        penalty = 60 
         
         self.cooldown_keys[key] = time.time() + penalty
         
         try:
             key_hash = self.key_to_hash[key]
+            # We no longer track 'strikes' in the DB to avoid permanent bans
             self.db_client.execute(
-                "UPDATE gemini_key_status SET strikes = ?, release_time = ? WHERE key_hash = ?", 
-                [strikes, time.time() + penalty, key_hash]
+                "UPDATE gemini_key_status SET release_time = ? WHERE key_hash = ?", 
+                [time.time() + penalty, key_hash]
             )
         except: pass
 
