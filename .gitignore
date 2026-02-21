@@ -13,3 +13,7 @@ venv/
 
 # Ignore local cache
 cache/
+
+# Local testing environment
+lab/
+
