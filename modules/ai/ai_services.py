@@ -442,7 +442,12 @@ def update_company_card(
         "4. **Calculate `screener_briefing` (The 'Tactic'):** You MUST synthesize your *entire* analysis to calculate a *new, separate, actionable* 'Setup_Bias' and assemble the final Python-readable data packet. "
         "Do not use any of your own default logic. Your sole purpose is to be a processor for the user's provided framework.\n\n"
         f"{COMPANY_CARD_MASTERCLASS}"
-        f"{COMPANY_CARD_EXECUTION_TASK_AND_FORMAT}"
+        f"{COMPANY_CARD_EXECUTION_TASK_AND_FORMAT}\n\n"
+        f"[Historical Notes for {ticker}]\n"
+        f"(CRITICAL STATIC CONTEXT: These are the MAJOR structural levels. LEVELS ARE PARAMOUNT.)\n"
+        f"<historical_notes ticker=\"{ticker}\">\n"
+        f"{historical_notes or 'No historical notes provided.'}\n"
+        f"</historical_notes>"
     )
 
     
@@ -474,12 +479,6 @@ def update_company_card(
     <market_context>
     {market_context_summary or "No raw market news was provided."}
     </market_context>
-
-    [Historical Notes for {ticker}]
-    (CRITICAL STATIC CONTEXT: These are the MAJOR structural levels. LEVELS ARE PARAMOUNT.)
-    <historical_notes ticker="{ticker}">
-    {historical_notes or "No historical notes provided."}
-    </historical_notes>
     
     [Previous Card (Read-Only)]
     (This is established structure, plans, and `keyActionLog` so far. Read this for the 3-5 day context AND to find the previous 'recentCatalyst' and 'fundamentalContext' data.) 
