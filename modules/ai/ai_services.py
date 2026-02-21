@@ -188,14 +188,15 @@ def update_company_card(
     
     # --- FINAL System Prompt ---
     system_prompt = (
-        "You are an expert market structure analyst. Your *only* job is to apply the specific 4-Participant Trading Model provided in the user's prompt. "
-        "Your logic must *strictly* follow this model. You will be given a 'Masterclass' in the prompt that defines the model's philosophy. "
+        "You are an expert market structure analyst. Your *only* job is to apply the specific 4-Participant Trading Model provided below. "
+        "Your logic must *strictly* follow this model. You will be given a 'Masterclass' that defines the model's philosophy. "
         "Your job has **four** distinct analytical tasks: "
         "1. **Analyze `behavioralSentiment` (The 'Micro'):** You MUST provide a full 'Proof of Reasoning' for the `emotionalTone` field. "
         "2. **Analyze `technicalStructure` (The 'Macro'):** Use *repeated* participant behavior to define and evolve the *key structural zones*. "
         "3. **Calculate `confidence` (The 'Story'):** You MUST combine the lagging 'Trend_Bias' with the 'Story_Confidence' (H/M/L) and provide a full justification. "
         "4. **Calculate `screener_briefing` (The 'Tactic'):** You MUST synthesize your *entire* analysis to calculate a *new, separate, actionable* 'Setup_Bias' and assemble the final Python-readable data packet. "
-        "Do not use any of your own default logic. Your sole purpose is to be a processor for the user's provided framework."
+        "Do not use any of your own default logic. Your sole purpose is to be a processor for the user's provided framework.\n\n"
+        f"{COMPANY_CARD_MASTERCLASS}"
     )
 
     
@@ -385,11 +386,11 @@ def update_company_card(
     Output ONLY a single, valid JSON object in this exact format. **You must populate every single field designated for AI updates.**
 
     {{
-      "marketNote": "Executor's Battle Card: {ticker}",
+      "marketNote": "Executor's Battle Card: {{ticker}}",
       "confidence": "Your **'Story' Label + Proof of Reasoning** (e.g., 'Trend_Bias: Bearish (Story_Confidence: Low) - Reasoning: The action was a *failure* against the Bearish trend...').",
       "screener_briefing": "Your **10-Part Regex-Friendly 'Data Packet'** (Setup_Bias, Justification, Catalyst, Pattern, Plan A, Plan B, S_Levels, R_Levels).",
       "basicContext": {{
-        "tickerDate": "{ticker} | {trade_date_str}",
+        "tickerDate": "{{ticker}} | {{trade_date_str}}",
         "sector": "Set in Static Editor / Preserved",
         "companyDescription": "Set in Static Editor / Preserved",
         "priceTrend": "Your new summary of the cumulative trend.",
@@ -429,6 +430,74 @@ def update_company_card(
       }},
       "todaysAction": "A single, detailed log entry for *only* today's action, *using the language from your Masterclass analysis*."
     }}
+    """
+
+    system_prompt = (
+        "You are an expert market structure analyst. Your *only* job is to apply the specific 4-Participant Trading Model provided below. "
+        "Your logic must *strictly* follow this model. You will be given a 'Masterclass' that defines the model's philosophy. "
+        "Your job has **four** distinct analytical tasks: "
+        "1. **Analyze `behavioralSentiment` (The 'Micro'):** You MUST provide a full 'Proof of Reasoning' for the `emotionalTone` field. "
+        "2. **Analyze `technicalStructure` (The 'Macro'):** Use *repeated* participant behavior to define and evolve the *key structural zones*. "
+        "3. **Calculate `confidence` (The 'Story'):** You MUST combine the lagging 'Trend_Bias' with the 'Story_Confidence' (H/M/L) and provide a full justification. "
+        "4. **Calculate `screener_briefing` (The 'Tactic'):** You MUST synthesize your *entire* analysis to calculate a *new, separate, actionable* 'Setup_Bias' and assemble the final Python-readable data packet. "
+        "Do not use any of your own default logic. Your sole purpose is to be a processor for the user's provided framework.\n\n"
+        f"{COMPANY_CARD_MASTERCLASS}"
+        f"{COMPANY_CARD_EXECUTION_TASK_AND_FORMAT}"
+    )
+
+    
+    trade_date_str = new_eod_date.isoformat()
+
+    # --- FINAL Main 'Masterclass' Prompt ---
+    # --- IMPACT ENGINE INTEGRATION ---
+    impact_context_json = "No Data Available"
+    
+    conn = get_db_connection()
+    if conn:
+        try:
+            # --- CACHING IMPLEMENTED VIA get_or_compute_context ---
+            context_card = get_or_compute_context(conn, ticker, trade_date_str, logger)
+            impact_context_json = json.dumps(context_card, indent=2)
+            logger.log(f"✅ Loaded Impact Context Card for {ticker}")
+        except Exception as e:
+            logger.log(f"⚠️ Impact Engine Failed for {ticker}: {e}")
+            impact_context_json = f"Error generating context: {e}"
+        finally:
+            conn.close()
+    else:
+        logger.log("⚠️ DB Connection Failed - Skipping Impact Engine")
+
+    # --- FINAL Main 'Masterclass' Prompt ---
+    prompt = f"""
+    [Raw Market Context for Today]
+    (This contains RAW, unstructured news headlines and snippets from various sources. You must synthesize the macro "Headwind" or "Tailwind" yourself from this data. It also contains company-specific news.)
+    <market_context>
+    {market_context_summary or "No raw market news was provided."}
+    </market_context>
+
+    [Historical Notes for {ticker}]
+    (CRITICAL STATIC CONTEXT: These are the MAJOR structural levels. LEVELS ARE PARAMOUNT.)
+    <historical_notes ticker="{ticker}">
+    {historical_notes or "No historical notes provided."}
+    </historical_notes>
+    
+    [Previous Card (Read-Only)]
+    (This is established structure, plans, and `keyActionLog` so far. Read this for the 3-5 day context AND to find the previous 'recentCatalyst' and 'fundamentalContext' data.) 
+    <previous_card>
+    {json.dumps(previous_overview_card_dict, indent=2)}
+    </previous_card>
+
+    [Log of Recent Key Actions (Read-Only)]
+    (This is the day-by-day story so far. Use this for context.)
+    <recent_key_actions>
+    {json.dumps(recent_log_entries, indent=2)}
+    </recent_key_actions>
+
+    [Today's New Price Action Summary (IMPACT CONTEXT CARD)]
+    (Use this structured 'Value Migration Log' and 'Impact Levels' to determine the 'Nature' of the session.)
+    <today_price_action_summary>
+    {impact_context_json}
+    </today_price_action_summary>
     """
     
     logger.log(f"3. Calling EOD AI Analyst for {ticker}...");
@@ -602,18 +671,7 @@ def update_economy_card(
     
     etf_summaries = json.dumps(etf_impact_data, indent=2)
 
-    # --- FIX: Rebuilt System Prompt ---
-    system_prompt = (
-        "You are a macro-economic strategist. Your task is to update the *entire* global 'Economy Card' JSON. "
-        "Your primary goal is a **two-part synthesis**: "
-        "1. **Synthesize the narrative ('Why')** from the `[Raw Market News]` input. DO NOT expect a pre-written wrap; you must decode the raw headlines yourself. "
-        "2. Find the **level-based evidence ('How')** in the `[Key ETF Summaries]` (Impact Context Cards) to **prove or disprove** that narrative. "
-        "You must continue the story from the previous card, evaluating how today's data confirms, contradicts, or changes the established trend."
-    )
-    
-    # trade_date_str already defined at top
-
-    # --- FIX: Rebuilt Main Prompt with two-part synthesis logic ---
+    # --- FIX: Main Prompt ---
     prompt = f"""
     [Previous Day's Economy Card (Read-Only)]
     (This is the established macro context. You must read this first.)
@@ -638,84 +696,6 @@ def update_economy_card(
     <key_etf_summaries>
     {etf_summaries}
     </key_etf_summaries>
-
-    [Your Task for {trade_date_str}]
-    Based on *all* the information above, generate a new, complete JSON object by following
-    these rules to fill the template below.
-
-    **Master Rule (Weighted Synthesis - 60/40 Logic):**
-    Your primary goal is to determine the **governing short-term trend** (the "story" from the last 3-5 days) and then evaluate if **today's action** (the new data) *confirms, contradicts, or changes* that trend.
-
-    1.  **Identify the "Governing Trend" (The 60% Weight):**
-        * First, read the `marketBias` and `indexAnalysis` from the `[Previous Day's Card]` and the `[Log of Recent Key Actions]`.
-        * This gives you the established narrative. (e.g., "SPY is in a 3-day bearish channel, failing at $450.")
-
-    2.  **Evaluate "Today's Data" (The 40% Weight):**
-        * **Synthesize BOTH data sources.** Decode the `[Raw Market News Input]` for the narrative (e.g., "breadth was weak").
-        * **Then, verify** that narrative using the `[Key ETF Summaries]` (e.g., "This is confirmed: IWM and DIA broke their ORLs and closed below VWAP, while QQQ held its VAL.").
-        * The *quality* of the move (proven by levels) is more important than the direction.
-
-    3.  **Synthesize (The New `marketBias` and `marketNarrative`):**
-        * Your `marketNarrative` must explain this two-part synthesis.
-        * **If Today's Data CONFIRMS the trend:** The `marketBias` is strengthened. (e.g., "A low-volume rally into resistance, confirmed by IWM closing below its POC, *confirms* the bearish trend. Bias remains `Bearish`.")
-        * **If Today's Data is just NOISE:** The `marketBias` is unchanged.
-        * **If Today's Data CHANGES the trend:** The `marketBias` can flip. This *must* be a high-conviction event, supported by *both* the narrative and strong level-based breaks in the ETFs (e.g., "SPY broke *above* the $450 channel on high volume, with QQQ and IWM also closing above their VAH. The governing trend is now changing. Bias moves to `Neutral` or `Bullish`.")
-
-    **Detailed "Story-Building" Rules:**
-
-    * **`keyEconomicEvents`:** Populate this *directly* by synthesizing the "REAR VIEW" and "COMING UP" events found in the `[Raw Market News Input]`.
-    * **`indexAnalysis` (Story-Building with 3-Act Logic):**
-        * Read the `indexAnalysis` from the `[Previous Day's Card]`.
-        * Using today's synthesized narrative *and* the specific `sessions` data from the 20 ETFs, write the **new, updated** analysis.
-        * **You MUST analyze the 'Session Arc' (Pre -> RTH -> Post):**
-        * (e.g., "SPY showed a 'fake-out' gap in Pre-Market, but RTH invalidated it by closing below VWAP. This weakness was **confirmed** by IWM failing to hold its Pre-Market low.").
-        * **Cite level-based evidence.** (e.g., "QQQ ended the RTH session below its POC ($385.50), signaling a failed rally...").
-    * **`sectorRotation` (Story-Building with 3-Act Logic):**
-        * Read the `sectorRotation` analysis from the `[Previous Day's Card]`.
-        * Using today's **3-Session ETF data** (XLK, XLF, etc.), update the `leadingSectors`, `laggingSectors`, and `rotationAnalysis`.
-        * **Analyze the Session Arc:** (e.g., "Tech (XLK) gapped up in Pre-Market but saw heavy profit-taking in RTH, **closing below its VAH ($303.78)**, moving it to lagging...").
-    * **`interMarketAnalysis` (Story-Building with 3-Act Logic):**
-        * Read the `interMarketAnalysis` from the `[Previous Day's Card]`.
-        * Using the `[Raw Market News Input]` *and* the **3-Session Impact Data** for TLT, GLD, UUP, **continue the narrative**.
-        * **Analyze the Session Arc:** (e.g., "Bonds (TLT) *continued* their decline, gaping down in Act I and confirming weakness in Act II by **breaking below VAL ($89.60)**..." or "The Dollar (UUP) was choppy, **crossing VWAP ($28.23) multiple times** during RTH...").
-    * **`todaysAction` (The Log):** Create a *new, single log entry* for today's macro action, referencing both the synthesized narrative and key ETF level interactions.
-
-    **MISSING DATA RULE (CRITICAL):**
-    * If `[Raw Market News Input]` or `[Key ETF Summaries]` are missing, empty, or clearly irrelevant, you **MUST** state this in the relevant analytical fields.
-    * **DO NOT** silently copy yesterday's data.
-    * *(Example: `indexAnalysis.SPY`: "No new ETF data was provided to update the analysis.")*
-
-    [Output Format Constraint]
-    Output ONLY a single, valid JSON object in this exact format. **You must populate every single field.**
-
-    {{
-      "marketNarrative": "Your new high-level narrative (based on the Master Rule).",
-      "marketBias": "Your new bias (e.g., 'Bullish', 'Bearish', 'Neutral') (based on the Master Rule).",
-      "keyEconomicEvents": {{
-        "last_24h": "Your summary of past events synthesized from the raw news.",
-        "next_24h": "Your summary of upcoming events synthesized from the raw news."
-      }},
-      "sectorRotation": {{
-        "leadingSectors": ["List", "of", "leading", "sectors"],
-        "laggingSectors": ["List", "of", "lagging", "sectors"],
-        "rotationAnalysis": "Your 'Story-Building' analysis of the sector rotation, citing level-based evidence."
-      }},
-      "indexAnalysis": {{
-        "pattern": "Your new high-level summary of the *main indices* pattern.",
-        "SPY": "Your 'Story-Building' analysis of SPY, citing level-based evidence (VWAP, POC, VAH/VAL).",
-        "QQQ": "Your 'Story-Building' analysis of QQQ, citing level-based evidence (VWAP, POC, VAH/VAL)."
-      }},
-      "interMarketAnalysis": {{
-        "bonds": "Your 'Story-Building' analysis of TLT/bonds (citing Market Wrap and level-based data).",
-        "commodities": "Your 'Story-Building' analysis of GLD/Oil (citing Market Wrap and level-based data).",
-        "currencies": "Your 'Story-Building' analysis of UUP/Dollar (citing Market Wrap and level-based data).",
-        "crypto": "Your 'Story-Building' analysis of Crypto/BTC (citing level-based data)."
-      }},
-      "marketInternals": {{
-        "volatility": "Your analysis of VIX/volatility."
-      }},
-      "todaysAction": "A single, detailed log entry for *only* today's macro action, referencing key ETFs and news."
-    }}
     """
 
     logger.log("3. Calling Macro Strategist AI...")
