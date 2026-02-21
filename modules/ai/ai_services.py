@@ -38,179 +38,6 @@ except Exception as e:
     logging.critical(f"CRITICAL: Failed to initialize KeyManager: {e}")
     KEY_MANAGER = None
 
-# --- Modular Prompt Constants ---
-COMPANY_CARD_MASTERCLASS = """
-    --- START MASTERCLASS: THE 4-PARTICIPANT MODEL ---
-
-    **Part 1: The Core Philosophy (Exhaustion & Absence)**
-    This is the most important concept. Price moves are driven by the *absence* or *exhaustion* of one side, not just the *presence* of the other.
-    * **Price falls because:** Committed Buyers are **absent** (they are competing for a better, lower price).
-    * **Price rises because:** Committed Sellers are **absent** or **exhausted** (they have finished selling at a level).
-
-    **Part 2: The Two Market States (Stable vs. Unstable)**
-    * **1. Stable Market:** (Default) Driven by **Committed Participants**. A rational market focused on "exhaustion" at key levels.
-    * **2. Unstable Market:** (Exception) Driven by **Desperate Participants**. An emotional market, a *reaction* to a catalyst (news, panic, FOMO).
-
-    **Part 3: The Four Participant Types**
-    * **Committed Buyers:** Patiently accumulate at or below support.
-    * **Committed Sellers:** Patiently distribute at or above resistance.
-    * **Desperate Buyers:** (FOMO / Panic) Buy *aggressively* at *any* price.
-    * **Desperate Sellers:** (Panic / Capitulation) Sell *aggressively* at *any* price.
-
-    **Part 4: The 5 Key Patterns (How to Identify the State)**
-    1.  **Accumulation (Stable):** A *slow* fight at support, marked by **higher lows** as sellers become exhausted.
-    2.  **Capitulation (Unstable):** A *fast* vacuum, as **Desperate Sellers** sell and **Committed Buyers step away**.
-    3.  **Stable Uptrend (Stable):** Caused by **Absent/Exhausted Committed Sellers** at resistance, often followed by a "check" (retest) of the broken level.
-    4.  **Washout & Reclaim (Hybrid -> Unstable):** **Committed Buyers** let support break, then turn into **Desperate Buyers** to get filled, causing a *violent reversal*.
-    5.  **Chop (Stable):** Equilibrium. **Committed Buyers** defend the low, **Committed Sellers** defend the high. No one is desperate.
-
-    **Part 5: The 3 Levels of Story Confidence (The "Conviction" Score)**
-    This is your *separate* analysis of the day's *objective outcome*.
-    * **High Story_Confidence:** Today's action was **decisive and confirming**. It *either* 1) strongly *confirmed* the `Trend_Bias` AND *respected* a MAJOR S/R level, *or* 2) it achieved a *decisive, high-volume CLOSE* *beyond* a MAJOR S/R level.
-    * **Medium Story_Confidence:** Today's action was **mixed or indecisive**. This includes 1) closing *at* or *near* a major level, 2) a breakout/breakdown on *low, unconvincing volume*, or 3) a "Doji" or "inside day".
-    * **Low Story_Confidence:** Today's action was a **failure or reversal**. It *failed* at a key level and *reversed* *against* the `Trend_Bias` (e.g., a "failed breakout" that closed back inside the range).
-
-    --- END MASTERCLASS ---
-
-    **YOUR EXECUTION TASK (Filling the JSON):**
-
-    **1. Calculate `Trend_Bias`:**
-        * First, determine the **lagging, multi-day `Trend_Bias`** using the rule: "Maintain the `bias` from the [Previous Card] unless [Today's Action] *decisively breaks AND closes beyond* a MAJOR level."
-
-    **2. `confidence` (The "Story"):**
-        * This is your *first* output field. You MUST combine the `Trend_Bias` (from Step 1) with the `Story_Confidence` (from Masterclass Part 5) and provide a "Proof of Reasoning."
-        * **Final Format:** "Trend_Bias: [Your calculated Trend_Bias] (Story_Confidence: [High/Medium/Low]) - Reasoning: [Your justification for the H/M/L rating]."
-        * **Example:** "Trend_Bias: Bearish (Story_Confidence: Low) - Reasoning: The action was a *failure* against the Bearish trend. It *failed* at $265 resistance and reversed, but the 'Accumulation' pattern means the breakdown itself has failed, matching the 'Low Confidence' definition."
-
-    **3. `basicContext.recentCatalyst` (The "Governing Narrative"):**
-        * Manage this as the **cumulative story**.
-        * **Step 1:** Read the `recentCatalyst` from the `[Previous Card]`.
-        * **Step 2:** *Hunt* the `[Overall Market Context for Today]` for any *company-specific* news.
-        * **Step 3 (Execute):**
-            * **If new info:** **Append** it to the previous narrative.
-            * **If no new info:** **Carry over** the *entire, unchanged* narrative from the `[Previous Card]`.
-
-    **4. `fundamentalContext` (Dynamic Fields):**
-        * **`valuation`:** "AI RULE: READ-ONLY".
-        * **`analystSentiment` & `insiderActivity`:**
-            * **Step 1:** Read from `[Previous Card]`.
-            * **Step 2:** *Hunt* the `[Overall Market Context for Today]` for new analyst ratings or insider transactions.
-            * **Step 3 (Execute):** **Update** if new info is found, otherwise **carry over** the unchanged data.
-
-    **5. `technicalStructure` Section (The "Macro" / Zone Analysis):**
-        * **`majorSupport` / `majorResistance`:**
-            * Your base is `[Historical Notes]`.
-            * You MUST *evolve* these fields based on *repeated* participant action from the `[Log of Recent Key Actions]`.
-            * **Rule:** If 'Committed Buyers' defend a *new* level for 2-3 days, you MUST add it as a 'New tactical support'.
-            * **Rule:** If a `Historical Note` level is broken and *held* for 2-3 days, you MUST re-label it (e.g., '$265 (Old Resistance, now 'Stable Market' support)').
-        * **`pattern` (The "Structural Narrative"):**
-            * This is the **multi-day structural story** *relative to the zones*.
-            * (e.g., "Price is in a 'Balance (Chop)' pattern, coiling between the Committed Buyer zone at $415 and the Committed Seller zone at $420.")
-
-    **6. `technicalStructure.volumeMomentum` (The "Volume Analysis"):**
-        * **This is your next analysis.** Your job is to be the volume analyst.
-        * Describe ONLY how volume from `[Today's New Price Action Summary]` *confirmed or denied* the action *at the specific levels*.
-        * **Example 1 (Confirmation):** "High-volume defense. The rejection of the $239.15 low was confirmed by the day's highest volume spike, proving Committed Buyers were present in force."
-        * **Example 2 (No Confirmation):** "Low-volume breakout. The move above $420 resistance was on low, unconvincing volume, signaling a 'Stable Market' (Committed Seller) exhaustion, not 'Unstable' (Desperate Buyer) panic."
-
-    **7. `behavioralSentiment` Section (The "Micro" / Today's Analysis):**
-        * **`emotionalTone` (The 3-Act Pattern + Proof of Reasoning):**
-            * This is your **Justification**, not a description. You MUST show your work by analyzing the **3-Part Session Arc** (`Pre-Market` -> `RTH` -> `Post-Market`):
-            * **1. Act I (Intent):** What did `sessions.pre_market` try to do? (e.g., "Bulls attempted a gap up...").
-            * **2. Act II (The Conflict - RTH):** Did `sessions.regular_hours` validate or invalidate that intent? Analyze the 'Value Migration'. (e.g., "...but RTH invalidated the gap immediately, migrating value LOWER on high volume.").
-            * **3. Act III (Resolution):** How did `sessions.post_market` close? (e.g., "Weak close near lows confirms rejection.").
-            * **Then, label the psychological event.**
-            * **Final Format:** "Label - Reasoning: [Your full 3-Act proof]"
-            * **Example:** "Accumulation (Stable) - Reasoning: **(Act I)** Pre-market held support. **(Act II)** RTH confirmed this by defending the low and migrating value higher into a 'Wide Expansion' range. **(Act III)** Post-market held gains. This consistency signals **Committed Buyers** are in control."
-        * **`newsReaction` (The Surprise / Correlation Analysis):**
-            * **You MUST detect the 'Disconnect':** Compare the **Pre-Market News Theme** vs. the **RTH Price Response**.
-            * **Scenario A (Validation):** News was Bad -> Price Sold Off. (Standard Headwind).
-            * **Scenario B (Surprise/Invalidation - CRITICAL):** News was Bad (e.g., 'Sell America' theme in Pre-Market) -> **Price IGNORED it and Rallied** (RTH). 
-            * **Rule:** If price *invalidates* the news theme, you MUST label this as a **MAJOR SIGNAL** of underlying conviction. (e.g., "Bullish Surprise - Stock ignored the 'Sell America' pre-market theme and rallied, proving extreme relative strength.").
-        * **`buyerVsSeller` (The Conclusion):**
-            * This is your *final synthesis* of the `emotionalTone` and `newsReaction`.
-            * (e.g., "Committed Buyers are in firm control. They not only showed a 'Stable Accumulation' pattern at $415 but did so *against* a weak, bearish market, confirming their high conviction.")
-
-    **8. `keyActionLog`:** Write your `todaysAction` log entry *last*, using the language from your `behavioralSentiment` analysis.
-    **9. `openingTradePlan` & `alternativePlan`:** Update these for TOMORROW.
-
-    **10. `screener_briefing` (The "Data Packet" for Python):**
-        * This is your **final** task. You will generate the data packet *after* all other analysis is complete.
-        * **Step 1: Calculate the `Setup_Bias` (Master Synthesis Rule):**
-            * Your `Setup_Bias` for *this field only* MUST be a *synthesis* of your `pattern` (Macro) and `emotionalTone` (Micro) findings.
-            * **Rule 1 (Change of Character):** If today's `emotionalTone` (e.g., 'Accumulation') *contradicts* the `Trend_Bias` (e.g., 'Bearish'), the **`emotionalTone` takes precedence.** The `Setup_Bias` *must* reflect this *new change* in market character.
-                * *(Example: `emotionalTone: 'Accumulation'` at support MUST result in a `Setup_Bias: Neutral` or `Neutral (Bullish Lean)`.)*
-            * **Rule 2 (Use Relative Strength):** Use your `newsReaction` (relative strength/weakness) to "shade" the bias.
-                * *(Example: `emotionalTone: 'Accumulation'` + `newsReaction: 'Extreme Relative Strength'` = `Setup_Bias: Neutral (Bullish Lean)` or `Bullish`.)*
-        * **Step 2: Summarize the `Catalyst`:**
-            * Create a clean, one-line summary of the "Governing Narrative" you already built for the `recentCatalyst` field.
-            * **Example:** "Post-earnings consolidation and new AI deal."
-        * **Step 3: Assemble the "Data Packet":**
-            * You *must* output a multi-line string in the *exact* key-value format specified below.
-            * For `Plan_A_Level` and `Plan_B_Level`, extract the *primary* price level from the `trigger`.
-            * For `S_Levels` and `R_Levels`, extract *all* numerical price levels from `technicalStructure.majorSupport` and `technicalStructure.majorResistance`. Format them as a comma-separated list *inside brackets*.
-        * **Exact Output Format:**
-        Setup_Bias: [Your *newly calculated* 'Setup Bias' from Step 1]
-        Justification: [Your 'Proof of Reasoning' for the Setup_Bias, e.g., "Today's 'Accumulation' by 'Committed Buyers' (40% weight) contradicts the multi-day 'Breakdown' (60% weight), signaling seller exhaustion and forcing a 'Neutral' bias."]
-        Catalyst: [Your new *one-line summary* of the 'Governing Narrative']
-        Pattern: [Your 'Structural Narrative' from technicalStructure.pattern]
-        Plan_A: [The 'planName' from openingTradePlan]
-        Plan_A_Level: [Extracted level from Plan A's trigger]
-        Plan_B: [The 'planName' from alternativePlan]
-        Plan_B_Level: [Extracted level from Plan B's trigger]
-        S_Levels: [Your extracted list of support levels, e.g., $265.50, $260.00]
-        R_Levels: [Your extracted list of resistance levels, e.g., $271.41, $275.00]
-
-    **CRITICAL ANALYTICAL RULES (LEVELS ARE PARAMOUNT):**
-    * **Bias:** (This rule is *only* for the `Trend_Bias` calculation in Task 1. Do not use it for the `Setup_Bias` in Task 10.) Maintain the `bias` from the [Previous Card] unless [Today's Action] *decisively breaks AND closes beyond* a MAJOR level.
-    * **Plans:** Update BOTH `openingTradePlan` and `alternativePlan` for TOMORROW.
-    * **Volume:** (This rule is now handled in Task 6).
-"""
-
-ECONOMY_CARD_MASTERCLASS = """
-    **Master Rule (Weighted Synthesis - 60/40 Logic):**
-    Your primary goal is to determine the **governing short-term trend** (the "story" from the last 3-5 days) and then evaluate if **today's action** (the new data) *confirms, contradicts, or changes* that trend.
-
-    1.  **Identify the "Governing Trend" (The 60% Weight):**
-        * First, read the `marketBias` and `indexAnalysis` from the `[Previous Day's Card]` and the `[Log of Recent Key Actions]`.
-        * This gives you the established narrative. (e.g., "SPY is in a 3-day bearish channel, failing at $450.")
-
-    2.  **Evaluate "Today's Data" (The 40% Weight):**
-        * **Synthesize BOTH data sources.** Decode the `[Raw Market News Input]` for the narrative (e.g., "breadth was weak").
-        * **Then, verify** that narrative using the `[Key ETF Summaries]` (e.g., "This is confirmed: IWM and DIA broke their ORLs and closed below VWAP, while QQQ held its VAL.").
-        * The *quality* of the move (proven by levels) is more important than the direction.
-
-    3.  **Synthesize (The New `marketBias` and `marketNarrative`):**
-        * Your `marketNarrative` must explain this two-part synthesis.
-        * **If Today's Data CONFIRMS the trend:** The `marketBias` is strengthened. (e.g., "A low-volume rally into resistance, confirmed by IWM closing below its POC, *confirms* the bearish trend. Bias remains `Bearish`.")
-        * **If Today's Data is just NOISE:** The `marketBias` is unchanged.
-        * **If Today's Data CHANGES the trend:** The `marketBias` can flip. This *must* be a high-conviction event, supported by *both* the narrative and strong level-based breaks in the ETFs (e.g., "SPY broke *above* the $450 channel on high volume, with QQQ and IWM also closing above their VAH. The governing trend is now changing. Bias moves to `Neutral` or `Bullish`.")
-
-    **Detailed "Story-Building" Rules:**
-
-    * **`keyEconomicEvents`:** Populate this *directly* by synthesizing the "REAR VIEW" and "COMING UP" events found in the `[Raw Market News Input]`.
-    * **`indexAnalysis` (Story-Building with 3-Act Logic):**
-        * Read the `indexAnalysis` from the `[Previous Day's Card]`.
-        * Using today's synthesized narrative *and* the specific `sessions` data from the 20 ETFs, write the **new, updated** analysis.
-        * **You MUST analyze the 'Session Arc' (Pre -> RTH -> Post):**
-        * (e.g., "SPY showed a 'fake-out' gap in Pre-Market, but RTH invalidated it by closing below VWAP. This weakness was **confirmed** by IWM failing to hold its Pre-Market low.").
-        * **Cite level-based evidence.** (e.g., "QQQ ended the RTH session below its POC ($385.50), signaling a failed rally...").
-    * **`sectorRotation` (Story-Building with 3-Act Logic):**
-        * Read the `sectorRotation` analysis from the `[Previous Day's Card]`.
-        * Using today's **3-Session ETF data** (XLK, XLF, etc.), update the `leadingSectors`, `laggingSectors`, and `rotationAnalysis`.
-        * **Analyze the Session Arc:** (e.g., "Tech (XLK) gapped up in Pre-Market but saw heavy profit-taking in RTH, **closing below its VAH ($303.78)**, moving it to lagging...").
-    * **`interMarketAnalysis` (Story-Building with 3-Act Logic):**
-        * Read the `interMarketAnalysis` from the `[Previous Day's Card]`.
-        * Using the `[Raw Market News Input]` *and* the **3-Session Impact Data** for TLT, GLD, UUP, **continue the narrative**.
-        * **Analyze the Session Arc:** (e.g., "Bonds (TLT) *continued* their decline, gaping down in Act I and confirming weakness in Act II by **breaking below VAL ($89.60)**..." or "The Dollar (UUP) was choppy, **crossing VWAP ($28.23) multiple times** during RTH...").
-    * **`todaysAction` (The Log):** Create a *new, single log entry* for today's macro action, referencing both the synthesized narrative and key ETF level interactions.
-
-    **MISSING DATA RULE (CRITICAL):**
-    * If `[Raw Market News Input]` or `[Key ETF Summaries]` are missing, empty, or clearly irrelevant, you **MUST** state this in the relevant analytical fields.
-    * **DO NOT** silently copy yesterday's data.
-    * *(Example: `indexAnalysis.SPY`: "No new ETF data was provided to update the analysis.")*
-"""
-
 # --- The Robust API Caller (V8) ---
 def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_name: str, max_retries=5, **kwargs) -> str | None:
     """
@@ -428,7 +255,131 @@ def update_company_card(
     [Your Task for {trade_date_str}]
     Your task is to populate the JSON template below. You MUST use the following trading model to generate your analysis.
 
-    {COMPANY_CARD_MASTERCLASS}
+    --- START MASTERCLASS: THE 4-PARTICIPANT MODEL ---
+
+    **Part 1: The Core Philosophy (Exhaustion & Absence)**
+    This is the most important concept. Price moves are driven by the *absence* or *exhaustion* of one side, not just the *presence* of the other.
+    * **Price falls because:** Committed Buyers are **absent** (they are competing for a better, lower price).
+    * **Price rises because:** Committed Sellers are **absent** or **exhausted** (they have finished selling at a level).
+
+    **Part 2: The Two Market States (Stable vs. Unstable)**
+    * **1. Stable Market:** (Default) Driven by **Committed Participants**. A rational market focused on "exhaustion" at key levels.
+    * **2. Unstable Market:** (Exception) Driven by **Desperate Participants**. An emotional market, a *reaction* to a catalyst (news, panic, FOMO).
+
+    **Part 3: The Four Participant Types**
+    * **Committed Buyers:** Patiently accumulate at or below support.
+    * **Committed Sellers:** Patiently distribute at or above resistance.
+    * **Desperate Buyers:** (FOMO / Panic) Buy *aggressively* at *any* price.
+    * **Desperate Sellers:** (Panic / Capitulation) Sell *aggressively* at *any* price.
+
+    **Part 4: The 5 Key Patterns (How to Identify the State)**
+    1.  **Accumulation (Stable):** A *slow* fight at support, marked by **higher lows** as sellers become exhausted.
+    2.  **Capitulation (Unstable):** A *fast* vacuum, as **Desperate Sellers** sell and **Committed Buyers step away**.
+    3.  **Stable Uptrend (Stable):** Caused by **Absent/Exhausted Committed Sellers** at resistance, often followed by a "check" (retest) of the broken level.
+    4.  **Washout & Reclaim (Hybrid -> Unstable):** **Committed Buyers** let support break, then turn into **Desperate Buyers** to get filled, causing a *violent reversal*.
+    5.  **Chop (Stable):** Equilibrium. **Committed Buyers** defend the low, **Committed Sellers** defend the high. No one is desperate.
+
+    **Part 5: The 3 Levels of Story Confidence (The "Conviction" Score)**
+    This is your *separate* analysis of the day's *objective outcome*.
+    * **High Story_Confidence:** Today's action was **decisive and confirming**. It *either* 1) strongly *confirmed* the `Trend_Bias` AND *respected* a MAJOR S/R level, *or* 2) it achieved a *decisive, high-volume CLOSE* *beyond* a MAJOR S/R level.
+    * **Medium Story_Confidence:** Today's action was **mixed or indecisive**. This includes 1) closing *at* or *near* a major level, 2) a breakout/breakdown on *low, unconvincing volume*, or 3) a "Doji" or "inside day".
+    * **Low Story_Confidence:** Today's action was a **failure or reversal**. It *failed* at a key level and *reversed* *against* the `Trend_Bias` (e.g., a "failed breakout" that closed back inside the range).
+
+    --- END MASTERCLASS ---
+
+    **YOUR EXECUTION TASK (Filling the JSON):**
+
+    **1. Calculate `Trend_Bias`:**
+        * First, determine the **lagging, multi-day `Trend_Bias`** using the rule: "Maintain the `bias` from the [Previous Card] unless [Today's Action] *decisively breaks AND closes beyond* a MAJOR level."
+
+    **2. `confidence` (The "Story"):**
+        * This is your *first* output field. You MUST combine the `Trend_Bias` (from Step 1) with the `Story_Confidence` (from Masterclass Part 5) and provide a "Proof of Reasoning."
+        * **Final Format:** "Trend_Bias: [Your calculated Trend_Bias] (Story_Confidence: [High/Medium/Low]) - Reasoning: [Your justification for the H/M/L rating]."
+        * **Example:** "Trend_Bias: Bearish (Story_Confidence: Low) - Reasoning: The action was a *failure* against the Bearish trend. It *failed* at $265 resistance and reversed, but the 'Accumulation' pattern means the breakdown itself has failed, matching the 'Low Confidence' definition."
+
+    **3. `basicContext.recentCatalyst` (The "Governing Narrative"):**
+        * Manage this as the **cumulative story**.
+        * **Step 1:** Read the `recentCatalyst` from the `[Previous Card]`.
+        * **Step 2:** *Hunt* the `[Overall Market Context for Today]` for any *company-specific* news.
+        * **Step 3 (Execute):**
+            * **If new info:** **Append** it to the previous narrative.
+            * **If no new info:** **Carry over** the *entire, unchanged* narrative from the `[Previous Card]`.
+
+    **4. `fundamentalContext` (Dynamic Fields):**
+        * **`valuation`:** "AI RULE: READ-ONLY".
+        * **`analystSentiment` & `insiderActivity`:**
+            * **Step 1:** Read from `[Previous Card]`.
+            * **Step 2:** *Hunt* the `[Overall Market Context for Today]` for new analyst ratings or insider transactions.
+            * **Step 3 (Execute):** **Update** if new info is found, otherwise **carry over** the unchanged data.
+
+    **5. `technicalStructure` Section (The "Macro" / Zone Analysis):**
+        * **`majorSupport` / `majorResistance`:**
+            * Your base is `[Historical Notes]`.
+            * You MUST *evolve* these fields based on *repeated* participant action from the `[Log of Recent Key Actions]`.
+            * **Rule:** If 'Committed Buyers' defend a *new* level for 2-3 days, you MUST add it as a 'New tactical support'.
+            * **Rule:** If a `Historical Note` level is broken and *held* for 2-3 days, you MUST re-label it (e.g., '$265 (Old Resistance, now 'Stable Market' support)').
+        * **`pattern` (The "Structural Narrative"):**
+            * This is the **multi-day structural story** *relative to the zones*.
+            * (e.g., "Price is in a 'Balance (Chop)' pattern, coiling between the Committed Buyer zone at $415 and the Committed Seller zone at $420.")
+
+    **6. `technicalStructure.volumeMomentum` (The "Volume Analysis"):**
+        * **This is your next analysis.** Your job is to be the volume analyst.
+        * Describe ONLY how volume from `[Today's New Price Action Summary]` *confirmed or denied* the action *at the specific levels*.
+        * **Example 1 (Confirmation):** "High-volume defense. The rejection of the $239.15 low was confirmed by the day's highest volume spike, proving Committed Buyers were present in force."
+        * **Example 2 (No Confirmation):** "Low-volume breakout. The move above $420 resistance was on low, unconvincing volume, signaling a 'Stable Market' (Committed Seller) exhaustion, not 'Unstable' (Desperate Buyer) panic."
+
+    **7. `behavioralSentiment` Section (The "Micro" / Today's Analysis):**
+        * **`emotionalTone` (The 3-Act Pattern + Proof of Reasoning):**
+            * This is your **Justification**, not a description. You MUST show your work by analyzing the **3-Part Session Arc** (`Pre-Market` -> `RTH` -> `Post-Market`):
+            * **1. Act I (Intent):** What did `sessions.pre_market` try to do? (e.g., "Bulls attempted a gap up...").
+            * **2. Act II (The Conflict - RTH):** Did `sessions.regular_hours` validate or invalidate that intent? Analyze the 'Value Migration'. (e.g., "...but RTH invalidated the gap immediately, migrating value LOWER on high volume.").
+            * **3. Act III (Resolution):** How did `sessions.post_market` close? (e.g., "Weak close near lows confirms rejection.").
+            * **Then, label the psychological event.**
+            * **Final Format:** "Label - Reasoning: [Your full 3-Act proof]"
+            * **Example:** "Accumulation (Stable) - Reasoning: **(Act I)** Pre-market held support. **(Act II)** RTH confirmed this by defending the low and migrating value higher into a 'Wide Expansion' range. **(Act III)** Post-market held gains. This consistency signals **Committed Buyers** are in control."
+        * **`newsReaction` (The Surprise / Correlation Analysis):**
+            * **You MUST detect the 'Disconnect':** Compare the **Pre-Market News Theme** vs. the **RTH Price Response**.
+            * **Scenario A (Validation):** News was Bad -> Price Sold Off. (Standard Headwind).
+            * **Scenario B (Surprise/Invalidation - CRITICAL):** News was Bad (e.g., 'Sell America' theme in Pre-Market) -> **Price IGNORED it and Rallied** (RTH). 
+            * **Rule:** If price *invalidates* the news theme, you MUST label this as a **MAJOR SIGNAL** of underlying conviction. (e.g., "Bullish Surprise - Stock ignored the 'Sell America' pre-market theme and rallied, proving extreme relative strength.").
+        * **`buyerVsSeller` (The Conclusion):**
+            * This is your *final synthesis* of the `emotionalTone` and `newsReaction`.
+            * (e.g., "Committed Buyers are in firm control. They not only showed a 'Stable Accumulation' pattern at $415 but did so *against* a weak, bearish market, confirming their high conviction.")
+
+    **8. `keyActionLog`:** Write your `todaysAction` log entry *last*, using the language from your `behavioralSentiment` analysis.
+    **9. `openingTradePlan` & `alternativePlan`:** Update these for TOMORROW.
+
+    **10. `screener_briefing` (The "Data Packet" for Python):**
+        * This is your **final** task. You will generate the data packet *after* all other analysis is complete.
+        * **Step 1: Calculate the `Setup_Bias` (Master Synthesis Rule):**
+            * Your `Setup_Bias` for *this field only* MUST be a *synthesis* of your `pattern` (Macro) and `emotionalTone` (Micro) findings.
+            * **Rule 1 (Change of Character):** If today's `emotionalTone` (e.g., 'Accumulation') *contradicts* the `Trend_Bias` (e.g., 'Bearish'), the **`emotionalTone` takes precedence.** The `Setup_Bias` *must* reflect this *new change* in market character.
+                * *(Example: `emotionalTone: 'Accumulation'` at support MUST result in a `Setup_Bias: Neutral` or `Neutral (Bullish Lean)`.)*
+            * **Rule 2 (Use Relative Strength):** Use your `newsReaction` (relative strength/weakness) to "shade" the bias.
+                * *(Example: `emotionalTone: 'Accumulation'` + `newsReaction: 'Extreme Relative Strength'` = `Setup_Bias: Neutral (Bullish Lean)` or `Bullish`.)*
+        * **Step 2: Summarize the `Catalyst`:**
+            * Create a clean, one-line summary of the "Governing Narrative" you already built for the `recentCatalyst` field.
+            * **Example:** "Post-earnings consolidation and new AI deal."
+        * **Step 3: Assemble the "Data Packet":**
+            * You *must* output a multi-line string in the *exact* key-value format specified below.
+            * For `Plan_A_Level` and `Plan_B_Level`, extract the *primary* price level from the `trigger`.
+            * For `S_Levels` and `R_Levels`, extract *all* numerical price levels from `technicalStructure.majorSupport` and `technicalStructure.majorResistance`. Format them as a comma-separated list *inside brackets*.
+        * **Exact Output Format:**
+        Setup_Bias: [Your *newly calculated* 'Setup Bias' from Step 1]
+        Justification: [Your 'Proof of Reasoning' for the Setup_Bias, e.g., "Today's 'Accumulation' by 'Committed Buyers' (40% weight) contradicts the multi-day 'Breakdown' (60% weight), signaling seller exhaustion and forcing a 'Neutral' bias."]
+        Catalyst: [Your new *one-line summary* of the 'Governing Narrative']
+        Pattern: [Your 'Structural Narrative' from technicalStructure.pattern]
+        Plan_A: [The 'planName' from openingTradePlan]
+        Plan_A_Level: [Extracted level from Plan A's trigger]
+        Plan_B: [The 'planName' from alternativePlan]
+        Plan_B_Level: [Extracted level from Plan B's trigger]
+        S_Levels: [Your extracted list of support levels, e.g., $266.25, $264.00]
+        R_Levels: [Your extracted list of resistance levels, e.g., $271.41, $275.00]
+
+    **CRITICAL ANALYTICAL RULES (LEVELS ARE PARAMOUNT):**
+    * **Bias:** (This rule is *only* for the `Trend_Bias` calculation in Task 1. Do not use it for the `Setup_Bias` in Task 10.) Maintain the `bias` from the [Previous Card] unless [Today's Action] *decisively breaks AND closes beyond* a MAJOR level.
+    * **Plans:** Update BOTH `openingTradePlan` and `alternativePlan` for TOMORROW.
+    * **Volume:** (This rule is now handled in Task 6).
 
     [Output Format Constraint]
     Output ONLY a single, valid JSON object in this exact format. **You must populate every single field designated for AI updates.**
@@ -692,7 +643,47 @@ def update_economy_card(
     Based on *all* the information above, generate a new, complete JSON object by following
     these rules to fill the template below.
 
-    {ECONOMY_CARD_MASTERCLASS}
+    **Master Rule (Weighted Synthesis - 60/40 Logic):**
+    Your primary goal is to determine the **governing short-term trend** (the "story" from the last 3-5 days) and then evaluate if **today's action** (the new data) *confirms, contradicts, or changes* that trend.
+
+    1.  **Identify the "Governing Trend" (The 60% Weight):**
+        * First, read the `marketBias` and `indexAnalysis` from the `[Previous Day's Card]` and the `[Log of Recent Key Actions]`.
+        * This gives you the established narrative. (e.g., "SPY is in a 3-day bearish channel, failing at $450.")
+
+    2.  **Evaluate "Today's Data" (The 40% Weight):**
+        * **Synthesize BOTH data sources.** Decode the `[Raw Market News Input]` for the narrative (e.g., "breadth was weak").
+        * **Then, verify** that narrative using the `[Key ETF Summaries]` (e.g., "This is confirmed: IWM and DIA broke their ORLs and closed below VWAP, while QQQ held its VAL.").
+        * The *quality* of the move (proven by levels) is more important than the direction.
+
+    3.  **Synthesize (The New `marketBias` and `marketNarrative`):**
+        * Your `marketNarrative` must explain this two-part synthesis.
+        * **If Today's Data CONFIRMS the trend:** The `marketBias` is strengthened. (e.g., "A low-volume rally into resistance, confirmed by IWM closing below its POC, *confirms* the bearish trend. Bias remains `Bearish`.")
+        * **If Today's Data is just NOISE:** The `marketBias` is unchanged.
+        * **If Today's Data CHANGES the trend:** The `marketBias` can flip. This *must* be a high-conviction event, supported by *both* the narrative and strong level-based breaks in the ETFs (e.g., "SPY broke *above* the $450 channel on high volume, with QQQ and IWM also closing above their VAH. The governing trend is now changing. Bias moves to `Neutral` or `Bullish`.")
+
+    **Detailed "Story-Building" Rules:**
+
+    * **`keyEconomicEvents`:** Populate this *directly* by synthesizing the "REAR VIEW" and "COMING UP" events found in the `[Raw Market News Input]`.
+    * **`indexAnalysis` (Story-Building with 3-Act Logic):**
+        * Read the `indexAnalysis` from the `[Previous Day's Card]`.
+        * Using today's synthesized narrative *and* the specific `sessions` data from the 20 ETFs, write the **new, updated** analysis.
+        * **You MUST analyze the 'Session Arc' (Pre -> RTH -> Post):**
+        * (e.g., "SPY showed a 'fake-out' gap in Pre-Market, but RTH invalidated it by closing below VWAP. This weakness was **confirmed** by IWM failing to hold its Pre-Market low.").
+        * **Cite level-based evidence.** (e.g., "QQQ ended the RTH session below its POC ($385.50), signaling a failed rally...").
+    * **`sectorRotation` (Story-Building with 3-Act Logic):**
+        * Read the `sectorRotation` analysis from the `[Previous Day's Card]`.
+        * Using today's **3-Session ETF data** (XLK, XLF, etc.), update the `leadingSectors`, `laggingSectors`, and `rotationAnalysis`.
+        * **Analyze the Session Arc:** (e.g., "Tech (XLK) gapped up in Pre-Market but saw heavy profit-taking in RTH, **closing below its VAH ($303.78)**, moving it to lagging...").
+    * **`interMarketAnalysis` (Story-Building with 3-Act Logic):**
+        * Read the `interMarketAnalysis` from the `[Previous Day's Card]`.
+        * Using the `[Raw Market News Input]` *and* the **3-Session Impact Data** for TLT, GLD, UUP, **continue the narrative**.
+        * **Analyze the Session Arc:** (e.g., "Bonds (TLT) *continued* their decline, gaping down in Act I and confirming weakness in Act II by **breaking below VAL ($89.60)**..." or "The Dollar (UUP) was choppy, **crossing VWAP ($28.23) multiple times** during RTH...").
+    * **`todaysAction` (The Log):** Create a *new, single log entry* for today's macro action, referencing both the synthesized narrative and key ETF level interactions.
+
+    **MISSING DATA RULE (CRITICAL):**
+    * If `[Raw Market News Input]` or `[Key ETF Summaries]` are missing, empty, or clearly irrelevant, you **MUST** state this in the relevant analytical fields.
+    * **DO NOT** silently copy yesterday's data.
+    * *(Example: `indexAnalysis.SPY`: "No new ETF data was provided to update the analysis.")*
 
     [Output Format Constraint]
     Output ONLY a single, valid JSON object in this exact format. **You must populate every single field.**
