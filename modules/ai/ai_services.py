@@ -39,7 +39,7 @@ except Exception as e:
     KEY_MANAGER = None
 
 # --- The Robust API Caller (V8) ---
-def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_name: str, max_retries=5) -> str | None:
+def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_name: str, max_retries=5, **kwargs) -> str | None:
     """
     Calls Gemini API using dynamic model selection and quota management.
     """
@@ -82,6 +82,14 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
                 "contents": [{"parts": [{"text": prompt}]}], 
                 "systemInstruction": {"parts": [{"text": system_prompt}]}
             }
+            
+            # --- NEW: Inject schema if provided (Structured Outputs) ---
+            if "response_schema" in kwargs:
+                payload["generationConfig"] = {
+                    "responseMimeType": "application/json",
+                    "responseSchema": kwargs["response_schema"]
+                }
+                
             headers = {'Content-Type': 'application/json'}
             
             response = requests.post(gemini_url, headers=headers, data=json.dumps(payload), timeout=60)
@@ -216,23 +224,33 @@ def update_company_card(
     prompt = f"""
     [Raw Market Context for Today]
     (This contains RAW, unstructured news headlines and snippets from various sources. You must synthesize the macro "Headwind" or "Tailwind" yourself from this data. It also contains company-specific news.)
+    <market_context>
     {market_context_summary or "No raw market news was provided."}
+    </market_context>
 
     [Historical Notes for {ticker}]
     (CRITICAL STATIC CONTEXT: These are the MAJOR structural levels. LEVELS ARE PARAMOUNT.)
+    <historical_notes ticker="{ticker}">
     {historical_notes or "No historical notes provided."}
+    </historical_notes>
     
     [Previous Card (Read-Only)]
     (This is established structure, plans, and `keyActionLog` so far. Read this for the 3-5 day context AND to find the previous 'recentCatalyst' and 'fundamentalContext' data.) 
+    <previous_card>
     {json.dumps(previous_overview_card_dict, indent=2)}
+    </previous_card>
 
     [Log of Recent Key Actions (Read-Only)]
     (This is the day-by-day story so far. Use this for context.)
+    <recent_key_actions>
     {json.dumps(recent_log_entries, indent=2)}
+    </recent_key_actions>
 
     [Today's New Price Action Summary (IMPACT CONTEXT CARD)]
     (Use this structured 'Value Migration Log' and 'Impact Levels' to determine the 'Nature' of the session.)
+    <today_price_action_summary>
     {impact_context_json}
+    </today_price_action_summary>
 
     [Your Task for {trade_date_str}]
     Your task is to populate the JSON template below. You MUST use the following trading model to generate your analysis.
@@ -415,7 +433,24 @@ def update_company_card(
     
     logger.log(f"3. Calling EOD AI Analyst for {ticker}...");
     
-    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name)
+    # --- Strict Schema Safety Net ---
+    company_card_schema = {
+        "type": "OBJECT",
+        "properties": {
+            "marketNote": {"type": "STRING"},
+            "confidence": {"type": "STRING"},
+            "screener_briefing": {"type": "STRING"},
+            "basicContext": {"type": "OBJECT", "properties": {"tickerDate": {"type": "STRING"}, "sector": {"type": "STRING"}, "companyDescription": {"type": "STRING"}, "priceTrend": {"type": "STRING"}, "recentCatalyst": {"type": "STRING"}}},
+            "technicalStructure": {"type": "OBJECT", "properties": {"majorSupport": {"type": "STRING"}, "majorResistance": {"type": "STRING"}, "pattern": {"type": "STRING"}, "volumeMomentum": {"type": "STRING"}}},
+            "fundamentalContext": {"type": "OBJECT", "properties": {"valuation": {"type": "STRING"}, "analystSentiment": {"type": "STRING"}, "insiderActivity": {"type": "STRING"}, "peerPerformance": {"type": "STRING"}}},
+            "behavioralSentiment": {"type": "OBJECT", "properties": {"buyerVsSeller": {"type": "STRING"}, "emotionalTone": {"type": "STRING"}, "newsReaction": {"type": "STRING"}}},
+            "openingTradePlan": {"type": "OBJECT", "properties": {"planName": {"type": "STRING"}, "knownParticipant": {"type": "STRING"}, "expectedParticipant": {"type": "STRING"}, "trigger": {"type": "STRING"}, "invalidation": {"type": "STRING"}}},
+            "alternativePlan": {"type": "OBJECT", "properties": {"planName": {"type": "STRING"}, "scenario": {"type": "STRING"}, "knownParticipant": {"type": "STRING"}, "expectedParticipant": {"type": "STRING"}, "trigger": {"type": "STRING"}, "invalidation": {"type": "STRING"}}},
+            "todaysAction": {"type": "STRING"}
+        }
+    }
+    
+    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name, response_schema=company_card_schema)
     if not ai_response_text: 
         logger.log(f"Error: No AI response for {ticker}."); 
         return None
@@ -582,19 +617,27 @@ def update_economy_card(
     prompt = f"""
     [Previous Day's Economy Card (Read-Only)]
     (This is the established macro context. You must read this first.)
+    <previous_economy_card>
     {json.dumps(previous_economy_card_dict, indent=2)}
+    </previous_economy_card>
 
     [Log of Recent Key Actions (Read-Only)]
     (This is the day-by-day story so far. Use this for context.)
+    <recent_key_actions>
     {json.dumps(recent_log_entries, indent=2)}
+    </recent_key_actions>
 
     [Raw Market News Input (The 'Why' / Narrative Source)]
     (This contains RAW news headlines and snippets. You must synthesize the narrative 'Story' yourself from this data.)
+    <raw_market_news>
     {daily_market_news or "No raw market news was provided."}
+    </raw_market_news>
 
     [Key ETF Summaries (The 'How' / IMPACT CONTEXT CARDS)]
     (This is the quantitative, level-based 'proof'. Use the 'Value Migration Log' and 'Impact Levels' for SPY, QQQ, etc. to confirm the narrative.)
+    <key_etf_summaries>
     {etf_summaries}
+    </key_etf_summaries>
 
     [Your Task for {trade_date_str}]
     Based on *all* the information above, generate a new, complete JSON object by following
@@ -677,7 +720,22 @@ def update_economy_card(
 
     logger.log("3. Calling Macro Strategist AI...")
     
-    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name)
+    # --- Strict Schema Safety Net ---
+    economy_card_schema = {
+        "type": "OBJECT",
+        "properties": {
+            "marketNarrative": {"type": "STRING"},
+            "marketBias": {"type": "STRING"},
+            "keyEconomicEvents": {"type": "OBJECT", "properties": {"last_24h": {"type": "STRING"}, "next_24h": {"type": "STRING"}}},
+            "sectorRotation": {"type": "OBJECT", "properties": {"leadingSectors": {"type": "ARRAY", "items": {"type": "STRING"}}, "laggingSectors": {"type": "ARRAY", "items": {"type": "STRING"}}, "rotationAnalysis": {"type": "STRING"}}},
+            "indexAnalysis": {"type": "OBJECT", "properties": {"pattern": {"type": "STRING"}, "SPY": {"type": "STRING"}, "QQQ": {"type": "STRING"}}},
+            "interMarketAnalysis": {"type": "OBJECT", "properties": {"bonds": {"type": "STRING"}, "commodities": {"type": "STRING"}, "currencies": {"type": "STRING"}, "crypto": {"type": "STRING"}}},
+            "marketInternals": {"type": "OBJECT", "properties": {"volatility": {"type": "STRING"}}},
+            "todaysAction": {"type": "STRING"}
+        }
+    }
+    
+    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name, response_schema=economy_card_schema)
     if not ai_response_text:
         logger.log("Error: No response from AI for economy card update.")
         return None
