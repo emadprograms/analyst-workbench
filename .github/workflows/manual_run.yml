@@ -51,16 +51,26 @@ jobs:
           INFISICAL_CLIENT_ID: ${{ secrets.INFISICAL_CLIENT_ID }}
           INFISICAL_CLIENT_SECRET: ${{ secrets.INFISICAL_CLIENT_SECRET }}
           INFISICAL_PROJECT_ID: ${{ secrets.INFISICAL_PROJECT_ID }}
+          # Pass inputs as env vars to handle special characters and spaces safely
+          INPUT_DATE: ${{ github.event.inputs.target_date }}
+          INPUT_MODEL: ${{ github.event.inputs.model }}
+          INPUT_ACTION: ${{ github.event.inputs.action }}
+          INPUT_TEXT: ${{ github.event.inputs.text }}
         run: |
-          # Use 'date.today()' logic if input is 'today'
           DATE_ARG=""
-          if [ "${{ github.event.inputs.target_date }}" != "today" ] && [ "${{ github.event.inputs.target_date }}" != "" ]; then
-            DATE_ARG="--date ${{ github.event.inputs.target_date }}"
+          if [ "$INPUT_DATE" != "today" ] && [ "$INPUT_DATE" != "" ]; then
+            DATE_ARG="--date $INPUT_DATE"
           fi
           
           TEXT_ARG=""
-          if [ "${{ github.event.inputs.text }}" != "" ]; then
-            TEXT_ARG="--text \"${{ github.event.inputs.text }}\""
+          if [ "$INPUT_TEXT" != "" ]; then
+            # We reference the env var directly in the command call
+            TEXT_ARG="--text"
           fi
 
-          python main.py --action ${{ github.event.inputs.action }} $DATE_ARG --model ${{ github.event.inputs.model }} $TEXT_ARG
+          # Use quotes around variables to prevent word splitting
+          if [ "$TEXT_ARG" == "--text" ]; then
+            python main.py --action "$INPUT_ACTION" $DATE_ARG --model "$INPUT_MODEL" --text "$INPUT_TEXT"
+          else
+            python main.py --action "$INPUT_ACTION" $DATE_ARG --model "$INPUT_MODEL"
+          fi
