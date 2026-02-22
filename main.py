@@ -229,8 +229,13 @@ def main():
             
             if upsert_daily_inputs(target_date, news_content):
                 logger.log(f"✅ Market news successfully saved for {target_date}")
+                from modules.ai.ai_services import TRACKER
+                TRACKER.metrics.details.append(f"✅ News Saved: {target_date}")
+                TRACKER.metrics.success_count += 1 # Increment success count for the dashboard
             else:
                 logger.error(f"❌ Failed to save market news for {target_date}")
+                from modules.ai.ai_services import TRACKER
+                TRACKER.log_error("NEWS", f"Failed to save news for {target_date}")
         elif args.action == "inspect":
             from modules.data.inspect_db import inspect
             inspect()
