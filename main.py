@@ -205,7 +205,19 @@ def main():
     from modules.core.config import infisical_mgr
     from modules.ai.ai_services import TRACKER
     
-    TRACKER.start()
+    # Map actions to descriptive names
+    action_map = {
+        "run": "Full_Pipeline_Run",
+        "update-economy": "Economy_Card_Update",
+        "input-news": "Market_News_Input",
+        "inspect": "DB_Inspection",
+        "setup": "DB_Setup",
+        "check-news": "News_Check",
+        "test-webhook": "Webhook_Test"
+    }
+    desc_action = action_map.get(args.action, args.action).replace("-", "_")
+
+    TRACKER.start(action_type=desc_action)
     try:
         if args.action == "run":
             run_pipeline(target_date, args.model, logger)

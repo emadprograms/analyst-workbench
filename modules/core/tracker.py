@@ -21,8 +21,10 @@ class ExecutionTracker:
     """
     def __init__(self):
         self.metrics = ExecutionMetrics()
+        self.action_type = "Unknown"
 
-    def start(self):
+    def start(self, action_type: str = "Unknown"):
+        self.action_type = action_type
         self.metrics.start_time = time.time()
         self.metrics.total_calls = 0
         self.metrics.total_tokens = 0
@@ -84,18 +86,30 @@ class ExecutionTracker:
 
         embed = {
             "title": f"🏦 Analyst Workbench | {target_date}",
-            "description": "The AI analysis pipeline has completed. Actionable cards are attached below.",
+            "description": f"Action: **{self.action_type.replace('_', ' ')}**",
             "color": color,
-            "fields": [
-                {"name": "🤖 API Calls", "value": f"`{summary['total_calls']}`", "inline": True},
-                {"name": "🪙 Tokens", "value": f"`{summary['total_tokens']:,}`", "inline": True},
-                {"name": "📈 Status", "value": f"`{summary['success_rate']}`", "inline": True},
-                {"name": "🕒 Duration", "value": f"`{summary['duration']}`", "inline": True},
-                {"name": "📁 Files", "value": f"`{summary['artifacts_count'] + 1}`", "inline": True} # +1 for Log
-            ],
+            "fields": [],
             "footer": {"text": "Analyst Workbench v2.5 | Macro Intel Engine"},
             "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         }
+
+        # Categories for layout
+        ai_actions = ["Full_Pipeline_Run", "Economy_Card_Update", "Company_Card_Update"]
+        
+        if self.action_type in ai_actions:
+            # Full AI Dashboard
+            embed["fields"].append({"name": "🤖 API Calls", "value": f"`{summary['total_calls']}`", "inline": True})
+            embed["fields"].append({"name": "🪙 Tokens", "value": f"`{summary['total_tokens']:,}`", "inline": True})
+            embed["fields"].append({"name": "📈 Status", "value": f"`{summary['success_rate']}`", "inline": True})
+            embed["fields"].append({"name": "🕒 Duration", "value": f"`{summary['duration']}`", "inline": True})
+            if summary['artifacts_count'] > 0:
+                embed["fields"].append({"name": "📁 Files", "value": f"`{summary['artifacts_count'] + 1}`", "inline": True})
+        else:
+            # Simplified Data Dashboard (Input News, Check News, Inspect, etc.)
+            embed["fields"].append({"name": "📈 Status", "value": f"`{summary['success_rate']}`", "inline": True})
+            embed["fields"].append({"name": "🕒 Duration", "value": f"`{summary['duration']}`", "inline": True})
+            if summary['artifacts_count'] > 0:
+                embed["fields"].append({"name": "📁 Files", "value": f"`{summary['artifacts_count'] + 1}`", "inline": True})
 
         # Enhanced: Include Macro Narrative if Economy Card was generated
         if "ECONOMY_CARD" in self.metrics.artifacts:
