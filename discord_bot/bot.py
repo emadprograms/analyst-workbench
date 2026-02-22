@@ -75,7 +75,7 @@ async def inputnews(ctx, date_str: str, *, news_text: str):
     # For now, let's keep it simple. The user asked for it to be light.
     success, error = await dispatch_github_action(inputs)
     if success:
-        await msg.edit(content=f"✅ **Dispatch Successful!**\n> Tracking news entry on GitHub...")
+        await msg.edit(content=f"✅ **Dispatch Successful!**\n> News entry is being processed on GitHub. (ETA: **~2-3 minutes**) ⏱️")
     else:
         await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
 
@@ -97,7 +97,7 @@ async def updateeconomy(ctx, date_str: str, model_name: str = "gemini-3-flash-fr
     
     success, error = await dispatch_github_action(inputs)
     if success:
-        await msg.edit(content=f"✅ **Dispatch Successful!**\n> **Analyst Workbench** is initializing... The dashboard report will arrive here shortly. 📡")
+        await msg.edit(content=f"✅ **Dispatch Successful!**\n> **Analyst Workbench** is initializing... The dashboard report will arrive here in **~5-7 minutes**. 📡⏱️")
     else:
         await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
 
@@ -112,7 +112,7 @@ async def inspect(ctx):
     if not success:
         await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
     else:
-        await msg.edit(content="✅ **Inspect Dispatched.** Report will arrive shortly.")
+        await msg.edit(content="✅ **Inspect Dispatched.** Report will arrive in **~2-3 minutes**. ⏱️")
 
 @bot.command()
 async def checknews(ctx, date_str: str):
@@ -132,7 +132,7 @@ async def checknews(ctx, date_str: str):
     
     success, error = await dispatch_github_action(inputs)
     if success:
-        await msg.edit(content=f"✅ **Check Dispatched!**\n> The news report for {date_str} will arrive shortly. 📡")
+        await msg.edit(content=f"✅ **Check Dispatched!**\n> The news report for {date_str} will arrive in **~2-3 minutes**. 📡⏱️")
     else:
         await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
 
