@@ -247,24 +247,28 @@ def main():
                     resp = requests.get(args.url, timeout=30)
                     resp.raise_for_status()
                     news_content = resp.text
+                    logger.log(f"✅ Downloaded {len(news_content)} characters from URL.")
                 except Exception as e:
-                    logger.error(f"Failed to download news from URL: {e}")
+                    logger.error(f"❌ Failed to download news from URL: {e}")
+                    TRACKER.log_error("NEWS_DOWNLOAD", str(e))
                     sys.exit(1)
             
             if not news_content:
                 logger.error("You must provide news content via --text, --file, or --url when using --action input-news")
+                TRACKER.log_error("NEWS_INPUT", "Empty news content provided")
                 sys.exit(1)
             
+            logger.log(f"💾 Saving {len(news_content)} characters to 'aw_daily_news' for {target_date}...")
             if upsert_daily_inputs(target_date, news_content):
                 char_count = len(news_content)
                 logger.log(f"✅ Market news successfully saved for {target_date} ({char_count} chars)")
                 from modules.ai.ai_services import TRACKER
-                TRACKER.metrics.details.append(f"✅ News Saved: {target_date} ({char_count} chars)")
+                TRACKER.metrics.details.append(f"✅ News Saved: {target_date} ({char_count:,} chars)")
                 TRACKER.metrics.success_count += 1 # Increment success count for the dashboard
             else:
                 logger.error(f"❌ Failed to save market news for {target_date}")
                 from modules.ai.ai_services import TRACKER
-                TRACKER.log_error("NEWS", f"Failed to save news for {target_date}")
+                TRACKER.log_error("NEWS_SAVE", f"Database upsert failed for {target_date}")
         elif args.action == "inspect":
             from modules.data.inspect_db import inspect
             inspect()
