@@ -23,6 +23,8 @@ def run_update_economy(selected_date: date, model_name: str, logger: AppLogger):
     market_news, _ = get_daily_inputs(selected_date)
     if not market_news:
         logger.error(f"No market news found for {selected_date}. Economy update skipped.")
+        from modules.ai.ai_services import TRACKER
+        TRACKER.log_call(0, False, model_name, ticker="ECONOMY", error="No market news found")
         return
 
     # 2. Get Current Card
@@ -49,8 +51,11 @@ def run_update_economy(selected_date: date, model_name: str, logger: AppLogger):
             logger.log(f"✅ Economy Card updated for {selected_date}")
         else:
             logger.error("❌ Failed to save Economy Card to DB")
+            from modules.ai.ai_services import TRACKER
+            TRACKER.log_call(0, False, model_name, ticker="ECONOMY", error="DB Save Failed")
     else:
         logger.error("❌ AI failed to generate new Economy Card")
+        # TRACKER.log_call handled inside update_economy_card failure paths
 
 def run_pipeline(selected_date: date, model_name: str, logger: AppLogger):
     logger.log(f"🚀 Starting Full Pipeline for {selected_date} using {model_name}")
@@ -85,6 +90,9 @@ def run_pipeline(selected_date: date, model_name: str, logger: AppLogger):
         
         if new_card:
             upsert_company_card(selected_date, ticker, ticker_summary, new_card)
+        else:
+            from modules.ai.ai_services import TRACKER
+            TRACKER.log_call(0, False, model_name, ticker=ticker, error="Update Failed")
     
     logger.log("✅ Full Pipeline run complete.")
 
