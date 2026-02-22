@@ -50,15 +50,29 @@ async def dispatch_github_action(inputs: dict):
                     err_msg = await resp.text()
                 return False, f"GitHub Error ({resp.status}): {err_msg}"
 
+def get_today_utc():
+    return datetime.utcnow().strftime("%Y-%m-%d")
+
 @bot.command()
-async def inputnews(ctx, date_str: str, *, news_text: str):
+async def inputnews(ctx, date_str: str = None, *, news_text: str = None):
     """Dispatch market news input to GitHub Actions."""
+    if date_str and not news_text:
+        # User likely sent !inputnews "the news text" without a date
+        # We shift things: news_text = date_str, date_str = today
+        news_text = date_str
+        date_str = get_today_utc()
+    elif not date_str:
+        await ctx.send("❌ Error: You must provide news text. Example: `!inputnews The market is up.`")
+        return
+    
+    if not date_str: date_str = get_today_utc()
+
     try:
-        # Basic validation
         datetime.strptime(date_str, "%Y-%m-%d")
     except ValueError:
-        await ctx.send("❌ Invalid date format. Use YYYY-MM-DD.")
-        return
+        # If it's not a date, maybe it's the start of the news text
+        news_text = f"{date_str} {news_text}" if news_text else date_str
+        date_str = get_today_utc()
 
     msg = await ctx.send(f"🛰️ Dispatching news entry for **{date_str}** to GitHub Actions...")
     
@@ -68,11 +82,6 @@ async def inputnews(ctx, date_str: str, *, news_text: str):
         "text": news_text
     }
     
-    # Note: manual_run.yml needs to support 'action' and 'text' inputs for this
-    # I'll update the workflow file in the next step to handle these.
-    # Actually, I'll update it now to be robust.
-    
-    # For now, let's keep it simple. The user asked for it to be light.
     success, error = await dispatch_github_action(inputs)
     if success:
         await msg.edit(content=f"✅ **Dispatch Successful!**\n> News entry is being processed on GitHub. (ETA: **~2-3 minutes**) ⏱️")
@@ -80,12 +89,20 @@ async def inputnews(ctx, date_str: str, *, news_text: str):
         await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
 
 @bot.command()
-async def updateeconomy(ctx, date_str: str, model_name: str = "gemini-3-flash-free"):
+async def updateeconomy(ctx, date_str: str = None, model_name: str = "gemini-3-flash-free"):
     """Dispatch Economy Update to GitHub Actions."""
+    if not date_str: date_str = get_today_utc()
+    
+    # Check if the user passed a model name instead of a date
+    if date_str and "-" in date_str and len(date_str) > 10:
+        # Likely a model name like gemini-3-flash-free
+        model_name = date_str
+        date_str = get_today_utc()
+
     try:
         datetime.strptime(date_str, "%Y-%m-%d")
     except ValueError:
-        await ctx.send("❌ Invalid date format. Use YYYY-MM-DD.")
+        await ctx.send("❌ Invalid date format. Use YYYY-MM-DD or leave blank for today.")
         return
 
     msg = await ctx.send(f"🧠 **Dispatching Economy Update** ({date_str}) to GitHub Actions...")
@@ -115,12 +132,14 @@ async def inspect(ctx):
         await msg.edit(content="✅ **Inspect Dispatched.** Report will arrive in **~2-3 minutes**. ⏱️")
 
 @bot.command()
-async def checknews(ctx, date_str: str):
+async def checknews(ctx, date_str: str = None):
     """Dispatch market news check to GitHub Actions."""
+    if not date_str: date_str = get_today_utc()
+
     try:
         datetime.strptime(date_str, "%Y-%m-%d")
     except ValueError:
-        await ctx.send("❌ Invalid date format. Use YYYY-MM-DD.")
+        await ctx.send("❌ Invalid date format. Use YYYY-MM-DD or leave blank for today.")
         return
 
     msg = await ctx.send(f"🔍 **Checking news** for **{date_str}** via GitHub Actions...")
