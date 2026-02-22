@@ -6,25 +6,22 @@ import asyncio
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
-# Load local environment variables
+# 1. Setup & Config
 load_dotenv()
-
-# Configuration
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_PAT")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "emadprograms/analyst-workbench") 
 WORKFLOW_FILENAME = "manual_run.yml"
 
-# Setup Intents
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    print(f"✅ Major Action logged in as {bot.user.name}")
+    print(f"✅ Major Action System Online | Logged in as: {bot.user.name}")
 
-# --- REUSABLE DATE PICKER COMPONENTS ---
+# --- 2. Reusable UI Components ---
 
 class CustomDateModal(discord.ui.Modal, title='Enter Custom Date'):
     def __init__(self, action_callback, *args, **kwargs):
@@ -80,15 +77,13 @@ class DateDropdown(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         await self.action_callback(interaction, self.values[0])
 
-# --- MODALS FOR INPUT ---
-
 class NewsModal(discord.ui.Modal, title='Market News Entry'):
     def __init__(self, target_date, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.target_date = target_date
 
     news_text = discord.ui.TextInput(
-        label=f'Market News',
+        label=f'Market News Content',
         style=discord.TextStyle.long,
         placeholder='Paste news headlines here...',
         required=True,
@@ -107,22 +102,19 @@ class NewsModal(discord.ui.Modal, title='Market News Entry'):
         else:
             await msg.edit(content=f"🛰️ Dispatching news for **{self.target_date}**...\n❌ **Failed:** {error}")
 
-# --- HELPERS ---
+# --- 3. Internal Logic Helpers ---
 
 def get_target_date(date_input: str = None) -> str:
     today = datetime.utcnow()
     if not date_input or date_input == "0":
         return today.strftime("%Y-%m-%d")
     
-    if date_input.startswith("-") and date_input[1:].isdigit():
-        days_back = int(date_input[1:])
-        target = today - timedelta(days=days_back)
-        return target.strftime("%Y-%m-%d")
-    
-    if date_input.isdigit() and not date_input.startswith("-"):
-        days_back = int(date_input)
-        target = today - timedelta(days=days_back)
-        return target.strftime("%Y-%m-%d")
+    if (date_input.startswith("-") or date_input.isdigit()):
+        try:
+            days_back = int(date_input.replace("-", ""))
+            target = today - timedelta(days=days_back)
+            return target.strftime("%Y-%m-%d")
+        except: pass
 
     return date_input
 
@@ -141,11 +133,12 @@ async def dispatch_github_action(inputs: dict):
         async with session.post(url, headers=headers, json=data) as resp:
             return (True, "Success") if resp.status == 204 else (False, f"GitHub Error {resp.status}")
 
-# --- COMMANDS ---
+# --- 4. Commands ---
 
 @bot.command()
 async def inputnews(ctx, date_indicator: str = None):
     """Opens a date picker, then a text box to input market news."""
+    print(f"[DEBUG] Command !inputnews called by {ctx.author}")
     async def news_callback(interaction, selected_date):
         await interaction.response.send_modal(NewsModal(target_date=selected_date))
 
@@ -170,6 +163,7 @@ async def inputnews(ctx, date_indicator: str = None):
 @bot.command()
 async def updateeconomy(ctx, date_str: str = None, model_name: str = "gemini-3-flash-free"):
     """Dispatch Economy Update to GitHub Actions."""
+    print(f"[DEBUG] Command !updateeconomy called by {ctx.author}")
     target_date = get_target_date(date_str)
     
     async def economy_callback(interaction, selected_date):
@@ -186,7 +180,6 @@ async def updateeconomy(ctx, date_str: str = None, model_name: str = "gemini-3-f
         view = DateSelectionView(action_callback=economy_callback)
         await ctx.send(f"🌎 **Select Date for Economy Update** (using `{model_name}`):", view=view)
     else:
-        # Resolve model name if passed as first arg
         if date_str and "-" in date_str and len(date_str) > 10 and not date_str.startswith("-"):
             model_name = date_str
             target_date = get_target_date(None)
@@ -206,17 +199,19 @@ async def updateeconomy(ctx, date_str: str = None, model_name: str = "gemini-3-f
 @bot.command()
 async def inspect(ctx):
     """Dispatch inspect command to GitHub Actions."""
+    print(f"[DEBUG] Command !inspect called by {ctx.author}")
     msg = await ctx.send("🔍 **Inspecting Database**... 🛰️")
     inputs = {"action": "inspect"}
     success, error = await dispatch_github_action(inputs)
     if success:
         await msg.edit(content="🔍 **Inspecting Database**...\n✅ **Dispatched!** (ETA: ~2-3 mins) ⏱️")
     else:
-        await msg.edit(content=f"🔍 **Inspecting Database**...\n❌ **Failed:** {error}")
+        await msg.edit(content=f"🔍 **Inspecting Database**... ❌ **Failed:** {error}")
 
 @bot.command()
 async def checknews(ctx, date_str: str = None):
     """Dispatch market news check to GitHub Actions."""
+    print(f"[DEBUG] Command !checknews called by {ctx.author}")
     async def check_callback(interaction, selected_date):
         await interaction.response.send_message(f"🔍 **Checking news** for **{selected_date}**... 🛰️", ephemeral=False)
         msg = await interaction.original_response()
@@ -225,7 +220,7 @@ async def checknews(ctx, date_str: str = None):
         if success:
             await msg.edit(content=f"🔍 **Checking news** for **{selected_date}**...\n✅ **Dispatched!** (ETA: ~2-3 mins) 📡⏱️")
         else:
-            await msg.edit(content=f"🔍 **Checking news** for **{selected_date}**...\n❌ **Failed:** {error}")
+            await msg.edit(content=f"🔍 **Checking news** for **{selected_date}**... ❌ **Failed:** {error}")
 
     if not date_str:
         view = DateSelectionView(action_callback=check_callback)
@@ -240,7 +235,7 @@ async def checknews(ctx, date_str: str = None):
             if success:
                 await msg.edit(content=f"🔍 **Checking news** for **{target_date}**...\n✅ **Dispatched!** (ETA: ~2-3 mins) 📡⏱️")
             else:
-                await msg.edit(content=f"🔍 **Checking news** for **{target_date}**...\n❌ **Failed:** {error}")
+                await msg.edit(content=f"🔍 **Checking news** for **{target_date}**... ❌ **Failed:** {error}")
         except ValueError:
             await ctx.send(f"❌ Error: `{target_date}` is invalid.")
 
