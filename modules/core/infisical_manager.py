@@ -1,6 +1,5 @@
 from infisical_sdk import InfisicalSDKClient
 import os
-import toml
 import logging
 
 class InfisicalManager:
@@ -15,37 +14,15 @@ class InfisicalManager:
         client_secret = os.getenv("INFISICAL_CLIENT_SECRET")
         self.project_id = os.getenv("INFISICAL_PROJECT_ID")
         
-        self.logger.info(f"DEBUG: INFISICAL_TOKEN is {'Set' if client_token else 'NOT SET'}")
-        self.logger.info(f"DEBUG: INFISICAL_CLIENT_ID is {'Set' if client_id else 'NOT SET'}")
-        self.logger.info(f"DEBUG: INFISICAL_CLIENT_SECRET is {'Set' if client_secret else 'NOT SET'}")
-        self.logger.info(f"DEBUG: INFISICAL_PROJECT_ID is {'Set' if self.project_id else 'NOT SET'}")
-
-        # Fallback to local secrets.toml if env vars are missing
-        if not client_token and (not client_id or not client_secret or not self.project_id):
-            try:
-                secrets_path = ".streamlit/secrets.toml"
-                if os.path.exists(secrets_path):
-                    self.logger.info(f"DEBUG: Falling back to {secrets_path}")
-                    data = toml.load(secrets_path)
-                    sec = data.get("infisical", {})
-                    if not client_token: client_token = sec.get("token")
-                    if not client_id: client_id = sec.get("client_id")
-                    if not client_secret: client_secret = sec.get("client_secret")
-                    if not self.project_id: self.project_id = sec.get("project_id")
-            except Exception as e:
-                self.logger.warning(f"Failed to read local secrets for Infisical fallback: {e}")
-
-        # --- NEW: Authenticate with SDK ---
+        # --- Authentication with SDK ---
         try:
             if client_token:
-                self.logger.warning("DEBUG: Attempting Service Token Auth")
                 # Service Token Auth (Self-contained)
                 self.client = InfisicalSDKClient(host="https://app.infisical.com")
                 self.client.auth.login(token=client_token)
                 self.is_connected = True
                 self.logger.warning("✅ Infisical Connected (Service Token)")
             elif client_id and client_secret:
-                self.logger.warning("DEBUG: Attempting Universal Auth (Machine Identity)")
                 # Universal Auth (Machine Identity)
                 self.client = InfisicalSDKClient(host="https://app.infisical.com")
                 self.client.auth.universal_auth.login(

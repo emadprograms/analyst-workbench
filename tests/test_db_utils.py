@@ -38,8 +38,8 @@ def test_upsert_daily_inputs(mock_db_client):
     assert "(target_date, news_text)" in sql
 
 def test_get_daily_inputs(mock_db_client):
-    # Mock result set
-    mock_row = {'news_text': 'Some news'}
+    # Mock result set — code accesses row[0] (index-based), so provide a tuple
+    mock_row = ('Some news',)
     mock_rs = MagicMock()
     mock_rs.rows = [mock_row]
     mock_db_client.execute.return_value = mock_rs
