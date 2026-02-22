@@ -67,6 +67,46 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# --- MODAL FOR NEWS INPUT ---
+class NewsModal(discord.ui.Modal, title='Market News Entry'):
+    def __init__(self, target_date, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.target_date = target_date
+
+    news_text = discord.ui.TextInput(
+        label=f'Enter News for Today', # Updated dynamically in __init__ if I could, but label is static here
+        style=discord.TextStyle.long,
+        placeholder='Paste your news headlines or summary here...',
+        required=True,
+        min_length=10,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.send_message(f"🛰️ Dispatching news entry for **{self.target_date}** to GitHub Actions...", ephemeral=True)
+        
+        inputs = {
+            "target_date": self.target_date,
+            "action": "input-news",
+            "text": self.news_text.value
+        }
+        
+        success, error = await dispatch_github_action(inputs)
+        if success:
+            await interaction.followup.send(content=f"✅ **Dispatch Successful!**\n> News entry for **{self.target_date}** is being processed on GitHub. (ETA: **~2-3 minutes**) ⏱️")
+        else:
+            await interaction.followup.send(content=f"❌ **Dispatch Failed:** {error}")
+
+class NewsButtonView(discord.ui.View):
+    def __init__(self, target_date):
+        super().__init__(timeout=300) # 5 minute timeout
+        self.target_date = target_date
+
+    @discord.ui.button(label="📝 Open News Entry Box", style=discord.ButtonStyle.primary)
+    async def open_modal(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = NewsModal(target_date=self.target_date)
+        modal.title = f"News Entry: {self.target_date}"
+        await interaction.response.send_modal(modal)
+
 @bot.event
 async def on_ready():
     print(f"✅ Major Action logged in as {bot.user.name}")
@@ -123,55 +163,24 @@ async def dispatch_github_action(inputs: dict):
                 return False, f"GitHub Error ({resp.status}): {err_msg}"
 
 @bot.command()
-async def inputnews(ctx, date_str: str = None, *, news_text: str = None):
-    """Dispatch market news input to GitHub Actions."""
-    # 1. Resolve relative date or default
-    resolved_date = get_target_date(date_str)
+async def inputnews(ctx, date_indicator: str = None):
+    """Opens a text box to input market news."""
+    # 1. Resolve date
+    target_date = get_target_date(date_indicator)
     
-    # 2. Case: !inputnews "the news text" (date_str is news, news_text is None)
-    if date_str and not news_text:
-        # Check if date_str is a date or news
-        try:
-            # If this succeeds, user ONLY provided a date (invalid for inputnews)
-            datetime.strptime(resolved_date, "%Y-%m-%d")
-            await ctx.send(f"❌ Error: You provided a date ({resolved_date}) but no news text. Usage: `!inputnews [date] <text>`")
-            return
-        except ValueError:
-            # It's not a date, so it must be the news text
-            news_text = date_str
-            target_date = get_target_date(None)
-    elif not date_str:
-        # User typed just !inputnews
-        await ctx.send("❌ Error: You must provide news text. Example: `!inputnews The market rallied today.`")
-        return
-    else:
-        # User provided both: date_str could be "-1" or "2026-01-01"
-        target_date = resolved_date
-        # Final validation of the resolved date
-        try:
-            datetime.strptime(target_date, "%Y-%m-%d")
-        except ValueError:
-            await ctx.send(f"❌ Error: `{target_date}` is not a valid date format (YYYY-MM-DD) or relative indicator (-1, -2).")
-            return
-
-    # Final news text check
-    if not news_text or len(news_text.strip()) < 5:
-        await ctx.send("❌ Error: News text is too short or missing.")
+    # 2. Final validation of the date
+    try:
+        datetime.strptime(target_date, "%Y-%m-%d")
+    except ValueError:
+        await ctx.send(f"❌ Error: `{target_date}` is not a valid date format (YYYY-MM-DD) or relative indicator (-1, -2).")
         return
 
-    msg = await ctx.send(f"🛰️ Dispatching news entry for **{target_date}** to GitHub Actions...")
-    
-    inputs = {
-        "target_date": target_date,
-        "action": "input-news",
-        "text": news_text
-    }
-    
-    success, error = await dispatch_github_action(inputs)
-    if success:
-        await msg.edit(content=f"✅ **Dispatch Successful!**\n> News entry is being processed on GitHub. (ETA: **~2-3 minutes**) ⏱️")
-    else:
-        await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
+    # 3. Send the button to trigger the modal
+    view = NewsButtonView(target_date=target_date)
+    await ctx.send(
+        content=f"🗓️ **News Entry for {target_date}**\nClick the button below to paste your news content.",
+        view=view
+    )
 
 @bot.command()
 async def updateeconomy(ctx, date_str: str = None, model_name: str = "gemini-3-flash-free"):
