@@ -106,18 +106,26 @@ class NewsModal(discord.ui.Modal, title='Market News Entry'):
 # --- 3. Internal Logic Helpers ---
 
 def get_target_date(date_input: str = None) -> str:
+    """
+    Parses date input. Supports:
+    - None -> Today (UTC)
+    - "0" -> Today (UTC)
+    - "-1", "-2", etc. -> Days relative to today
+    - "YYYY-MM-DD" -> Specific date
+    """
     today = datetime.utcnow()
     if not date_input or date_input == "0":
         return today.strftime("%Y-%m-%d")
     
-    if (date_input.startswith("-") or date_input.isdigit()):
+    # Handle relative dates (MUST start with - and be followed by digits)
+    if date_input.startswith("-") and date_input[1:].isdigit():
         try:
-            days_back = int(date_input.replace("-", ""))
+            days_back = int(date_input[1:])
             target = today - timedelta(days=days_back)
             return target.strftime("%Y-%m-%d")
         except: pass
 
-    return date_input
+    return date_input # Return as-is for validation later
 
 async def dispatch_github_action(inputs: dict):
     if not GITHUB_TOKEN or not GITHUB_REPO:
