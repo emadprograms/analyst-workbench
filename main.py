@@ -1,8 +1,47 @@
 from __future__ import annotations
-import argparse
-import sys
 import os
+import sys
+import argparse
 from datetime import date
+import requests
+
+def send_webhook_report(webhook_url, target_date, logger=None):
+    """Sends the execution summary and optional log file to Discord."""
+    if not webhook_url: return
+    
+    from modules.ai.ai_services import TRACKER
+    TRACKER.finish()
+    embeds = TRACKER.get_discord_embeds(target_date.isoformat())
+    
+    payload = {"embeds": embeds}
+    files = {}
+    
+    # 1. Attach the captured logs as a file
+    if logger and hasattr(logger, 'get_full_log'):
+        log_content = logger.get_full_log()
+        if log_content:
+            files["file"] = (f"logs_{target_date.isoformat()}.log", log_content, "text/plain")
+    
+    # 2. Attach generated cards (artifacts)
+    if hasattr(TRACKER.metrics, 'artifacts'):
+        for name, content in TRACKER.metrics.artifacts.items():
+            # Discord limit is 10 files per message
+            if len(files) >= 10: break
+            files[name] = (f"{name}.json", content, "application/json")
+    
+    try:
+        if files:
+            # When sending files, the JSON payload must be in the 'payload_json' part
+            import json
+            requests.post(webhook_url, data={"payload_json": json.dumps(payload)}, files=files, timeout=20)
+        else:
+            requests.post(webhook_url, json=payload, timeout=15)
+    except Exception as e:
+        if logger:
+            logger.error(f"Failed to send Discord webhook: {e}")
+        else:
+            print(f"ERROR: Failed to send Discord webhook: {e}")
+
 from modules.core.config import ALL_TICKERS, STOCK_TICKERS, ETF_TICKERS, AVAILABLE_MODELS, DISCORD_WEBHOOK_URL
 from modules.core.logger import AppLogger
 from modules.data.db_utils import (
@@ -128,17 +167,7 @@ def main():
 
     from modules.core.config import infisical_mgr
     from modules.ai.ai_services import TRACKER
-    import requests
-
-    def send_webhook_report(webhook_url, target_date):
-        if not webhook_url: return
-        TRACKER.finish()
-        embeds = TRACKER.get_discord_embeds(target_date.isoformat())
-        try:
-            requests.post(webhook_url, json={"embeds": embeds}, timeout=10)
-        except Exception as e:
-            logger.error(f"Failed to send Discord webhook: {e}")
-
+    
     TRACKER.start()
     try:
         if args.action == "run":
@@ -181,7 +210,7 @@ def main():
         # Send Report if webhook exists
         webhook = getattr(args, 'webhook', None) or DISCORD_WEBHOOK_URL
         if webhook:
-            send_webhook_report(webhook, target_date)
+            send_webhook_report(webhook, target_date, logger=logger)
 
     finally:
         # 6. Cleanup Resources
