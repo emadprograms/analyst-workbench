@@ -12,7 +12,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_PAT")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "emadprograms/analyst-workbench") 
 WORKFLOW_FILENAME = "manual_run.yml"
-ACTIONS_URL = f"https://github.com/{GITHUB_REPO}/actions"
+ACTIONS_URL = f"<https://github.com/{GITHUB_REPO}/actions>"
 
 intents = discord.Intents.default()
 intents.message_content = True
