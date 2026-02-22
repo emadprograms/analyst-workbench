@@ -114,6 +114,28 @@ async def inspect(ctx):
     else:
         await msg.edit(content="✅ **Inspect Dispatched.** Report will arrive shortly.")
 
+@bot.command()
+async def checknews(ctx, date_str: str):
+    """Dispatch market news check to GitHub Actions."""
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        await ctx.send("❌ Invalid date format. Use YYYY-MM-DD.")
+        return
+
+    msg = await ctx.send(f"🔍 **Checking news** for **{date_str}** via GitHub Actions...")
+    
+    inputs = {
+        "target_date": date_str,
+        "action": "check-news"
+    }
+    
+    success, error = await dispatch_github_action(inputs)
+    if success:
+        await msg.edit(content=f"✅ **Check Dispatched!**\n> The news report for {date_str} will arrive shortly. 📡")
+    else:
+        await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
+
 if __name__ == "__main__":
     if not DISCORD_TOKEN:
         print("❌ Error: DISCORD_BOT_TOKEN not found.")
