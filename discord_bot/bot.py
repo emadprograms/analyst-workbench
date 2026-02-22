@@ -12,6 +12,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_PAT")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "emadprograms/analyst-workbench") 
 WORKFLOW_FILENAME = "manual_run.yml"
+ACTIONS_URL = f"https://github.com/{GITHUB_REPO}/actions"
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -98,7 +99,7 @@ class NewsModal(discord.ui.Modal, title='Market News Entry'):
         success, error = await dispatch_github_action(inputs)
         
         if success:
-            await msg.edit(content=f"🛰️ Dispatching news for **{self.target_date}**...\n✅ **Dispatched!** (ETA: ~2-3 mins) ⏱️")
+            await msg.edit(content=f"🛰️ Dispatching news for **{self.target_date}**...\n✅ **Dispatched!** (ETA: ~2-3 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) ⏱️")
         else:
             await msg.edit(content=f"🛰️ Dispatching news for **{self.target_date}**...\n❌ **Failed:** {error}")
 
@@ -172,9 +173,9 @@ async def updateeconomy(ctx, date_str: str = None, model_name: str = "gemini-3-f
         inputs = {"target_date": selected_date, "model": model_name}
         success, error = await dispatch_github_action(inputs)
         if success:
-            await msg.edit(content=f"🧠 **Updating Economy** ({selected_date})...\n✅ **Dispatched!** (ETA: ~5-7 mins) 📡⏱️")
+            await msg.edit(content=f"🧠 **Updating Economy** ({selected_date})...\n✅ **Dispatched!** (ETA: ~5-7 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
         else:
-            await msg.edit(content=f"🧠 **Updating Economy** ({selected_date})...\n❌ **Failed:** {error}")
+            await msg.edit(content=f"🧠 **Updating Economy** ({selected_date})... ❌ **Failed:** {error}")
 
     if not date_str:
         view = DateSelectionView(action_callback=economy_callback)
@@ -190,9 +191,9 @@ async def updateeconomy(ctx, date_str: str = None, model_name: str = "gemini-3-f
             inputs = {"target_date": target_date, "model": model_name}
             success, error = await dispatch_github_action(inputs)
             if success:
-                await msg.edit(content=f"🧠 **Updating Economy** ({target_date})...\n✅ **Dispatched!** (ETA: ~5-7 mins) 📡⏱️")
+                await msg.edit(content=f"🧠 **Updating Economy** ({target_date})...\n✅ **Dispatched!** (ETA: ~5-7 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
             else:
-                await msg.edit(content=f"🧠 **Updating Economy** ({target_date})...\n❌ **Failed:** {error}")
+                await msg.edit(content=f"🧠 **Updating Economy** ({target_date})... ❌ **Failed:** {error}")
         except ValueError:
             await ctx.send(f"❌ Error: `{target_date}` is invalid.")
 
@@ -204,7 +205,7 @@ async def inspect(ctx):
     inputs = {"action": "inspect"}
     success, error = await dispatch_github_action(inputs)
     if success:
-        await msg.edit(content="🔍 **Inspecting Database**...\n✅ **Dispatched!** (ETA: ~2-3 mins) ⏱️")
+        await msg.edit(content="🔍 **Inspecting Database**...\n✅ **Dispatched!** (ETA: ~2-3 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) ⏱️")
     else:
         await msg.edit(content=f"🔍 **Inspecting Database**... ❌ **Failed:** {error}")
 
@@ -218,7 +219,7 @@ async def checknews(ctx, date_str: str = None):
         inputs = {"target_date": selected_date, "action": "check-news"}
         success, error = await dispatch_github_action(inputs)
         if success:
-            await msg.edit(content=f"🔍 **Checking news** for **{selected_date}**...\n✅ **Dispatched!** (ETA: ~2-3 mins) 📡⏱️")
+            await msg.edit(content=f"🔍 **Checking news** for **{selected_date}**...\n✅ **Dispatched!** (ETA: ~2-3 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
         else:
             await msg.edit(content=f"🔍 **Checking news** for **{selected_date}**... ❌ **Failed:** {error}")
 
@@ -233,7 +234,7 @@ async def checknews(ctx, date_str: str = None):
             inputs = {"target_date": target_date, "action": "check-news"}
             success, error = await dispatch_github_action(inputs)
             if success:
-                await msg.edit(content=f"🔍 **Checking news** for **{target_date}**...\n✅ **Dispatched!** (ETA: ~2-3 mins) 📡⏱️")
+                await msg.edit(content=f"🔍 **Checking news** for **{target_date}**...\n✅ **Dispatched!** (ETA: ~2-3 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
             else:
                 await msg.edit(content=f"🔍 **Checking news** for **{target_date}**... ❌ **Failed:** {error}")
         except ValueError:
