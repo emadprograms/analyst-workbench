@@ -12,9 +12,8 @@ load_dotenv()
 # Configuration
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_PAT")
-GITHUB_REPO = os.getenv("GITHUB_REPO") # e.g., "user/repo"
+GITHUB_REPO = os.getenv("GITHUB_REPO", "emadprograms/analyst-workbench") 
 WORKFLOW_FILENAME = "manual_run.yml"
-WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 # Setup Intents
 intents = discord.Intents.default()
@@ -66,8 +65,7 @@ async def inputnews(ctx, date_str: str, *, news_text: str):
     inputs = {
         "target_date": date_str,
         "action": "input-news",
-        "text": news_text,
-        "webhook_url": WEBHOOK_URL or ""
+        "text": news_text
     }
     
     # Note: manual_run.yml needs to support 'action' and 'text' inputs for this
@@ -94,8 +92,7 @@ async def updateeconomy(ctx, date_str: str, model_name: str = "gemini-3-flash-fr
     
     inputs = {
         "target_date": date_str,
-        "model": model_name,
-        "webhook_url": WEBHOOK_URL or ""
+        "model": model_name
     }
     
     success, error = await dispatch_github_action(inputs)
@@ -109,8 +106,7 @@ async def inspect(ctx):
     """Dispatch inspect command to GitHub Actions."""
     msg = await ctx.send("🔍 Dispatching database inspection...")
     inputs = {
-        "action": "inspect",
-        "webhook_url": WEBHOOK_URL or ""
+        "action": "inspect"
     }
     success, error = await dispatch_github_action(inputs)
     if not success:

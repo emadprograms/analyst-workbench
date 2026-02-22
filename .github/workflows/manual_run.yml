@@ -19,10 +19,6 @@ on:
         description: 'News text (for input-news)'
         required: false
         default: ''
-      webhook_url:
-        description: 'Discord Webhook URL for Report (Optional)'
-        required: false
-        default: ''
 
 jobs:
   run-pipeline:
@@ -45,7 +41,6 @@ jobs:
         env:
           INFISICAL_TOKEN: ${{ secrets.INFISICAL_TOKEN }}
           INFISICAL_PROJECT_ID: ${{ secrets.INFISICAL_PROJECT_ID }}
-          DISCORD_WEBHOOK_URL: ${{ github.event.inputs.webhook_url }}
         run: |
           # Use 'date.today()' logic if input is 'today'
           DATE_ARG=""
@@ -58,4 +53,4 @@ jobs:
             TEXT_ARG="--text \"${{ github.event.inputs.text }}\""
           fi
 
-          python main.py --action ${{ github.event.inputs.action }} $DATE_ARG --model ${{ github.event.inputs.model }} --webhook ${{ github.event.inputs.webhook_url }} $TEXT_ARG
+          python main.py --action ${{ github.event.inputs.action }} $DATE_ARG --model ${{ github.event.inputs.model }} $TEXT_ARG
