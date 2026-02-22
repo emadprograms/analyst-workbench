@@ -10,3 +10,4 @@ libsql-client
 infisicalsdk
 toml
 python-dotenv
+discord.py
