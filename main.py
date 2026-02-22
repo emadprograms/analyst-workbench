@@ -19,9 +19,20 @@ def send_webhook_report(webhook_url, target_date, action, model, logger=None):
     files = {}
     
     # 1. Enhance Log Filename
-    # Format: {action}_{date}_{model}_{timestamp}.log
+    # Format: {descriptive_action}_{date}_{model}_{timestamp}.log
+    action_map = {
+        "run": "Full_Pipeline_Run",
+        "update-economy": "Economy_Card_Update",
+        "input-news": "Market_News_Input",
+        "inspect": "DB_Inspection",
+        "setup": "DB_Setup",
+        "check-news": "News_Check",
+        "test-webhook": "Webhook_Test"
+    }
+    desc_action = action_map.get(action, action).replace("-", "_")
+    
     timestamp = time.strftime("%H%M%S")
-    log_filename = f"{action}_{target_date.isoformat()}_{model}_{timestamp}.log"
+    log_filename = f"{desc_action}_{target_date.isoformat()}_{model}_{timestamp}.log"
     
     # 2. Attach the captured logs as a file
     if logger and hasattr(logger, 'get_full_log'):
