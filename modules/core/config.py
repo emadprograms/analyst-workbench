@@ -1,5 +1,9 @@
 import logging
 import os
+from dotenv import load_dotenv
+
+# Load .env file if it exists
+load_dotenv()
 
 # --- Local Import ---
 # import removed to break cycle 
@@ -47,15 +51,21 @@ TURSO_AUTH_TOKEN = None
 
 try:
     # Attempt to load Turso secrets via Infisical
-    # NOTE: Mapping discovered via probe
-    TURSO_DB_URL = infisical_mgr.get_secret("turso_emadprograms_analystworkbench_DB_URL")
-    TURSO_AUTH_TOKEN = infisical_mgr.get_secret("turso_emadprograms_analystworkbench_AUTH_TOKEN")
+    # 1. Try the exact names stored in Infisical (all lowercase)
+    TURSO_DB_URL = infisical_mgr.get_secret("turso_emadprograms_analystworkbench_db_url")
+    TURSO_AUTH_TOKEN = infisical_mgr.get_secret("turso_emadprograms_analystworkbench_auth_token")
     
-    # Fallback to local secrets if Infisical fails/returns None
-    if not TURSO_DB_URL or not TURSO_AUTH_TOKEN:
-        logging.info("Infisical returned no Turso credentials, checking local environment variables...")
-        if not TURSO_DB_URL: TURSO_DB_URL = os.environ.get("TURSO_DB_URL")
-        if not TURSO_AUTH_TOKEN: TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
+    # 2. Fallback to simplified names (if user adds them later)
+    if not TURSO_DB_URL:
+        TURSO_DB_URL = infisical_mgr.get_secret("TURSO_DB_URL")
+    if not TURSO_AUTH_TOKEN:
+        TURSO_AUTH_TOKEN = infisical_mgr.get_secret("TURSO_AUTH_TOKEN")
+    
+    # 3. Fallback to local environment variables
+    if not TURSO_DB_URL:
+        TURSO_DB_URL = os.environ.get("TURSO_DB_URL")
+    if not TURSO_AUTH_TOKEN:
+        TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
 
     if not TURSO_DB_URL or not TURSO_AUTH_TOKEN:
         logging.critical("CRITICAL: Turso DB URL or Auth Token not found (Infisical or environment variables).")
@@ -69,8 +79,10 @@ except Exception as e:
 # ==========================================
 try:
     # Attempt to load Gemini keys via Infisical
-    # Expecting comma-separated string: "key1,key2,key3"
+    # 1. Try standard name first
     api_keys_str = infisical_mgr.get_secret("GEMINI_API_KEYS")
+    
+    # 2. Fallback to any other variants if needed (optional)
     
     if api_keys_str:
         API_KEYS = [k.strip() for k in api_keys_str.split(",") if k.strip()]

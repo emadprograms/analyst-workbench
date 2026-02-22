@@ -139,7 +139,14 @@ class KeyManager:
     MAX_STRIKES = 5
     FATAL_STRIKE_COUNT = 999
 
-    def __init__(self, db_url: str, auth_token: str):
+    def __init__(self, db_url: str | None, auth_token: str | None):
+        if not db_url or not auth_token:
+            log.critical("KeyManager initialized with missing credentials.")
+            self.db_url = None
+            self.auth_token = None
+            self.db_client = None
+            return
+
         self.db_url = db_url.replace("libsql://", "https://") 
         self.auth_token = auth_token
         

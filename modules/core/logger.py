@@ -8,30 +8,45 @@ class AppLogger:
     """
     def __init__(self, logger_name="analyst_workbench"):
         self.logger = logging.getLogger(logger_name)
-        if not self.logger.handlers:
-            handler = logging.StreamHandler(sys.stdout)
-            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
-            self.logger.setLevel(logging.INFO)
+        # Disable propagation
+        self.logger.propagate = False
+        
+        # Clear any existing handlers to avoid duplicates
+        if self.logger.handlers:
+            for handler in self.logger.handlers[:]:
+                self.logger.removeHandler(handler)
+        
+        # Configure a single handler
+        handler = logging.StreamHandler(sys.stdout)
+        formatter = logging.Formatter('%(levelname)s: %(message)s')
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.INFO)
+
+        # Also silence the root logger if it was accidentally initialized elsewhere
+        root_logger = logging.getLogger()
+        if not root_logger.handlers:
+            # Prevent direct printing from root if not configured
+            root_logger.addHandler(logging.NullHandler())
+        else:
+            # If root has handlers, we might still see duplicates if other libs use root
+            # but setting propagate=False on our logger should handle most cases.
+            pass
 
     def log(self, message: str):
         """Logs an info message."""
         self.logger.info(message)
-        print(f"INFO: {message}")
 
     def error(self, message: str):
         """Logs an error message."""
         self.logger.error(message)
-        print(f"ERROR: {message}", file=sys.stderr)
 
     def warning(self, message: str):
         """Logs a warning message."""
         self.logger.warning(message)
-        print(f"WARNING: {message}")
 
     def log_code(self, code: str, language: str = 'text'):
         """Logs a code block."""
-        print(f"--- {language.upper()} BLOCK START ---")
-        print(code)
-        print(f"--- {language.upper()} BLOCK END ---")
+        self.logger.info(f"--- {language.upper()} BLOCK ---")
+        for line in code.splitlines():
+            self.logger.info(line)

@@ -27,6 +27,10 @@ def create_tables():
     print(f"Connecting to Turso at: {TURSO_DB_URL}...")
     client = None
     try:
+        if not TURSO_DB_URL:
+            print("Error: TURSO_DB_URL is not set.")
+            return
+            
         # --- FIX: Force HTTPS connection ---
         http_url = TURSO_DB_URL.replace("libsql://", "https://")
         

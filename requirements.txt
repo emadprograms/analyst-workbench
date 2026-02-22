@@ -9,3 +9,4 @@ pytest
 libsql-client
 infisicalsdk
 toml
+python-dotenv

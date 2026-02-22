@@ -19,8 +19,11 @@ def get_db_connection():
     and forces an HTTPS connection.
     """
     try:
+        if not TURSO_DB_URL:
+            logging.error("TURSO_DB_URL is not set.")
+            return None
+
         # --- FIX: Force HTTPS connection ---
-        # This is more reliable than libsql:// or wss://
         http_url = TURSO_DB_URL.replace("libsql://", "https://")
         
         config = {
@@ -43,7 +46,7 @@ def upsert_daily_inputs(selected_date: date, market_news: str) -> bool:
     try:
         conn = get_db_connection()
         if not conn:
-            print("Error: Database connection failed.")
+            logging.error("Database connection failed.")
             return False
 
         # The Turso client auto-commits; no 'commit()' needed
@@ -58,7 +61,7 @@ def upsert_daily_inputs(selected_date: date, market_news: str) -> bool:
         )
         return True
     except LibsqlError as e:
-        print(f"Error in upsert_daily_inputs: {e}")
+        logging.error(f"Error in upsert_daily_inputs: {e}")
         return False
     finally:
         if conn:
@@ -70,23 +73,22 @@ def get_daily_inputs(selected_date: date) -> tuple[str | None, str | None]:
     try:
         conn = get_db_connection()
         if not conn:
-            print("Error: Database connection failed.")
+            logging.error("Database connection failed.")
             return None, None
 
         rs = conn.execute(
-            "SELECT market_news FROM daily_inputs WHERE date = ?",
-            (selected_date.isoformat(),)
+            "SELECT news_text FROM daily_inputs WHERE target_date = ?",
+            [selected_date.isoformat()]
         )
-        # --- FIX: Use rs.rows ---
         row = rs.rows[0] if rs.rows else None
         if row:
-            return row['market_news'], None # Return None for the removed column
-    except LibsqlError as e:
-        print(f"Error in get_daily_inputs: {e}")
+            return row[0], None
+    except Exception as e:
+        logging.error(f"Error in get_daily_inputs: {e}")
     finally:
         if conn:
             conn.close()
-    return None, None # This still satisfies the (val1, val2) unpacking
+    return None, None
 
 def get_latest_daily_input_date() -> str:
     """Gets the most recent date from the daily_inputs table."""
@@ -94,7 +96,7 @@ def get_latest_daily_input_date() -> str:
     try:
         conn = get_db_connection()
         if not conn:
-             print("Error: Database connection failed.")
+             logging.error("Database connection failed.")
              return None
 
         rs = conn.execute(
@@ -105,7 +107,7 @@ def get_latest_daily_input_date() -> str:
         if row:
             return row['date']
     except LibsqlError as e:
-        print(f"Error in get_latest_daily_input_date: {e}")
+        logging.error(f"Error in get_latest_daily_input_date: {e}")
     finally:
         if conn:
             conn.close()
@@ -122,7 +124,7 @@ def get_economy_card(before_date: str | None = None) -> tuple[str, str | None]:
     try:
         conn = get_db_connection()
         if not conn:
-            print("Error: Database connection failed.")
+            logging.error("Database connection failed.")
             return DEFAULT_ECONOMY_CARD_JSON, None
 
         if before_date:
@@ -141,8 +143,35 @@ def get_economy_card(before_date: str | None = None) -> tuple[str, str | None]:
         else:
             return DEFAULT_ECONOMY_CARD_JSON, None
     except LibsqlError as e:
-        print(f"Error in get_economy_card: {e}")
+        logging.error(f"Error in get_economy_card: {e}")
         return DEFAULT_ECONOMY_CARD_JSON, None
+    finally:
+        if conn:
+            conn.close()
+
+def upsert_economy_card(selected_date: date, raw_text_summary: str, economy_card_json: str) -> bool:
+    """Saves or updates the economy card for a specific date."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            logging.error("Database connection failed.")
+            return False
+
+        conn.execute(
+            """
+            INSERT INTO economy_cards (date, raw_text_summary, economy_card_json)
+            VALUES (?, ?, ?)
+            ON CONFLICT(date) DO UPDATE SET
+                raw_text_summary = excluded.raw_text_summary,
+                economy_card_json = excluded.economy_card_json
+            """,
+            (selected_date.isoformat(), raw_text_summary, economy_card_json)
+        )
+        return True
+    except LibsqlError as e:
+        logging.error(f"Error in upsert_economy_card: {e}")
+        return False
     finally:
         if conn:
             conn.close()
@@ -155,7 +184,7 @@ def get_archived_economy_card(selected_date: date) -> tuple[str | None, str | No
     try:
         conn = get_db_connection()
         if not conn:
-            print("Error: Database connection failed.")
+            logging.error("Database connection failed.")
             return None, None
 
         rs = conn.execute(
@@ -167,7 +196,7 @@ def get_archived_economy_card(selected_date: date) -> tuple[str | None, str | No
         if row:
             return row['economy_card_json'], row['raw_text_summary']
     except LibsqlError as e:
-        print(f"Error in get_archived_economy_card: {e}")
+        logging.error(f"Error in get_archived_economy_card: {e}")
     finally:
         if conn:
             conn.close()
@@ -181,7 +210,7 @@ def get_all_tickers_from_db() -> list[str]:
     try:
         conn = get_db_connection()
         if not conn:
-            print("Error: Database connection failed.")
+            logging.error("Database connection failed.")
             return []
 
         rs = conn.execute("SELECT DISTINCT ticker FROM stocks ORDER BY ticker ASC")
@@ -189,7 +218,7 @@ def get_all_tickers_from_db() -> list[str]:
         rows = rs.rows
         return [row['ticker'] for row in rows]
     except LibsqlError as e:
-        print(f"Error in get_all_tickers_from_db: {e}")
+        logging.error(f"Error in get_all_tickers_from_db: {e}")
         return []
     finally:
         if conn:
@@ -207,7 +236,7 @@ def get_company_card_and_notes(ticker: str, selected_date: date = None) -> tuple
     try:
         conn = get_db_connection()
         if not conn:
-            print("Error: Database connection failed.")
+            logging.error("Database connection failed.")
             return DEFAULT_COMPANY_OVERVIEW_JSON.replace("TICKER", ticker), "", None
 
         # 1. Get historical notes
@@ -251,7 +280,7 @@ def get_company_card_and_notes(ticker: str, selected_date: date = None) -> tuple
             card_date = None
             
     except LibsqlError as e:
-        print(f"Error in get_company_card_and_notes: {e}")
+        logging.error(f"Error in get_company_card_and_notes: {e}")
         card_json = DEFAULT_COMPANY_OVERVIEW_JSON.replace("TICKER", ticker)
         card_date = None
     finally:
@@ -266,7 +295,7 @@ def get_all_archive_dates() -> list[str]:
     try:
         conn = get_db_connection()
         if not conn:
-            print("Error: Database connection failed.")
+            logging.error("Database connection failed.")
             return []
 
         rs = conn.execute(
@@ -276,7 +305,7 @@ def get_all_archive_dates() -> list[str]:
         rows = rs.rows
         return [row['date'] for row in rows]
     except LibsqlError as e:
-        print(f"Error in get_all_archive_dates: {e}")
+        logging.error(f"Error in get_all_archive_dates: {e}")
         return []
     finally:
         if conn:
@@ -288,7 +317,7 @@ def get_all_tickers_for_archive_date(selected_date: date) -> list[str]:
     try:
         conn = get_db_connection()
         if not conn:
-            print("Error: Database connection failed.")
+            logging.error("Database connection failed.")
             return []
 
         rs = conn.execute(
@@ -299,7 +328,7 @@ def get_all_tickers_for_archive_date(selected_date: date) -> list[str]:
         rows = rs.rows
         return [row['ticker'] for row in rows]
     except LibsqlError as e:
-        print(f"Error in get_all_tickers_for_archive_date: {e}")
+        logging.error(f"Error in get_all_tickers_for_archive_date: {e}")
         return []
     finally:
         if conn:
@@ -311,7 +340,7 @@ def get_archived_company_card(selected_date: date, ticker: str) -> tuple[str | N
     try:
         conn = get_db_connection()
         if not conn:
-            print("Error: Database connection failed.")
+            logging.error("Database connection failed.")
             return None, None
 
         rs = conn.execute(
@@ -323,11 +352,38 @@ def get_archived_company_card(selected_date: date, ticker: str) -> tuple[str | N
         if row:
             return row['company_card_json'], row['raw_text_summary']
     except LibsqlError as e:
-        print(f"Error in get_archived_company_card: {e}")
+        logging.error(f"Error in get_archived_company_card: {e}")
     finally:
         if conn:
             conn.close()
     return None, None
+
+def upsert_company_card(selected_date: date, ticker: str, raw_text_summary: str, company_card_json: str) -> bool:
+    """Saves or updates the company card for a specific ticker and date."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            logging.error("Database connection failed.")
+            return False
+
+        conn.execute(
+            """
+            INSERT INTO company_cards (date, ticker, raw_text_summary, company_card_json)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(date, ticker) DO UPDATE SET
+                raw_text_summary = excluded.raw_text_summary,
+                company_card_json = excluded.company_card_json
+            """,
+            (selected_date.isoformat(), ticker, raw_text_summary, company_card_json)
+        )
+        return True
+    except LibsqlError as e:
+        logging.error(f"Error in upsert_company_card: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
 
 # --- Functions for DB_VIEWER ---
 
@@ -337,7 +393,7 @@ def get_all_table_names() -> list[str]:
     try:
         conn = get_db_connection()
         if not conn:
-            print("Error: Database connection failed.")
+            logging.error("Database connection failed.")
             return []
 
         rs = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
@@ -345,7 +401,7 @@ def get_all_table_names() -> list[str]:
         rows = rs.rows
         return [row['name'] for row in rows if row['name'] != 'sqlite_sequence']
     except LibsqlError as e:
-        print(f"Error in get_all_table_names: {e}")
+        logging.error(f"Error in get_all_table_names: {e}")
         return []
     finally:
         if conn:
@@ -357,7 +413,7 @@ def get_table_data(table_name: str) -> pd.DataFrame:
     try:
         conn = get_db_connection()
         if not conn:
-            print("Error: Database connection failed.")
+            logging.error("Database connection failed.")
             return pd.DataFrame()
 
         rs = conn.execute(f"SELECT * FROM {table_name}")
@@ -374,7 +430,7 @@ def get_table_data(table_name: str) -> pd.DataFrame:
             df = df.sort_values(by='date', ascending=False)
         return df
     except Exception as e:
-        print(f"Error in get_table_data for {table_name}: {e}")
+        logging.error(f"Error in get_table_data for {table_name}: {e}")
         return pd.DataFrame()
     finally:
         if conn:
