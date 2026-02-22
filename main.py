@@ -57,7 +57,9 @@ def send_webhook_report(webhook_url, target_date, action, model, logger=None):
         requests.post(webhook_url, json=payload, timeout=15)
 
         # --- MESSAGE 2: The Files (Logs & Cards) ---
-        if files:
+        # Skip sending logs for check-news and input-news to keep feed clean
+        skip_files_actions = ["check-news", "input-news"]
+        if files and action not in skip_files_actions:
             # We send a small follow-up message with the files
             requests.post(
                 webhook_url, 
@@ -244,9 +246,10 @@ def main():
                 sys.exit(1)
             
             if upsert_daily_inputs(target_date, news_content):
-                logger.log(f"✅ Market news successfully saved for {target_date}")
+                char_count = len(news_content)
+                logger.log(f"✅ Market news successfully saved for {target_date} ({char_count} chars)")
                 from modules.ai.ai_services import TRACKER
-                TRACKER.metrics.details.append(f"✅ News Saved: {target_date}")
+                TRACKER.metrics.details.append(f"✅ News Saved: {target_date} ({char_count} chars)")
                 TRACKER.metrics.success_count += 1 # Increment success count for the dashboard
             else:
                 logger.error(f"❌ Failed to save market news for {target_date}")
