@@ -98,7 +98,9 @@ def main():
         default="gemini-2.0-flash-paid",
         choices=list(AVAILABLE_MODELS.keys())
     )
-    parser.add_argument("--action", choices=["run", "update-economy", "inspect", "setup"], default="run", help="Action to perform")
+    parser.add_argument("--action", choices=["run", "update-economy", "input-news", "inspect", "setup"], default="run", help="Action to perform")
+    parser.add_argument("--text", type=str, help="Market news text (used with --action input-news)")
+    parser.add_argument("--file", type=str, help="Path to a text file containing market news (used with --action input-news)")
     
     args = parser.parse_args()
     logger = AppLogger()
@@ -115,6 +117,26 @@ def main():
             run_pipeline(target_date, args.model, logger)
         elif args.action == "update-economy":
             run_update_economy(target_date, args.model, logger)
+        elif args.action == "input-news":
+            news_content = None
+            if args.text:
+                news_content = args.text
+            elif args.file:
+                try:
+                    with open(args.file, 'r') as f:
+                        news_content = f.read()
+                except Exception as e:
+                    logger.error(f"Failed to read file {args.file}: {e}")
+                    sys.exit(1)
+            
+            if not news_content:
+                logger.error("You must provide news content via --text or --file when using --action input-news")
+                sys.exit(1)
+            
+            if upsert_daily_inputs(target_date, news_content):
+                logger.log(f"✅ Market news successfully saved for {target_date}")
+            else:
+                logger.error(f"❌ Failed to save market news for {target_date}")
         elif args.action == "inspect":
             from modules.data.inspect_db import inspect
             inspect()

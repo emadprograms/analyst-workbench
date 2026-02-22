@@ -44,8 +44,12 @@ def fetch_intraday_data(tickers_list, day, interval="5m"):
             ORDER BY timestamp ASC
         """
         
-        rs = conn.execute(sql, query_args)
-        rows = rs.rows
+        try:
+            rs = conn.execute(sql, query_args)
+            rows = rs.rows
+        except Exception as e:
+            print(f"[ERROR] DB Fetch Failed: {e}")
+            return pd.DataFrame()
         
         if not rows:
             print(f"[DEBUG] No data found in DB for {tickers_list} on {start_date_str}")

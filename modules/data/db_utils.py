@@ -52,10 +52,10 @@ def upsert_daily_inputs(selected_date: date, market_news: str) -> bool:
         # The Turso client auto-commits; no 'commit()' needed
         conn.execute(
             """
-            INSERT INTO daily_inputs (date, market_news)
+            INSERT INTO daily_inputs (target_date, news_text)
             VALUES (?, ?)
-            ON CONFLICT(date) DO UPDATE SET
-                market_news = excluded.market_news
+            ON CONFLICT(target_date) DO UPDATE SET
+                news_text = excluded.news_text
             """,
             (selected_date.isoformat(), market_news)
         )
