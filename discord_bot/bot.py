@@ -145,13 +145,14 @@ class DateSelectionView(discord.ui.View):
         for i in range(14):
             target = today - timedelta(days=i)
             date_str = target.strftime("%Y-%m-%d")
-            # Added (0) to Today and (-1) to Yesterday to educate user on shortcuts
+            # Dynamic labels showing the shortcut for every date
             if i == 0:
                 label = "Today (0)"
             elif i == 1:
                 label = "Yesterday (-1)"
             else:
-                label = target.strftime("%A, %b %d")
+                day_name = target.strftime("%A")
+                label = f"{day_name} (-{i})"
             
             options.append(discord.SelectOption(label=label, description=date_str, value=date_str))
         
