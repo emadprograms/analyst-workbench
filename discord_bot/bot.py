@@ -111,6 +111,83 @@ class NewsButtonView(discord.ui.View):
 async def on_ready():
     print(f"✅ Major Action logged in as {bot.user.name}")
 
+# --- REUSABLE DATE PICKER COMPONENTS ---
+
+class CustomDateModal(discord.ui.Modal, title='Enter Custom Date'):
+    def __init__(self, action_callback, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.action_callback = action_callback
+
+    date_val = discord.ui.TextInput(
+        label='Date (YYYY-MM-DD)',
+        placeholder='2026-02-22',
+        required=True,
+        min_length=10,
+        max_length=10
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # Validate date
+        try:
+            datetime.strptime(self.date_val.value, "%Y-%m-%d")
+            await self.action_callback(interaction, self.date_val.value)
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid date format. Use YYYY-MM-DD.", ephemeral=True)
+
+class DateSelectionView(discord.ui.View):
+    def __init__(self, action_callback):
+        super().__init__(timeout=180)
+        self.action_callback = action_callback
+        
+        # Create dropdown options for the last 14 days
+        options = []
+        today = datetime.utcnow()
+        for i in range(14):
+            target = today - timedelta(days=i)
+            date_str = target.strftime("%Y-%m-%d")
+            label = "Today" if i == 0 else "Yesterday" if i == 1 else target.strftime("%A, %b %d")
+            options.append(discord.SelectOption(label=label, description=date_str, value=date_str))
+        
+        self.add_item(DateDropdown(options, action_callback))
+
+    @discord.ui.button(label="⌨️ Manual Date Entry", style=discord.ButtonStyle.secondary)
+    async def manual_date(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(CustomDateModal(self.action_callback))
+
+class DateDropdown(discord.ui.Select):
+    def __init__(self, options, action_callback):
+        super().__init__(placeholder="📅 Select a date...", min_values=1, max_values=1, options=options)
+        self.action_callback = action_callback
+
+    async def callback(self, interaction: discord.Interaction):
+        await self.action_callback(interaction, self.values[0])
+
+# --- UPDATED MODALS AND VIEWS ---
+
+class NewsModal(discord.ui.Modal, title='Market News Entry'):
+    def __init__(self, target_date, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.target_date = target_date
+
+    news_text = discord.ui.TextInput(
+        label=f'Market News',
+        style=discord.TextStyle.long,
+        placeholder='Paste news headlines here...',
+        required=True,
+        min_length=10,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.send_message(f"🛰️ Dispatching news for **{self.target_date}** to GitHub...", ephemeral=True)
+        inputs = {"target_date": self.target_date, "action": "input-news", "text": self.news_text.value}
+        success, error = await dispatch_github_action(inputs)
+        if success:
+            await interaction.followup.send(content=f"✅ **News entry processing** for **{self.target_date}**. (~2-3 mins) ⏱️")
+        else:
+            await interaction.followup.send(content=f"❌ **Dispatch Failed:** {error}")
+
+# --- COMMAND LOGIC ---
+
 def get_target_date(date_input: str = None) -> str:
     """
     Parses date input. Supports:
@@ -164,61 +241,77 @@ async def dispatch_github_action(inputs: dict):
 
 @bot.command()
 async def inputnews(ctx, date_indicator: str = None):
-    """Opens a text box to input market news."""
-    # 1. Resolve date
-    target_date = get_target_date(date_indicator)
+    """Opens a date picker, then a text box to input market news."""
     
-    # 2. Final validation of the date
-    try:
-        datetime.strptime(target_date, "%Y-%m-%d")
-    except ValueError:
-        await ctx.send(f"❌ Error: `{target_date}` is not a valid date format (YYYY-MM-DD) or relative indicator (-1, -2).")
-        return
+    async def news_callback(interaction, selected_date):
+        await interaction.response.send_modal(NewsModal(target_date=selected_date))
 
-    # 3. Send the button to trigger the modal
-    view = NewsButtonView(target_date=target_date)
-    await ctx.send(
-        content=f"🗓️ **News Entry for {target_date}**\nClick the button below to paste your news content.",
-        view=view
-    )
+    if not date_indicator:
+        # Show Picker
+        view = DateSelectionView(action_callback=news_callback)
+        await ctx.send("🗓️ **Select Date for News Entry:**", view=view)
+    else:
+        # User provided a date or relative indicator (-1, etc)
+        target_date = get_target_date(date_indicator)
+        try:
+            datetime.strptime(target_date, "%Y-%m-%d")
+            # Open Modal directly
+            # We can't open a modal from a command without an interaction, 
+            # so we send a button if they provided a manual date string.
+            class TriggerView(discord.ui.View):
+                def __init__(self, date):
+                    super().__init__()
+                    self.date = date
+                @discord.ui.button(label=f"📝 Open Box for {target_date}", style=discord.ButtonStyle.primary)
+                async def go(self, interaction, button):
+                    await interaction.response.send_modal(NewsModal(target_date=self.date))
+            
+            await ctx.send(f"✅ Target Date: **{target_date}**", view=TriggerView(target_date))
+        except ValueError:
+            await ctx.send(f"❌ Error: `{target_date}` is invalid. Use -1, -2, or leave blank.")
 
 @bot.command()
 async def updateeconomy(ctx, date_str: str = None, model_name: str = "gemini-3-flash-free"):
     """Dispatch Economy Update to GitHub Actions."""
-    target_date = get_target_date(date_str)
     
-    # Handle if user passed model name as first arg
-    if date_str and "-" in date_str and len(date_str) > 10 and not date_str.startswith("-"):
-        model_name = date_str
-        target_date = get_target_date(None)
+    async def economy_callback(interaction, selected_date):
+        # We need to handle model_name. We'll use the default or one provided in the command.
+        # This callback is simple.
+        await interaction.response.send_message(f"🧠 **Dispatching Economy Update** ({selected_date}) using `{model_name}`...", ephemeral=True)
+        inputs = {"target_date": selected_date, "model": model_name}
+        success, error = await dispatch_github_action(inputs)
+        if success:
+            await interaction.followup.send(content=f"✅ **Dispatch Successful!** ETA: ~5-7 mins. 📡⏱️")
+        else:
+            await interaction.followup.send(content=f"❌ **Dispatch Failed:** {error}")
 
-    # STRICT VALIDATION
-    try:
-        datetime.strptime(target_date, "%Y-%m-%d")
-    except ValueError:
-        await ctx.send(f"❌ Error: `{target_date}` is an invalid date. Use YYYY-MM-DD, -1, -2, or leave blank for today.")
-        return
-
-    msg = await ctx.send(f"🧠 **Dispatching Economy Update** ({target_date}) to GitHub Actions...")
-    
-    inputs = {
-        "target_date": target_date,
-        "model": model_name
-    }
-    
-    success, error = await dispatch_github_action(inputs)
-    if success:
-        await msg.edit(content=f"✅ **Dispatch Successful!**\n> **Analyst Workbench** is initializing... The dashboard report will arrive here in **~5-7 minutes**. 📡⏱️")
+    if not date_str:
+        view = DateSelectionView(action_callback=economy_callback)
+        await ctx.send(f"🌎 **Select Date for Economy Update** (using `{model_name}`):", view=view)
     else:
-        await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
+        target_date = get_target_date(date_str)
+        # Check if user passed model name as first arg
+        if date_str and "-" in date_str and len(date_str) > 10 and not date_str.startswith("-"):
+            model_name = date_str
+            target_date = get_target_date(None)
+
+        try:
+            datetime.strptime(target_date, "%Y-%m-%d")
+            msg = await ctx.send(f"🧠 **Dispatching Economy Update** ({target_date}) to GitHub Actions...")
+            inputs = {"target_date": target_date, "model": model_name}
+            success, error = await dispatch_github_action(inputs)
+            if success:
+                await msg.edit(content=f"✅ **Dispatch Successful!** ETA: **~5-7 minutes**. 📡⏱️")
+            else:
+                await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
+        except ValueError:
+            await ctx.send(f"❌ Error: `{target_date}` is an invalid date.")
 
 @bot.command()
 async def inspect(ctx):
     """Dispatch inspect command to GitHub Actions."""
     msg = await ctx.send("🔍 Dispatching database inspection...")
-    inputs = {
-        "action": "inspect"
-    }
+    inputs = {"action": "inspect"}
     success, error = await dispatch_github_action(inputs)
     if not success:
         await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
@@ -228,27 +321,32 @@ async def inspect(ctx):
 @bot.command()
 async def checknews(ctx, date_str: str = None):
     """Dispatch market news check to GitHub Actions."""
-    target_date = get_target_date(date_str)
-
-    # STRICT VALIDATION
-    try:
-        datetime.strptime(target_date, "%Y-%m-%d")
-    except ValueError:
-        await ctx.send(f"❌ Error: `{target_date}` is an invalid date. Use YYYY-MM-DD, -1, -2, or leave blank for today.")
-        return
-
-    msg = await ctx.send(f"🔍 **Checking news** for **{target_date}** via GitHub Actions...")
     
-    inputs = {
-        "target_date": target_date,
-        "action": "check-news"
-    }
-    
-    success, error = await dispatch_github_action(inputs)
-    if success:
-        await msg.edit(content=f"✅ **Check Dispatched!**\n> The news report for {target_date} will arrive in **~2-3 minutes**. 📡⏱️")
+    async def check_callback(interaction, selected_date):
+        await interaction.response.send_message(f"🔍 **Checking news** for **{selected_date}** via GitHub...", ephemeral=True)
+        inputs = {"target_date": selected_date, "action": "check-news"}
+        success, error = await dispatch_github_action(inputs)
+        if success:
+            await interaction.followup.send(content=f"✅ **Check Dispatched!** ETA: ~2-3 mins. 📡⏱️")
+        else:
+            await interaction.followup.send(content=f"❌ **Dispatch Failed:** {error}")
+
+    if not date_str:
+        view = DateSelectionView(action_callback=check_callback)
+        await ctx.send("🔍 **Select Date to Check News:**", view=view)
     else:
-        await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
+        target_date = get_target_date(date_str)
+        try:
+            datetime.strptime(target_date, "%Y-%m-%d")
+            msg = await ctx.send(f"🔍 **Checking news** for **{target_date}** via GitHub Actions...")
+            inputs = {"target_date": target_date, "action": "check-news"}
+            success, error = await dispatch_github_action(inputs)
+            if success:
+                await msg.edit(content=f"✅ **Check Dispatched!** ETA: **~2-3 minutes**. 📡⏱️")
+            else:
+                await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
+        except ValueError:
+            await ctx.send(f"❌ Error: `{target_date}` is an invalid date.")
 
 if __name__ == "__main__":
     if not DISCORD_TOKEN:
