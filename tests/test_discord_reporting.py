@@ -44,7 +44,7 @@ class TestDiscordReporting(unittest.TestCase):
         
         self.logger.log("Capture this log")
         
-        send_webhook_report(webhook_url, target_date, logger=self.logger)
+        send_webhook_report(webhook_url, target_date, "run", "gemini-3-flash-free", logger=self.logger)
         
         # Verify requests.post was called with multipart/form-data
         self.assertTrue(mock_post.called)
@@ -74,7 +74,7 @@ class TestDiscordReporting(unittest.TestCase):
         # Logger with no logs
         empty_logger = AppLogger("empty_logger")
         
-        send_webhook_report(webhook_url, target_date, logger=empty_logger)
+        send_webhook_report(webhook_url, target_date, "inspect", "none", logger=empty_logger)
         
         # Verify requests.post was called with json payload (standard)
         self.assertTrue(mock_post.called)
