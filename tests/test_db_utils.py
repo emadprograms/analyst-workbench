@@ -12,7 +12,9 @@ from modules.data.db_utils import (
     get_all_archive_dates,
     get_all_tickers_for_archive_date,
     get_archived_company_card,
-    get_db_connection
+    get_db_connection,
+    upsert_data_archive,
+    get_data_archive
 )
 
 # --- MOCK DB CLIENT ---
@@ -31,7 +33,9 @@ def test_upsert_daily_inputs(mock_db_client):
     result = upsert_daily_inputs(date(2023, 10, 27), "News Summary")
     assert result is True
     mock_db_client.execute.assert_called_once()
-    assert "INSERT INTO daily_inputs" in mock_db_client.execute.call_args[0][0]
+    sql = mock_db_client.execute.call_args[0][0]
+    assert "INSERT INTO daily_inputs" in sql
+    assert "(date, market_news)" in sql
 
 def test_get_daily_inputs(mock_db_client):
     # Mock result set
@@ -137,3 +141,20 @@ def test_db_connection_failed(mock_conn):
     # 5. Get Tickers
     tickers = get_all_tickers_from_db()
     assert tickers == []
+
+def test_upsert_data_archive(mock_db_client):
+    mock_db_client.execute.return_value = None
+    result = upsert_data_archive(date(2023, 10, 27), "AAPL", "Image Summary")
+    assert result is True
+    mock_db_client.execute.assert_called_once()
+    sql = mock_db_client.execute.call_args[0][0]
+    assert "INSERT INTO data_archive" in sql
+
+def test_get_data_archive(mock_db_client):
+    mock_row = {'raw_text_summary': 'Archived Content'}
+    mock_rs = MagicMock()
+    mock_rs.rows = [mock_row]
+    mock_db_client.execute.return_value = mock_rs
+
+    content = get_data_archive(date(2023, 10, 27), "AAPL")
+    assert content == 'Archived Content'

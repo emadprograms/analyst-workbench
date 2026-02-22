@@ -11,7 +11,8 @@ from modules.data.db_utils import (
     get_economy_card, 
     upsert_economy_card,
     get_company_card_and_notes,
-    upsert_company_card
+    upsert_company_card,
+    get_all_tickers_from_db
 )
 from modules.ai.ai_services import update_economy_card, update_company_card
 from modules.data.data_processing import generate_analysis_text
@@ -65,7 +66,12 @@ def run_pipeline(selected_date: date, model_name: str, logger: AppLogger):
 
     # 2. Update Company Cards
     logger.log("--- Updating Company Cards ---")
-    for ticker in STOCK_TICKERS:
+    tickers = get_all_tickers_from_db()
+    if not tickers:
+        logger.log("⚠️ No tickers found in 'stocks' table. Using config fallback.")
+        tickers = STOCK_TICKERS
+
+    for ticker in tickers:
         logger.log(f"Processing {ticker}...")
         prev_card, hist_notes, prev_date = get_company_card_and_notes(ticker, selected_date)
         

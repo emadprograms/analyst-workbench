@@ -82,7 +82,7 @@ def get_daily_inputs(selected_date: date) -> tuple[str | None, str | None]:
         )
         row = rs.rows[0] if rs.rows else None
         if row:
-            return row[0], None
+            return row['market_news'], None
     except Exception as e:
         logging.error(f"Error in get_daily_inputs: {e}")
     finally:
@@ -435,3 +435,55 @@ def get_table_data(table_name: str) -> pd.DataFrame:
     finally:
         if conn:
             conn.close()
+
+# --- Data Archive Functions (Image Parser) ---
+
+def upsert_data_archive(selected_date: date, ticker: str, raw_text_summary: str) -> bool:
+    """Saves or updates a record in the data_archive table."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            logging.error("Database connection failed.")
+            return False
+
+        conn.execute(
+            """
+            INSERT INTO data_archive (date, ticker, raw_text_summary)
+            VALUES (?, ?, ?)
+            ON CONFLICT(date, ticker) DO UPDATE SET
+                raw_text_summary = excluded.raw_text_summary
+            """,
+            (selected_date.isoformat(), ticker, raw_text_summary)
+        )
+        return True
+    except LibsqlError as e:
+        logging.error(f"Error in upsert_data_archive: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def get_data_archive(selected_date: date, ticker: str) -> str | None:
+    """Fetches a record from the data_archive table."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            logging.error("Database connection failed.")
+            return None
+
+        rs = conn.execute(
+            "SELECT raw_text_summary FROM data_archive WHERE date = ? AND ticker = ?",
+            (selected_date.isoformat(), ticker)
+        )
+        row = rs.rows[0] if rs.rows else None
+        if row:
+            return row['raw_text_summary']
+    except LibsqlError as e:
+        logging.error(f"Error in get_data_archive: {e}")
+    finally:
+        if conn:
+            conn.close()
+    return None
+    
