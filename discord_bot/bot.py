@@ -284,15 +284,17 @@ async def updateeconomy(ctx, date_str: str = None, model_name: str = "gemini-3-f
     """Dispatch Economy Update to GitHub Actions."""
     
     async def economy_callback(interaction, selected_date):
-        # We need to handle model_name. We'll use the default or one provided in the command.
-        # This callback is simple.
-        await interaction.response.send_message(f"🧠 **Dispatching Economy Update** ({selected_date}) using `{model_name}`...", ephemeral=True)
+        # Initial status
+        await interaction.response.send_message(f"🧠 **Updating Economy** ({selected_date})... 🛰️", ephemeral=False)
+        msg = await interaction.original_response()
+        
         inputs = {"target_date": selected_date, "model": model_name}
         success, error = await dispatch_github_action(inputs)
+        
         if success:
-            await interaction.followup.send(content=f"✅ **Dispatch Successful!** ETA: ~5-7 mins. 📡⏱️")
+            await msg.edit(content=f"🧠 **Updating Economy** ({selected_date})... ✅ **Dispatched!** (ETA: ~5-7 mins) 📡⏱️")
         else:
-            await interaction.followup.send(content=f"❌ **Dispatch Failed:** {error}")
+            await msg.edit(content=f"🧠 **Updating Economy** ({selected_date})... ❌ **Failed:** {error}")
 
     if not date_str:
         view = DateSelectionView(action_callback=economy_callback)
@@ -306,39 +308,42 @@ async def updateeconomy(ctx, date_str: str = None, model_name: str = "gemini-3-f
 
         try:
             datetime.strptime(target_date, "%Y-%m-%d")
-            msg = await ctx.send(f"🧠 **Dispatching Economy Update** ({target_date}) to GitHub Actions...")
+            msg = await ctx.send(f"🧠 **Updating Economy** ({target_date})... 🛰️")
             inputs = {"target_date": target_date, "model": model_name}
             success, error = await dispatch_github_action(inputs)
             if success:
-                await msg.edit(content=f"✅ **Dispatch Successful!** ETA: **~5-7 minutes**. 📡⏱️")
+                await msg.edit(content=f"🧠 **Updating Economy** ({target_date})... ✅ **Dispatched!** (ETA: ~5-7 mins) 📡⏱️")
             else:
-                await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
+                await msg.edit(content=f"🧠 **Updating Economy** ({target_date})... ❌ **Failed:** {error}")
         except ValueError:
             await ctx.send(f"❌ Error: `{target_date}` is an invalid date.")
 
 @bot.command()
 async def inspect(ctx):
     """Dispatch inspect command to GitHub Actions."""
-    msg = await ctx.send("🔍 Dispatching database inspection...")
+    msg = await ctx.send("🔍 **Inspecting Database**... 🛰️")
     inputs = {"action": "inspect"}
     success, error = await dispatch_github_action(inputs)
-    if not success:
-        await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
+    if success:
+        await msg.edit(content="🔍 **Inspecting Database**... ✅ **Dispatched!** (ETA: ~2-3 mins) ⏱️")
     else:
-        await msg.edit(content="✅ **Inspect Dispatched.** Report will arrive in **~2-3 minutes**. ⏱️")
+        await msg.edit(content=f"🔍 **Inspecting Database**... ❌ **Failed:** {error}")
 
 @bot.command()
 async def checknews(ctx, date_str: str = None):
     """Dispatch market news check to GitHub Actions."""
     
     async def check_callback(interaction, selected_date):
-        await interaction.response.send_message(f"🔍 **Checking news** for **{selected_date}** via GitHub...", ephemeral=True)
+        await interaction.response.send_message(f"🔍 **Checking news** for **{selected_date}**... 🛰️", ephemeral=False)
+        msg = await interaction.original_response()
+        
         inputs = {"target_date": selected_date, "action": "check-news"}
         success, error = await dispatch_github_action(inputs)
+        
         if success:
-            await interaction.followup.send(content=f"✅ **Check Dispatched!** ETA: ~2-3 mins. 📡⏱️")
+            await msg.edit(content=f"🔍 **Checking news** for **{selected_date}**... ✅ **Dispatched!** (ETA: ~2-3 mins) 📡⏱️")
         else:
-            await interaction.followup.send(content=f"❌ **Dispatch Failed:** {error}")
+            await msg.edit(content=f"🔍 **Checking news** for **{selected_date}**... ❌ **Failed:** {error}")
 
     if not date_str:
         view = DateSelectionView(action_callback=check_callback)
@@ -347,13 +352,13 @@ async def checknews(ctx, date_str: str = None):
         target_date = get_target_date(date_str)
         try:
             datetime.strptime(target_date, "%Y-%m-%d")
-            msg = await ctx.send(f"🔍 **Checking news** for **{target_date}** via GitHub Actions...")
+            msg = await ctx.send(f"🔍 **Checking news** for **{target_date}**... 🛰️")
             inputs = {"target_date": target_date, "action": "check-news"}
             success, error = await dispatch_github_action(inputs)
             if success:
-                await msg.edit(content=f"✅ **Check Dispatched!** ETA: **~2-3 minutes**. 📡⏱️")
+                await msg.edit(content=f"🔍 **Checking news** for **{target_date}**... ✅ **Dispatched!** (ETA: ~2-3 mins) 📡⏱️")
             else:
-                await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
+                await msg.edit(content=f"🔍 **Checking news** for **{target_date}**... ❌ **Failed:** {error}")
         except ValueError:
             await ctx.send(f"❌ Error: `{target_date}` is an invalid date.")
 
