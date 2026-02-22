@@ -1,167 +1,125 @@
 import os
-import sys
 import discord
 from discord.ext import commands
-from datetime import date
-import logging
+import aiohttp
 import asyncio
+from datetime import datetime
+from dotenv import load_dotenv
 
-# Path hack for local development vs Railway root
-# If Running on Railway with 'discord_bot' as root, the current dir contains everything.
-# If running locally, 'discord_bot' is a subfolder, and we need the parent dir in sys.path.
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir)
+# Load local environment variables
+load_dotenv()
 
-if os.path.exists(os.path.join(parent_dir, "modules")):
-    sys.path.insert(0, parent_dir)
-else:
-    sys.path.insert(0, current_dir)
+# Configuration
+DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+GITHUB_TOKEN = os.getenv("GITHUB_PAT")
+GITHUB_REPO = os.getenv("GITHUB_REPO") # e.g., "user/repo"
+WORKFLOW_FILENAME = "manual_run.yml"
+WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
-from modules.core.config import infisical_mgr, AVAILABLE_MODELS
-from modules.core.logger import AppLogger
-from modules.data.db_utils import upsert_daily_inputs, get_db_connection
-from modules.ai.ai_services import update_economy_card, TRACKER
-# We try to import from parent or local depending on root
-try:
-    from main import run_update_economy
-except ImportError:
-    # If on Railway and main.py isn't at root, we might need a different import
-    # but run_update_economy is crucial. Assuming it will be available.
-    pass
-
-# Setup Logger
-logger = AppLogger("discord_bot")
-
-# 1. Load Discord Token
-DISCORD_TOKEN = infisical_mgr.get_secret("DISCORD_BOT_TOKEN") or os.getenv("DISCORD_BOT_TOKEN")
-
-if not DISCORD_TOKEN:
-    logger.error("❌ DISCORD_BOT_TOKEN not found in Infisical or environment.")
-    # We don't exit here to allow for manual setup if needed, but it will fail on run()
-
-# 2. Setup Bot
+# Setup Intents
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    logger.log(f"✅ Bot is logged in as {bot.user.name} (ID: {bot.user.id})")
-    print("------")
+    print(f"✅ Dispatcher Bot logged in as {bot.user.name}")
+
+async def dispatch_github_action(inputs: dict):
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        return False, "Missing GITHUB_PAT or GITHUB_REPO configuration."
+
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{WORKFLOW_FILENAME}/dispatches"
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    data = {
+        "ref": "main",
+        "inputs": inputs
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=data) as resp:
+            if resp.status == 204:
+                return True, "Success"
+            else:
+                try:
+                    err_json = await resp.json()
+                    err_msg = err_json.get("message", "Unknown error")
+                except:
+                    err_msg = await resp.text()
+                return False, f"GitHub Error ({resp.status}): {err_msg}"
 
 @bot.command()
 async def inputnews(ctx, date_str: str, *, news_text: str):
-    """
-    Manually input market news for a specific date.
-    Usage: !inputnews 2026-02-13 Fed cuts rates...
-    """
+    """Dispatch market news input to GitHub Actions."""
     try:
-        target_date = date.fromisoformat(date_str)
+        # Basic validation
+        datetime.strptime(date_str, "%Y-%m-%d")
     except ValueError:
-        await ctx.send(f"❌ Invalid date format: `{date_str}`. Use YYYY-MM-DD.")
+        await ctx.send("❌ Invalid date format. Use YYYY-MM-DD.")
         return
 
-    if upsert_daily_inputs(target_date, news_text):
-        await ctx.send(f"✅ Market news successfully saved for **{target_date}**.")
-        logger.log(f"Discord: Market news saved for {target_date}")
+    msg = await ctx.send(f"🛰️ Dispatching news entry for **{date_str}** to GitHub Actions...")
+    
+    inputs = {
+        "target_date": date_str,
+        "action": "input-news",
+        "text": news_text,
+        "webhook_url": WEBHOOK_URL or ""
+    }
+    
+    # Note: manual_run.yml needs to support 'action' and 'text' inputs for this
+    # I'll update the workflow file in the next step to handle these.
+    # Actually, I'll update it now to be robust.
+    
+    # For now, let's keep it simple. The user asked for it to be light.
+    success, error = await dispatch_github_action(inputs)
+    if success:
+        await msg.edit(content=f"✅ **Dispatch Successful!**\n> Tracking news entry on GitHub...")
     else:
-        await ctx.send(f"❌ Failed to save market news for {target_date}.")
+        await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
 
 @bot.command()
 async def updateeconomy(ctx, date_str: str, model_name: str = "gemini-3-flash-free"):
-    """
-    Trigger the Economy Card update for a specific date.
-    Usage: !updateeconomy 2026-02-13 [model_name]
-    """
-    from modules.ai.ai_services import TRACKER
-    
+    """Dispatch Economy Update to GitHub Actions."""
     try:
-        target_date = date.fromisoformat(date_str)
+        datetime.strptime(date_str, "%Y-%m-%d")
     except ValueError:
-        await ctx.send(f"❌ Invalid date format: `{date_str}`. Use YYYY-MM-DD.")
+        await ctx.send("❌ Invalid date format. Use YYYY-MM-DD.")
         return
 
-    if model_name not in AVAILABLE_MODELS:
-        await ctx.send(f"⚠️ Unknown model: `{model_name}`. Available: {', '.join(AVAILABLE_MODELS.keys())}")
-        return
-
-    status_msg = await ctx.send(f"🧠 **Starting Economy Update** for {target_date} using `{model_name}`...")
+    msg = await ctx.send(f"🧠 **Dispatching Economy Update** ({date_str}) to GitHub Actions...")
     
-    # Start tracking
-    TRACKER.start()
-
-    # We run the synchronous update in a separate thread to avoid blocking the bot
-    def run_sync_update():
-        run_update_economy(target_date, model_name, logger)
-
-    loop = asyncio.get_event_loop()
-    try:
-        await loop.run_in_executor(None, run_sync_update)
-        TRACKER.finish()
-        
-        # Get metrics
-        summary = TRACKER.get_summary()
-        
-        # Build Dashboard Embed
-        embed = discord.Embed(
-            title=f"📊 Execution Dashboard: {target_date}",
-            description=f"Economy Card update completed for logical session date.",
-            color=0x2ecc71 if summary["success_rate"] == "100.0%" else 0xf1c40f
-        )
-        
-        embed.add_field(name="🕒 Duration", value=summary["duration"], inline=True)
-        embed.add_field(name="🤖 API Calls", value=str(summary["total_calls"]), inline=True)
-        embed.add_field(name="🪙 Token Usage", value=f"{summary['total_tokens']:,}", inline=True)
-        embed.add_field(name="✅ Success Rate", value=summary["success_rate"], inline=True)
-        
-        if summary["details"]:
-            details_text = "\n".join(summary["details"])[:1024]
-            embed.add_field(name="📝 Execution Log", value=details_text, inline=False)
-            
-        if summary["errors"]:
-            error_text = "\n".join(summary["errors"])[:1024]
-            embed.add_field(name="⚠️ Failures", value=error_text, inline=False)
-            
-        embed.set_footer(text=f"Model: {model_name} | KeyManager Tracking Active")
-        embed.timestamp = discord.utils.utcnow()
-
-        await status_msg.edit(content="✅ **Economy Card Update Complete**")
-        await ctx.send(embed=embed)
-        
-    except Exception as e:
-        await ctx.send(f"❌ **Error during update**: {e}")
-        logger.error(f"Discord Command Error (updateeconomy): {e}")
+    inputs = {
+        "target_date": date_str,
+        "model": model_name,
+        "webhook_url": WEBHOOK_URL or ""
+    }
+    
+    success, error = await dispatch_github_action(inputs)
+    if success:
+        await msg.edit(content=f"✅ **Dispatch Successful!**\n> **Analyst Workbench** is initializing... The dashboard report will arrive here shortly. 📡")
+    else:
+        await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
 
 @bot.command()
 async def inspect(ctx):
-    """
-    Briefly inspect the database state.
-    """
-    conn = get_db_connection()
-    if not conn:
-        await ctx.send("❌ Failed to connect to database.")
-        return
-
-    try:
-        # Get counts or basic info
-        rs = conn.execute("SELECT count(*) FROM daily_inputs")
-        news_count = rs.rows[0][0]
-        
-        rs_eco = conn.execute("SELECT count(*) FROM economy_cards")
-        eco_count = rs_eco.rows[0][0]
-        
-        embed = discord.Embed(title="📊 Database Snapshot", color=0x3498db)
-        embed.add_field(name="Market News Records", value=str(news_count), inline=True)
-        embed.add_field(name="Economy Card Records", value=str(eco_count), inline=True)
-        
-        await ctx.send(embed=embed)
-    except Exception as e:
-        await ctx.send(f"❌ Error inspecting DB: {e}")
-    finally:
-        conn.close()
+    """Dispatch inspect command to GitHub Actions."""
+    msg = await ctx.send("🔍 Dispatching database inspection...")
+    inputs = {
+        "action": "inspect",
+        "webhook_url": WEBHOOK_URL or ""
+    }
+    success, error = await dispatch_github_action(inputs)
+    if not success:
+        await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
+    else:
+        await msg.edit(content="✅ **Inspect Dispatched.** Report will arrive shortly.")
 
 if __name__ == "__main__":
-    if DISCORD_TOKEN:
-        bot.run(DISCORD_TOKEN)
+    if not DISCORD_TOKEN:
+        print("❌ Error: DISCORD_BOT_TOKEN not found.")
     else:
-        print("❌ Bot cannot start: No DISCORD_BOT_TOKEN provided.")
+        bot.run(DISCORD_TOKEN)

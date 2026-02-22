@@ -1,0 +1,61 @@
+name: Manual Run (Analyst Workbench)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: 'Target Date (YYYY-MM-DD)'
+        required: false
+        default: 'today'
+      model:
+        description: 'Gemini Model'
+        required: true
+        default: 'gemini-3-flash-free'
+      action:
+        description: 'Action to perform (run, update-economy, input-news, inspect)'
+        required: true
+        default: 'update-economy'
+      text:
+        description: 'News text (for input-news)'
+        required: false
+        default: ''
+      webhook_url:
+        description: 'Discord Webhook URL for Report (Optional)'
+        required: false
+        default: ''
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Analyst Workbench
+        env:
+          INFISICAL_TOKEN: ${{ secrets.INFISICAL_TOKEN }}
+          INFISICAL_PROJECT_ID: ${{ secrets.INFISICAL_PROJECT_ID }}
+          DISCORD_WEBHOOK_URL: ${{ github.event.inputs.webhook_url }}
+        run: |
+          # Use 'date.today()' logic if input is 'today'
+          DATE_ARG=""
+          if [ "${{ github.event.inputs.target_date }}" != "today" ] && [ "${{ github.event.inputs.target_date }}" != "" ]; then
+            DATE_ARG="--date ${{ github.event.inputs.target_date }}"
+          fi
+          
+          TEXT_ARG=""
+          if [ "${{ github.event.inputs.text }}" != "" ]; then
+            TEXT_ARG="--text \"${{ github.event.inputs.text }}\""
+          fi
+
+          python main.py --action ${{ github.event.inputs.action }} $DATE_ARG --model ${{ github.event.inputs.model }} --webhook ${{ github.event.inputs.webhook_url }} $TEXT_ARG

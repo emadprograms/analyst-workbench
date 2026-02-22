@@ -57,3 +57,29 @@ class ExecutionTracker:
             "details": self.metrics.details,
             "errors": self.metrics.errors
         }
+
+    def get_discord_embeds(self, target_date: str):
+        summary = self.get_summary()
+        embed = {
+            "title": f"📊 Execution Dashboard: {target_date}",
+            "description": f"Analyst Workbench pipeline completed for the logical session.",
+            "color": 3066993 if summary["success_rate"] == "100.0%" else 15844367, # 0x2ecc71 or 0xf1c40f
+            "fields": [
+                {"name": "🕒 Duration", "value": summary["duration"], "inline": True},
+                {"name": "🤖 API Calls", "value": str(summary["total_calls"]), "inline": True},
+                {"name": "🪙 Token Usage", "value": f"{summary['total_tokens']:,}", "inline": True},
+                {"name": "✅ Success Rate", "value": summary["success_rate"], "inline": True}
+            ],
+            "footer": {"text": "Model Tracking Active"},
+            "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+        }
+
+        if summary["details"]:
+            details_text = "\n".join(summary["details"])[:1024]
+            embed["fields"].append({"name": "📝 Execution Log", "value": details_text, "inline": False})
+            
+        if summary["errors"]:
+            error_text = "\n".join(summary["errors"])[:1024]
+            embed["fields"].append({"name": "⚠️ Failures", "value": error_text, "inline": False})
+            
+        return [embed]

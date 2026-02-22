@@ -101,6 +101,7 @@ def main():
     parser.add_argument("--action", choices=["run", "update-economy", "input-news", "inspect", "setup"], default="run", help="Action to perform")
     parser.add_argument("--text", type=str, help="Market news text (used with --action input-news)")
     parser.add_argument("--file", type=str, help="Path to a text file containing market news (used with --action input-news)")
+    parser.add_argument("--webhook", type=str, help="Optional Discord Webhook URL for reporting")
     
     args = parser.parse_args()
     logger = AppLogger()
@@ -112,6 +113,19 @@ def main():
         sys.exit(1)
 
     from modules.core.config import infisical_mgr
+    from modules.ai.ai_services import TRACKER
+    import requests
+
+    def send_webhook_report(webhook_url, target_date):
+        if not webhook_url: return
+        TRACKER.finish()
+        embeds = TRACKER.get_discord_embeds(target_date.isoformat())
+        try:
+            requests.post(webhook_url, json={"embeds": embeds}, timeout=10)
+        except Exception as e:
+            logger.error(f"Failed to send Discord webhook: {e}")
+
+    TRACKER.start()
     try:
         if args.action == "run":
             run_pipeline(target_date, args.model, logger)
@@ -143,6 +157,12 @@ def main():
         elif args.action == "setup":
             from modules.data.setup_db import create_tables
             create_tables()
+        
+        # Send Report if webhook exists
+        webhook = getattr(args, 'webhook', None) or os.getenv("DISCORD_WEBHOOK_URL")
+        if webhook:
+            send_webhook_report(webhook, target_date)
+
     finally:
         # 6. Cleanup Resources
         if 'infisical_mgr' in locals() or 'infisical_mgr' in globals():
