@@ -15,8 +15,8 @@ class InfisicalManager:
         client_secret = os.getenv("INFISICAL_CLIENT_SECRET")
         self.project_id = os.getenv("INFISICAL_PROJECT_ID")
         
-        self.logger.info(f"DEBUG: INFISICAL_TOKEN is {'Set' if client_token else 'NOT SET'}")
-        self.logger.info(f"DEBUG: INFISICAL_PROJECT_ID is {'Set' if self.project_id else 'NOT SET'}")
+        self.logger.warning(f"DEBUG: INFISICAL_TOKEN is {'Set' if client_token else 'NOT SET'}")
+        self.logger.warning(f"DEBUG: INFISICAL_PROJECT_ID is {'Set' if self.project_id else 'NOT SET'}")
 
         # Fallback to local secrets.toml if env vars are missing
         if not client_token and (not client_id or not client_secret or not self.project_id):
