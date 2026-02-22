@@ -128,27 +128,36 @@ async def inputnews(ctx, date_str: str = None, *, news_text: str = None):
     # 1. Resolve relative date or default
     resolved_date = get_target_date(date_str)
     
-    # 2. Logic to handle !inputnews "text" vs !inputnews -1 "text"
-    if date_str == resolved_date and not news_text:
-        # User didn't provide news text, only a date
-        await ctx.send("❌ Error: You must provide news text. Example: `!inputnews -1 The market rallied.`")
-        return
-    
-    if date_str != resolved_date:
-        # Relative date was used, news_text must be present
-        if not news_text:
-            await ctx.send("❌ Error: You must provide news text after the relative date indicator.")
-            return
-        target_date = resolved_date
-    else:
-        # No date_str or it's a fixed date
+    # 2. Case: !inputnews "the news text" (date_str is news, news_text is None)
+    if date_str and not news_text:
+        # Check if date_str is a date or news
         try:
-            datetime.strptime(date_str, "%Y-%m-%d")
-            target_date = date_str
-        except (ValueError, TypeError):
-            # date_str is actually news text
-            news_text = f"{date_str} {news_text}" if news_text else date_str
+            # If this succeeds, user ONLY provided a date (invalid for inputnews)
+            datetime.strptime(resolved_date, "%Y-%m-%d")
+            await ctx.send(f"❌ Error: You provided a date ({resolved_date}) but no news text. Usage: `!inputnews [date] <text>`")
+            return
+        except ValueError:
+            # It's not a date, so it must be the news text
+            news_text = date_str
             target_date = get_target_date(None)
+    elif not date_str:
+        # User typed just !inputnews
+        await ctx.send("❌ Error: You must provide news text. Example: `!inputnews The market rallied today.`")
+        return
+    else:
+        # User provided both: date_str could be "-1" or "2026-01-01"
+        target_date = resolved_date
+        # Final validation of the resolved date
+        try:
+            datetime.strptime(target_date, "%Y-%m-%d")
+        except ValueError:
+            await ctx.send(f"❌ Error: `{target_date}` is not a valid date format (YYYY-MM-DD) or relative indicator (-1, -2).")
+            return
+
+    # Final news text check
+    if not news_text or len(news_text.strip()) < 5:
+        await ctx.send("❌ Error: News text is too short or missing.")
+        return
 
     msg = await ctx.send(f"🛰️ Dispatching news entry for **{target_date}** to GitHub Actions...")
     
@@ -174,10 +183,11 @@ async def updateeconomy(ctx, date_str: str = None, model_name: str = "gemini-3-f
         model_name = date_str
         target_date = get_target_date(None)
 
+    # STRICT VALIDATION
     try:
         datetime.strptime(target_date, "%Y-%m-%d")
     except ValueError:
-        await ctx.send("❌ Invalid date format. Use YYYY-MM-DD, -1, -2, or leave blank for today.")
+        await ctx.send(f"❌ Error: `{target_date}` is an invalid date. Use YYYY-MM-DD, -1, -2, or leave blank for today.")
         return
 
     msg = await ctx.send(f"🧠 **Dispatching Economy Update** ({target_date}) to GitHub Actions...")
@@ -211,10 +221,11 @@ async def checknews(ctx, date_str: str = None):
     """Dispatch market news check to GitHub Actions."""
     target_date = get_target_date(date_str)
 
+    # STRICT VALIDATION
     try:
         datetime.strptime(target_date, "%Y-%m-%d")
     except ValueError:
-        await ctx.send("❌ Invalid date format. Use YYYY-MM-DD, -1, -2, or leave blank for today.")
+        await ctx.send(f"❌ Error: `{target_date}` is an invalid date. Use YYYY-MM-DD, -1, -2, or leave blank for today.")
         return
 
     msg = await ctx.send(f"🔍 **Checking news** for **{target_date}** via GitHub Actions...")
