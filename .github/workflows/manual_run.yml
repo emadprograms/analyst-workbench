@@ -19,6 +19,10 @@ on:
         description: 'News text (for input-news)'
         required: false
         default: ''
+      news_url:
+        description: 'URL to news text file'
+        required: false
+        default: ''
 
 jobs:
   run-pipeline:
@@ -56,20 +60,17 @@ jobs:
           INPUT_MODEL: ${{ github.event.inputs.model }}
           INPUT_ACTION: ${{ github.event.inputs.action }}
           INPUT_TEXT: ${{ github.event.inputs.text }}
+          INPUT_URL: ${{ github.event.inputs.news_url }}
         run: |
           DATE_ARG=""
           if [ "$INPUT_DATE" != "today" ] && [ "$INPUT_DATE" != "" ]; then
             DATE_ARG="--date $INPUT_DATE"
           fi
           
-          TEXT_ARG=""
-          if [ "$INPUT_TEXT" != "" ]; then
-            # We reference the env var directly in the command call
-            TEXT_ARG="--text"
-          fi
-
-          # Use quotes around variables to prevent word splitting
-          if [ "$TEXT_ARG" == "--text" ]; then
+          # Prioritize URL over text if both are present
+          if [ "$INPUT_URL" != "" ]; then
+            python main.py --action "$INPUT_ACTION" $DATE_ARG --model "$INPUT_MODEL" --url "$INPUT_URL"
+          elif [ "$INPUT_TEXT" != "" ]; then
             python main.py --action "$INPUT_ACTION" $DATE_ARG --model "$INPUT_MODEL" --text "$INPUT_TEXT"
           else
             python main.py --action "$INPUT_ACTION" $DATE_ARG --model "$INPUT_MODEL"

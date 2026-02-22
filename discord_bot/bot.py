@@ -146,8 +146,32 @@ async def dispatch_github_action(inputs: dict):
 
 @bot.command()
 async def inputnews(ctx, date_indicator: str = None):
-    """Opens a date picker, then a text box to input market news."""
+    """Opens a date picker, then a text box OR handles an attached .txt file."""
     print(f"[DEBUG] Command !inputnews called by {ctx.author}")
+    
+    # Check for attachments first
+    if ctx.message.attachments:
+        attachment = ctx.message.attachments[0]
+        if attachment.filename.endswith('.txt'):
+            target_date = get_target_date(date_indicator)
+            await ctx.send(f"🛰️ **File Detected:** `{attachment.filename}`\nDispatching content for **{target_date}** to GitHub... 🚀")
+            
+            inputs = {
+                "target_date": target_date,
+                "action": "input-news",
+                "news_url": attachment.url # Pass the Discord URL
+            }
+            
+            success, error = await dispatch_github_action(inputs)
+            if success:
+                await ctx.send(f"✅ **File Dispatch Successful!** (ETA: ~2-3 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) ⏱️")
+            else:
+                await ctx.send(f"❌ **File Dispatch Failed:** {error}")
+            return
+        else:
+            await ctx.send("⚠️ Please upload a `.txt` file for market news.")
+            return
+
     async def news_callback(interaction, selected_date):
         await interaction.response.send_modal(NewsModal(target_date=selected_date))
         try:

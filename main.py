@@ -197,6 +197,7 @@ def main():
     parser.add_argument("--action", choices=["run", "update-economy", "input-news", "inspect", "setup", "test-webhook", "check-news"], default="run", help="Action to perform")
     parser.add_argument("--text", type=str, help="Market news text (used with --action input-news)")
     parser.add_argument("--file", type=str, help="Path to a text file containing market news (used with --action input-news)")
+    parser.add_argument("--url", type=str, help="URL to a text file containing market news (used with --action input-news)")
     parser.add_argument("--webhook", type=str, help="Optional Discord Webhook URL for reporting")
     
     args = parser.parse_args()
@@ -240,9 +241,18 @@ def main():
                 except Exception as e:
                     logger.error(f"Failed to read file {args.file}: {e}")
                     sys.exit(1)
+            elif args.url:
+                try:
+                    logger.log(f"🌐 Downloading news from URL...")
+                    resp = requests.get(args.url, timeout=30)
+                    resp.raise_for_status()
+                    news_content = resp.text
+                except Exception as e:
+                    logger.error(f"Failed to download news from URL: {e}")
+                    sys.exit(1)
             
             if not news_content:
-                logger.error("You must provide news content via --text or --file when using --action input-news")
+                logger.error("You must provide news content via --text, --file, or --url when using --action input-news")
                 sys.exit(1)
             
             if upsert_daily_inputs(target_date, news_content):
