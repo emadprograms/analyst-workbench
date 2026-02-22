@@ -1,4 +1,3 @@
-import streamlit as st
 import logging
 import os
 
@@ -54,13 +53,12 @@ try:
     
     # Fallback to local secrets if Infisical fails/returns None
     if not TURSO_DB_URL or not TURSO_AUTH_TOKEN:
-        logging.info("Infisical returned no Turso credentials, checking local st.secrets...")
-        turso_secrets = st.secrets.get("turso", {})
-        if not TURSO_DB_URL: TURSO_DB_URL = turso_secrets.get("db_url")
-        if not TURSO_AUTH_TOKEN: TURSO_AUTH_TOKEN = turso_secrets.get("auth_token")
+        logging.info("Infisical returned no Turso credentials, checking local environment variables...")
+        if not TURSO_DB_URL: TURSO_DB_URL = os.environ.get("TURSO_DB_URL")
+        if not TURSO_AUTH_TOKEN: TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
 
     if not TURSO_DB_URL or not TURSO_AUTH_TOKEN:
-        logging.critical("CRITICAL: Turso DB URL or Auth Token not found (Infisical or st.secrets).")
+        logging.critical("CRITICAL: Turso DB URL or Auth Token not found (Infisical or environment variables).")
 
 except Exception as e:
     logging.critical(f"Error loading secrets: {e}")
@@ -77,9 +75,9 @@ try:
     if api_keys_str:
         API_KEYS = [k.strip() for k in api_keys_str.split(",") if k.strip()]
     else:
-        # Fallback to local secrets
-        gemini_secrets = st.secrets.get("gemini", {})
-        API_KEYS = gemini_secrets.get("api_keys", []) 
+        # Fallback to local environment variables
+        api_keys_env = os.environ.get("GEMINI_API_KEYS", "")
+        API_KEYS = [k.strip() for k in api_keys_env.split(",") if k.strip()] 
         
 except Exception:
     API_KEYS = []

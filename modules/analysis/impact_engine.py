@@ -4,7 +4,7 @@ import json
 import os
 from datetime import datetime, timedelta, time as dt_time
 from pytz import timezone as pytz_timezone
-from modules.core.ui_components import AppLogger
+from modules.core.logger import AppLogger
 
 US_EASTERN = pytz_timezone('US/Eastern')
 MARKET_OPEN_TIME = dt_time(9, 30)

@@ -1,4 +1,4 @@
-
+from __future__ import annotations
 from datetime import date
 from modules.core.config import (
     DEFAULT_ECONOMY_CARD_JSON, 
@@ -8,7 +8,7 @@ from modules.core.config import (
 )
 import json
 import pandas as pd
-import streamlit as st
+import logging
 import libsql_client
 from libsql_client import LibsqlError, create_client_sync
 
@@ -28,11 +28,11 @@ def get_db_connection():
             "auth_token": TURSO_AUTH_TOKEN
         }
         # --- FIX: Use create_client_sync ---
-        # This is the synchronous client required for Streamlit
+        # This is the synchronous client required
         client = create_client_sync(**config)
         return client
     except Exception as e:
-        st.error(f"Failed to create Turso client: {e}")
+        logging.error(f"Failed to create Turso client: {e}")
         return None
 
 # --- Daily Inputs ---
@@ -351,7 +351,6 @@ def get_all_table_names() -> list[str]:
         if conn:
             conn.close()
 
-@st.cache_data(ttl=30) # Cache for 30 seconds
 def get_table_data(table_name: str) -> pd.DataFrame:
     """Fetches all data from a specific table and returns a DataFrame."""
     conn = None

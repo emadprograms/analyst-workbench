@@ -7,7 +7,6 @@ import time
 import logging
 from datetime import date
 from deepdiff import DeepDiff
-import streamlit as st 
 
 # --- Core Module Imports ---
 # 1. FIX: Removed API_KEYS. 
@@ -23,7 +22,7 @@ from modules.core.config import (
 from modules.core.key_manager import KeyManager # <-- Imported Class
 # 3. FIX: Added missing newline that was causing syntax errors
 from modules.data.data_processing import parse_raw_summary
-from modules.core.ui_components import AppLogger
+from modules.core.logger import AppLogger
 from modules.data.db_utils import get_db_connection
 from modules.analysis.impact_engine import get_or_compute_context
 
@@ -165,7 +164,7 @@ def update_company_card(
     but with the old, detailed analytical guidance. ---
     """
     if logger is None:
-        logger = AppLogger() # Removed st_container=None
+        logger = AppLogger() 
 
     logger.log(f"--- Starting Company Card AI update for {ticker} ---")
 
@@ -617,7 +616,7 @@ def update_economy_card(
     ---
     """
     if logger is None:
-        logger = AppLogger() # Removed st_container=None
+        logger = AppLogger() 
     
     logger.log("--- Starting Economy Card EOD Update ---")
 

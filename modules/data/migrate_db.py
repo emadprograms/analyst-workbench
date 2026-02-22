@@ -1,4 +1,4 @@
-import streamlit as st
+import os
 import logging
 import libsql_client
 
@@ -9,12 +9,11 @@ log = logging.getLogger(__name__)
 def migrate():
     # Load secrets
     try:
-        turso_secrets = st.secrets.get("turso", {})
-        db_url = turso_secrets.get("db_url")
-        auth_token = turso_secrets.get("auth_token")
+        db_url = os.environ.get("TURSO_DB_URL")
+        auth_token = os.environ.get("TURSO_AUTH_TOKEN")
 
         if not db_url or not auth_token:
-            log.critical("❌ CRITICAL: Turso DB URL or Auth Token not found in st.secrets.")
+            log.critical("❌ CRITICAL: Turso DB URL or Auth Token not found in environment variables.")
             return
 
         # Force HTTPS
