@@ -3,7 +3,7 @@ import argparse
 import sys
 import os
 from datetime import date
-from modules.core.config import ALL_TICKERS, STOCK_TICKERS, ETF_TICKERS, AVAILABLE_MODELS
+from modules.core.config import ALL_TICKERS, STOCK_TICKERS, ETF_TICKERS, AVAILABLE_MODELS, DISCORD_WEBHOOK_URL
 from modules.core.logger import AppLogger
 from modules.data.db_utils import (
     get_daily_inputs, 
@@ -167,7 +167,7 @@ def main():
             create_tables()
         
         # Send Report if webhook exists
-        webhook = getattr(args, 'webhook', None) or os.getenv("DISCORD_WEBHOOK_URL")
+        webhook = getattr(args, 'webhook', None) or DISCORD_WEBHOOK_URL
         if webhook:
             send_webhook_report(webhook, target_date)
 

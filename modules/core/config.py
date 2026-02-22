@@ -96,7 +96,15 @@ except Exception:
 
 
 # ==========================================
-# 4. TICKER LISTS
+# 4. DISCORD WEBHOOK
+# ==========================================
+DISCORD_WEBHOOK_URL = infisical_mgr.get_secret("discord_capitain_analyst_webhook_url")
+if not DISCORD_WEBHOOK_URL:
+    DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
+
+
+# ==========================================
+# 5. TICKER LISTS
 # ==========================================
 STOCK_TICKERS = [
     "AAPL", "AMZN", "APP", "ABT", "PEP", "TSLA", "NVDA", "AMD",
