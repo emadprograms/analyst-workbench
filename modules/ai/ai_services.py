@@ -200,8 +200,7 @@ def update_company_card(
         "2. **Analyze `technicalStructure` (The 'Macro'):** Use *repeated* participant behavior to define and evolve the *key structural zones*. "
         "3. **Calculate `confidence` (The 'Story'):** You MUST combine the lagging 'Trend_Bias' with the 'Story_Confidence' (H/M/L) and provide a full justification. "
         "4. **Calculate `screener_briefing` (The 'Tactic'):** You MUST synthesize your *entire* analysis to calculate a *new, separate, actionable* 'Setup_Bias' and assemble the final Python-readable data packet. "
-        "Do not use any of your own default logic. Your sole purpose is to be a processor for the user's provided framework.\n\n"
-        f"{COMPANY_CARD_MASTERCLASS}"
+        "Do not use any of your own default logic. Your sole purpose is to be a processor for the user's provided framework."
     )
 
     
@@ -436,73 +435,6 @@ def update_company_card(
       "todaysAction": "A single, detailed log entry for *only* today's action, *using the language from your Masterclass analysis*."
     }}
     """
-
-    system_prompt = (
-        "You are an expert market structure analyst. Your *only* job is to apply the specific 4-Participant Trading Model provided below. "
-        "Your logic must *strictly* follow this model. You will be given a 'Masterclass' that defines the model's philosophy. "
-        "Your job has **four** distinct analytical tasks: "
-        "1. **Analyze `behavioralSentiment` (The 'Micro'):** You MUST provide a full 'Proof of Reasoning' for the `emotionalTone` field. "
-        "2. **Analyze `technicalStructure` (The 'Macro'):** Use *repeated* participant behavior to define and evolve the *key structural zones*. "
-        "3. **Calculate `confidence` (The 'Story'):** You MUST combine the lagging 'Trend_Bias' with the 'Story_Confidence' (H/M/L) and provide a full justification. "
-        "4. **Calculate `screener_briefing` (The 'Tactic'):** You MUST synthesize your *entire* analysis to calculate a *new, separate, actionable* 'Setup_Bias' and assemble the final Python-readable data packet. "
-        "Do not use any of your own default logic. Your sole purpose is to be a processor for the user's provided framework.\n\n"
-        f"{COMPANY_CARD_MASTERCLASS}"
-        f"{COMPANY_CARD_EXECUTION_TASK_AND_FORMAT}\n\n"
-        f"[Historical Notes for {ticker}]\n"
-        f"(CRITICAL STATIC CONTEXT: These are the MAJOR structural levels. LEVELS ARE PARAMOUNT.)\n"
-        f"<historical_notes ticker=\"{ticker}\">\n"
-        f"{historical_notes or 'No historical notes provided.'}\n"
-        f"</historical_notes>"
-    )
-
-    
-    trade_date_str = new_eod_date.isoformat()
-
-    # --- FINAL Main 'Masterclass' Prompt ---
-    # --- IMPACT ENGINE INTEGRATION ---
-    impact_context_json = "No Data Available"
-    
-    conn = get_db_connection()
-    if conn:
-        try:
-            # --- CACHING IMPLEMENTED VIA get_or_compute_context ---
-            context_card = get_or_compute_context(conn, ticker, trade_date_str, logger)
-            impact_context_json = json.dumps(context_card, indent=2)
-            logger.log(f"✅ Loaded Impact Context Card for {ticker}")
-        except Exception as e:
-            logger.log(f"⚠️ Impact Engine Failed for {ticker}: {e}")
-            impact_context_json = f"Error generating context: {e}"
-        finally:
-            conn.close()
-    else:
-        logger.log("⚠️ DB Connection Failed - Skipping Impact Engine")
-
-    # --- FINAL Main 'Masterclass' Prompt ---
-    prompt = f"""
-    [Raw Market Context for Today]
-    (This contains RAW, unstructured news headlines and snippets from various sources. You must synthesize the macro "Headwind" or "Tailwind" yourself from this data. It also contains company-specific news.)
-    <market_context>
-    {market_context_summary or "No raw market news was provided."}
-    </market_context>
-    
-    [Previous Card (Read-Only)]
-    (This is established structure, plans, and `keyActionLog` so far. Read this for the 3-5 day context AND to find the previous 'recentCatalyst' and 'fundamentalContext' data.) 
-    <previous_card>
-    {json.dumps(previous_overview_card_dict, indent=2)}
-    </previous_card>
-
-    [Log of Recent Key Actions (Read-Only)]
-    (This is the day-by-day story so far. Use this for context.)
-    <recent_key_actions>
-    {json.dumps(recent_log_entries, indent=2)}
-    </recent_key_actions>
-
-    [Today's New Price Action Summary (IMPACT CONTEXT CARD)]
-    (Use this structured 'Value Migration Log' and 'Impact Levels' to determine the 'Nature' of the session.)
-    <today_price_action_summary>
-    {impact_context_json}
-    </today_price_action_summary>
-    """
     
     logger.log(f"3. Calling EOD AI Analyst for {ticker}...");
     
@@ -673,9 +605,15 @@ def update_economy_card(
         finally:
             conn.close()
     
-    etf_summaries = json.dumps(etf_impact_data, indent=2)
+    combined_etf_evidence = etf_summaries + "\\n\\n[IMPACT ENGINE CONTEXT]\\n" + json.dumps(etf_impact_data, indent=2)
 
     # --- FIX: Main Prompt ---
+    system_prompt = (
+        "You are an expert Macro Strategist. Your objective is to synthesize raw market news "
+        "(The 'Why') with quantitative ETF price action (The 'How') to update the global Economy Card. "
+        "Complete the required JSON schema accurately and comprehensively."
+    )
+
     prompt = f"""
     [Previous Day's Economy Card (Read-Only)]
     (This is the established macro context. You must read this first.)
@@ -698,7 +636,7 @@ def update_economy_card(
     [Key ETF Summaries (The 'How' / IMPACT CONTEXT CARDS)]
     (This is the quantitative, level-based 'proof'. Use the 'Value Migration Log' and 'Impact Levels' for SPY, QQQ, etc. to confirm the narrative.)
     <key_etf_summaries>
-    {etf_summaries}
+    {combined_etf_evidence}
     </key_etf_summaries>
     """
 

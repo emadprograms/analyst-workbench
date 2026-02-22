@@ -8,7 +8,7 @@ from modules.core.config import (
     TURSO_PRICE_DB_URL,
     TURSO_PRICE_AUTH_TOKEN
 )
-import json
+
 import pandas as pd
 import logging
 import libsql_client

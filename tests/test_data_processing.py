@@ -43,7 +43,7 @@ def empty_df():
 
 # --- FETCH TESTS (DB MOCK) ---
 
-@patch('modules.data.data_processing.get_db_connection')
+@patch('modules.data.data_processing.get_price_db_connection')
 def test_fetch_intraday_data_success(mock_get_db, sample_intraday_df):
     """Test successful data fetching via DB."""
     # Setup Mock DB
@@ -84,7 +84,7 @@ def test_fetch_intraday_data_success(mock_get_db, sample_intraday_df):
     assert len(result) == len(sample_intraday_df)
     assert result.iloc[0]['Ticker'] == 'TEST'
 
-@patch('modules.data.data_processing.get_db_connection')
+@patch('modules.data.data_processing.get_price_db_connection')
 def test_fetch_intraday_data_empty_db(mock_get_db):
     """Test when DB returns no rows."""
     mock_conn = MagicMock()
@@ -96,7 +96,7 @@ def test_fetch_intraday_data_empty_db(mock_get_db):
     result = fetch_intraday_data(['TEST'], date(2023, 10, 27))
     assert result.empty
 
-@patch('modules.data.data_processing.get_db_connection')
+@patch('modules.data.data_processing.get_price_db_connection')
 def test_fetch_intraday_data_conn_failure(mock_get_db):
     """Test when DB connection fails."""
     mock_get_db.return_value = None # Connection failed

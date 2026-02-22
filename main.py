@@ -84,13 +84,13 @@ def run_pipeline(selected_date: date, model_name: str, logger: AppLogger):
 
         new_card = update_company_card(
             ticker=ticker,
-            current_company_card=prev_card,
-            prev_update_date=prev_date,
+            previous_card_json=prev_card,
+            previous_card_date=prev_date,
             historical_notes=hist_notes,
-            ticker_summary=ticker_summary,
-            selected_date=selected_date,
+            new_eod_summary=ticker_summary,
+            new_eod_date=selected_date,
             model_name=model_name,
-            daily_market_news=market_news,
+            market_context_summary=market_news,
             logger=logger
         )
         
