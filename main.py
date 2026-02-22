@@ -53,7 +53,7 @@ def send_webhook_report(webhook_url, target_date, action, model, logger=None):
         requests.post(webhook_url, json=payload, timeout=15)
 
         # --- MESSAGE 2: The Files (Logs & Cards) ---
-        if files:
+        if files and action != "check-news":
             # We send a small follow-up message with the files
             requests.post(
                 webhook_url, 
