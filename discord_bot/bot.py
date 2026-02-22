@@ -150,6 +150,10 @@ async def inputnews(ctx, date_indicator: str = None):
     print(f"[DEBUG] Command !inputnews called by {ctx.author}")
     async def news_callback(interaction, selected_date):
         await interaction.response.send_modal(NewsModal(target_date=selected_date))
+        try:
+            # Edit the original selection message to remove the picker
+            await interaction.message.edit(content=f"🗓️ **News Entry Selected:** {selected_date}\n(Modal opened - check your pop-up box)", view=None)
+        except: pass
 
     if not date_indicator:
         view = DateSelectionView(action_callback=news_callback)
@@ -165,6 +169,9 @@ async def inputnews(ctx, date_indicator: str = None):
                 @discord.ui.button(label=f"📝 Open Box for {target_date}", style=discord.ButtonStyle.primary)
                 async def go(self, interaction, button):
                     await interaction.response.send_modal(NewsModal(target_date=self.date))
+                    try:
+                        await interaction.message.edit(content=f"✅ **Target Date:** {self.date}\n(Modal opened)", view=None)
+                    except: pass
             await ctx.send(f"✅ Target Date: **{target_date}**", view=TriggerView(target_date))
         except ValueError:
             await ctx.send(f"❌ Error: `{target_date}` is invalid.")
@@ -176,7 +183,7 @@ async def updateeconomy(ctx, date_str: str = None, model_name: str = "gemini-3-f
     target_date = get_target_date(date_str)
     
     async def economy_callback(interaction, selected_date):
-        await interaction.response.send_message(f"🧠 **Updating Economy** ({selected_date})... 🛰️", ephemeral=False)
+        await interaction.response.edit_message(content=f"🧠 **Updating Economy** ({selected_date})... 🛰️", view=None)
         msg = await interaction.original_response()
         inputs = {"target_date": selected_date, "model": model_name}
         success, error = await dispatch_github_action(inputs)
@@ -222,7 +229,7 @@ async def checknews(ctx, date_str: str = None):
     """Dispatch market news check to GitHub Actions."""
     print(f"[DEBUG] Command !checknews called by {ctx.author}")
     async def check_callback(interaction, selected_date):
-        await interaction.response.send_message(f"🔍 **Checking news** for **{selected_date}**... 🛰️", ephemeral=False)
+        await interaction.response.edit_message(content=f"🔍 **Checking news** for **{selected_date}**... 🛰️", view=None)
         msg = await interaction.original_response()
         inputs = {"target_date": selected_date, "action": "check-news"}
         success, error = await dispatch_github_action(inputs)
