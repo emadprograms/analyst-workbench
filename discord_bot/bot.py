@@ -22,7 +22,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    print(f"✅ Dispatcher Bot logged in as {bot.user.name}")
+    print(f"✅ Major Action logged in as {bot.user.name}")
 
 async def dispatch_github_action(inputs: dict):
     if not GITHUB_TOKEN or not GITHUB_REPO:
