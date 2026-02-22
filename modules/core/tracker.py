@@ -46,6 +46,12 @@ class ExecutionTracker:
             if ticker:
                 self.metrics.details.append(f"❌ {ticker}: Failed ({model})")
 
+    def log_error(self, ticker: str, error: str):
+        """Logs a non-API failure (e.g., missing data) without incrementing API call count."""
+        self.metrics.failure_count += 1
+        self.metrics.errors.append(f"❌ {ticker}: {error}")
+        self.metrics.details.append(f"❌ {ticker}: {error}")
+
     def register_artifact(self, name: str, content: str):
         """Registers a generated card (JSON) to be attached to the report."""
         self.metrics.artifacts[name] = content

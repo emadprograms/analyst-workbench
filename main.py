@@ -90,7 +90,7 @@ def run_update_economy(selected_date: date, model_name: str, logger: AppLogger) 
         err_msg = f"No market news found for {selected_date} in 'aw_daily_news'. Pipeline Halted."
         logger.error(err_msg)
         from modules.ai.ai_services import TRACKER
-        TRACKER.log_call(0, False, model_name, ticker="ECONOMY", error=err_msg)
+        TRACKER.log_error("ECONOMY", err_msg)
         return False
 
     # 2. Get Current Card
@@ -104,7 +104,7 @@ def run_update_economy(selected_date: date, model_name: str, logger: AppLogger) 
         err_msg = f"Market data missing for {selected_date} in Price DB. Pipeline Halted."
         logger.error(err_msg)
         from modules.ai.ai_services import TRACKER
-        TRACKER.log_call(0, False, model_name, ticker="ECONOMY", error=err_msg)
+        TRACKER.log_error("ECONOMY", err_msg)
         return False
 
     # 4. Update via AI
@@ -126,7 +126,7 @@ def run_update_economy(selected_date: date, model_name: str, logger: AppLogger) 
         else:
             logger.error("❌ Failed to save Economy Card to DB")
             from modules.ai.ai_services import TRACKER
-            TRACKER.log_call(0, False, model_name, ticker="ECONOMY", error="DB Save Failed")
+            TRACKER.log_error("ECONOMY", "DB Save Failed")
             return False
     else:
         logger.error("❌ AI failed to generate new Economy Card")
@@ -185,7 +185,7 @@ def main():
         "--model", 
         type=str, 
         help=f"Gemini model name. Options: {', '.join(AVAILABLE_MODELS.keys())}", 
-        default="gemini-2.0-flash-paid",
+        default="gemini-3-flash-free",
         choices=list(AVAILABLE_MODELS.keys())
     )
     parser.add_argument("--action", choices=["run", "update-economy", "input-news", "inspect", "setup", "test-webhook", "check-news"], default="run", help="Action to perform")
