@@ -2,10 +2,11 @@ from __future__ import annotations
 import os
 import sys
 import argparse
+import time
 from datetime import date
 import requests
 
-def send_webhook_report(webhook_url, target_date, logger=None):
+def send_webhook_report(webhook_url, target_date, action, model, logger=None):
     """Sends the execution summary and optional log file to Discord."""
     if not webhook_url: return
     
@@ -13,16 +14,22 @@ def send_webhook_report(webhook_url, target_date, logger=None):
     TRACKER.finish()
     embeds = TRACKER.get_discord_embeds(target_date.isoformat())
     
+    # Dashboard is always the first embed in the list
     payload = {"embeds": embeds}
     files = {}
     
-    # 1. Attach the captured logs as a file
+    # 1. Enhance Log Filename
+    # Format: {action}_{date}_{model}_{timestamp}.log
+    timestamp = time.strftime("%H%M%S")
+    log_filename = f"{action}_{target_date.isoformat()}_{model}_{timestamp}.log"
+    
+    # 2. Attach the captured logs as a file
     if logger and hasattr(logger, 'get_full_log'):
         log_content = logger.get_full_log()
         if log_content:
-            files["file"] = (f"logs_{target_date.isoformat()}.log", log_content, "text/plain")
+            files["file"] = (log_filename, log_content, "text/plain")
     
-    # 2. Attach generated cards (artifacts)
+    # 3. Attach generated cards (artifacts)
     if hasattr(TRACKER.metrics, 'artifacts'):
         for name, content in TRACKER.metrics.artifacts.items():
             # Discord limit is 10 files per message
@@ -221,14 +228,11 @@ def main():
         elif args.action == "test-webhook":
             logger.log("🧪 Sending a test Discord notification...")
             TRACKER.log_call(100, True, "Test-Model", ticker="TEST-TICKER")
-            # The notification is sent in the 'finally' or at the end of the action block
-            # But the send_webhook_report is called after the if/elif block.
-            # So we just need to make sure 'webhook' is set correctly.
         
         # Send Report if webhook exists
         webhook = getattr(args, 'webhook', None) or DISCORD_WEBHOOK_URL
         if webhook:
-            send_webhook_report(webhook, target_date, logger=logger)
+            send_webhook_report(webhook, target_date, args.action, args.model, logger=logger)
 
     finally:
         # 6. Cleanup Resources
