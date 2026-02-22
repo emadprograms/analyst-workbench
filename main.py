@@ -57,8 +57,8 @@ def send_webhook_report(webhook_url, target_date, action, model, logger=None):
         requests.post(webhook_url, json=payload, timeout=15)
 
         # --- MESSAGE 2: The Files (Logs & Cards) ---
-        # Skip sending logs for check-news and input-news to keep feed clean
-        skip_files_actions = ["check-news", "input-news"]
+        # Skip sending logs for input-news to keep feed clean, but KEEP for check-news
+        skip_files_actions = ["input-news"]
         if files and action not in skip_files_actions:
             # We send a small follow-up message with the files
             requests.post(
@@ -264,8 +264,9 @@ def main():
         elif args.action == "check-news":
             market_news, _ = get_daily_inputs(target_date)
             if market_news:
-                logger.log(f"\n✅ NEWS FOUND for {target_date}:\n{'-'*40}\n{market_news}\n{'-'*40}")
-                TRACKER.set_result("news_status", "✅ Found")
+                char_count = len(market_news)
+                logger.log(f"\n✅ NEWS FOUND for {target_date} ({char_count} chars):\n{'-'*40}\n{market_news}\n{'-'*40}")
+                TRACKER.set_result("news_status", f"✅ Found ({char_count} chars)")
             else:
                 logger.error(f"❌ NO NEWS FOUND for {target_date}")
                 TRACKER.set_result("news_status", "❌ Not Found")
