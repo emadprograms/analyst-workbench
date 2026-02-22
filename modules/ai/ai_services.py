@@ -527,7 +527,9 @@ def update_company_card(
         # final_card['alternativePlan'] = ...
 
         logger.log(f"--- Success: AI update for {ticker} complete. ---")
-        return json.dumps(final_card, indent=4) # Return the full, new card
+        final_json = json.dumps(final_card, indent=4)
+        TRACKER.register_artifact(f"{ticker}_CARD", final_json)
+        return final_json # Return the full, new card
 
     except json.JSONDecodeError as e:
         logger.log(f"Error: Failed to decode AI response JSON for {ticker}. Details: {e}")
@@ -662,11 +664,6 @@ def update_economy_card(
         logger.log("Error: No response from AI for economy card update.")
         return None
 
-    logger.log("4. Received new Economy Card. Parsing and validating...")
-    json_match = re.search(r"```json\s*([\s\S]+?)\s*```", ai_response_text)
-    if json_match:
-        ai_response_text = json_match.group(1)
-    
     try:
         # --- FIX: We are now parsing the AI's *new* output ---
         ai_data = json.loads(ai_response_text)
@@ -716,7 +713,9 @@ def update_economy_card(
                     break
 
         logger.log("--- Success: Economy Card generation complete! ---")
-        return json.dumps(final_card, indent=4)
+        final_json = json.dumps(final_card, indent=4)
+        TRACKER.register_artifact("ECONOMY_CARD", final_json)
+        return final_json
         
     except json.JSONDecodeError as e:
         logger.log(f"Error: Failed to decode AI response for economy card. Details: {e}")

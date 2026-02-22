@@ -19,16 +19,11 @@ AVAILABLE_MODELS = {
     "gemini-3-flash-free": "Gemini 3 Flash (Free)",
     "gemini-2.5-pro-paid": "Gemini 2.5 Pro (Paid)",
     "gemini-2.5-flash-paid": "Gemini 2.5 Flash (Paid)",
-    "gemini-2.5-flash-free": "Gemini 2.5 Flash (Free)",
-    "gemini-2.5-flash-lite-paid": "Gemini 2.5 Flash Lite (Paid)",
-    "gemini-2.5-flash-lite-free": "Gemini 2.5 Flash Lite (Free)",
-    "gemini-2.0-flash-paid": "Gemini 2.0 Flash (Paid)",
-    "gemma-3-27b": "Gemma 3 27B",
-    "gemma-3-12b": "Gemma 3 12B"
+    "gemini-2.5-flash-free": "Gemini 2.5 Flash (Free)"
 }
 
 # Default Model (Fallback)
-MODEL_NAME = "gemini-3-pro-paid" 
+MODEL_NAME = "gemini-3-flash-free" 
 
 # --- FIX IS HERE: Define the Base URL without the model name ---
 API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"

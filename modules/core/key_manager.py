@@ -87,18 +87,6 @@ class KeyManager:
             'display': 'Gemini 2.5 Flash (Paid)',
             'limits': {'rpm': 1000, 'tpm': 4000000, 'rpd': 10000}
         },
-        'gemini-2.5-flash-lite-paid': {
-            'model_id': 'gemini-2.5-flash-lite',
-            'tier': 'paid',
-            'display': 'Gemini 2.5 Flash Lite (Paid)',
-            'limits': {'rpm': 4000, 'tpm': 4000000, 'rpd': 1000000} # Unlimited effectively
-        },
-        'gemini-2.0-flash-paid': {
-            'model_id': 'gemini-2.0-flash',
-            'tier': 'paid',
-            'display': 'Gemini 2.0 Flash (Paid)',
-            'limits': {'rpm': 1000, 'tpm': 4000000, 'rpd': 10000} 
-        },
 
         # --- FREE TIER (Standard Limits) ---
         'gemini-3-flash-free': {
@@ -112,26 +100,6 @@ class KeyManager:
              'tier': 'free',
              'display': 'Gemini 2.5 Flash (Free)',
              'limits': {'rpm': 5, 'tpm': 250000, 'rpd': 10000} 
-        },
-        'gemini-2.5-flash-lite-free': {
-             'model_id': 'gemini-2.5-flash-lite',
-             'tier': 'free',
-             'display': 'Gemini 2.5 Flash Lite (Free)',
-             'limits': {'rpm': 10, 'tpm': 250000, 'rpd': 10000}
-        },
-        
-        # --- GEMMA FAMILY ---
-        'gemma-3-27b': {
-            'model_id': 'gemma-3-27b-it',
-            'tier': 'free', 
-            'display': 'Gemma 3 27B',
-            'limits': {'rpm': 30, 'tpm': 15000, 'rpd': 10000}
-        },
-         'gemma-3-12b': {
-            'model_id': 'gemma-3-12b-it',
-            'tier': 'free',
-            'display': 'Gemma 3 12B',
-            'limits': {'rpm': 30, 'tpm': 15000, 'rpd': 10000}
         }
     }
 
