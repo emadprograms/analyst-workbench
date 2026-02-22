@@ -48,12 +48,19 @@ def send_webhook_report(webhook_url, target_date, action, model, logger=None):
             files[name] = (f"{name}.json", content, "application/json")
     
     try:
+        # --- MESSAGE 1: The Dashboard Embed ---
+        # Sending this first ensures it appears at the top of the chat
+        requests.post(webhook_url, json=payload, timeout=15)
+
+        # --- MESSAGE 2: The Files (Logs & Cards) ---
         if files:
-            # When sending files, the JSON payload must be in the 'payload_json' part
-            import json
-            requests.post(webhook_url, data={"payload_json": json.dumps(payload)}, files=files, timeout=20)
-        else:
-            requests.post(webhook_url, json=payload, timeout=15)
+            # We send a small follow-up message with the files
+            requests.post(
+                webhook_url, 
+                data={"content": "📁 **Attached Logs & Generated Cards:**"}, 
+                files=files, 
+                timeout=30
+            )
     except Exception as e:
         if logger:
             logger.error(f"Failed to send Discord webhook: {e}")
