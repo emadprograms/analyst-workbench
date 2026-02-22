@@ -152,7 +152,7 @@ async def inputnews(ctx, date_indicator: str = None):
     # Check for attachments first
     if ctx.message.attachments:
         attachment = ctx.message.attachments[0]
-        if attachment.filename.endswith('.txt'):
+        if attachment.filename.endswith(('.txt', '.log')):
             target_date = get_target_date(date_indicator)
             await ctx.send(f"🛰️ **File Detected:** `{attachment.filename}`\nDispatching content for **{target_date}** to GitHub... 🚀")
             
