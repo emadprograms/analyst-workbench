@@ -1,0 +1,12 @@
+# Discord Bot Dependencies (Python 3.13 Compatible)
+discord.py>=2.4.0
+aiohttp>=3.11.1
+requests
+libsql-client
+infisicalsdk
+python-dotenv
+pandas
+yfinance
+deepdiff
+google-generativeai
+toml

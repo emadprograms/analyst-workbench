@@ -25,6 +25,10 @@ from modules.data.data_processing import parse_raw_summary
 from modules.core.logger import AppLogger
 from modules.data.db_utils import get_db_connection
 from modules.analysis.impact_engine import get_or_compute_context
+from modules.core.tracker import ExecutionTracker
+
+# --- GLOBAL TRACKER ---
+TRACKER = ExecutionTracker()
 
 # --- GLOBAL KEY MANAGER INITIALIZATION ---
 # This breaks the circular dependency with config.py
@@ -62,6 +66,7 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
             if not current_api_key:
                 if wait_time == -1.0:
                     logger.log(f"❌ FATAL: Prompt too large for {model_name} limits.")
+                    TRACKER.log_call(est_tok, False, model_name, ticker=kwargs.get("tracker_ticker"), error="Prompt too large")
                     return None
                 
                 logger.log(f"⏳ All keys exhausted for {model_name}. Waiting {wait_time:.0f}s... (Attempt {i+1})")
@@ -70,6 +75,7 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
                     continue
                 else:
                     logger.log(f"❌ ERROR: Global rate limit reached for {model_name}.")
+                    TRACKER.log_call(0, False, model_name, ticker=kwargs.get("tracker_ticker"), error="Global Rate Limit")
                     return None
             
             logger.log(f"🔑 Acquired '{key_name}' | Model: {model_name} (Attempt {i+1})")
@@ -106,6 +112,7 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
                     logger.log(f"   ...Usage Correction: Est {est_tok} -> Real {real_tokens}")
                     
                 KEY_MANAGER.report_usage(current_api_key, tokens=real_tokens, model_id=real_model_id)
+                TRACKER.log_call(real_tokens, True, model_name, ticker=kwargs.get("tracker_ticker"))
 
                 try:
                     return result["candidates"][0]["content"]["parts"][0]["text"].strip()
@@ -119,8 +126,6 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
                 if "limit: 0" in err_text or "Quota exceeded" in err_text:
                     logger.log(f"⛔ BILLING ISSUE on '{key_name}'. Google says Quota is 0.")
                     logger.log(f"   ACTION: Go to Google Cloud Console -> Billing -> Link a Card to project.")
-                    # Do NOT cooldown for billing issues, just fail hard or keep trying other keys?
-                    # valid keys might exist, so we report failure but maybe mark as 'dead' for this run?
                     KEY_MANAGER.report_failure(current_api_key, is_info_error=False) 
                 else:
                     logger.log(f"⛔ 429 Rate Limit on '{key_name}'. Triggering 60s Cooldown.")
@@ -143,6 +148,7 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
             time.sleep(2 ** i)
 
     logger.log("❌ FATAL: Max retries exhausted.")
+    TRACKER.log_call(0, False, model_name, ticker=kwargs.get("tracker_ticker"), error="Max Retries Exhausted")
     return None
     
 
@@ -517,7 +523,7 @@ def update_company_card(
         }
     }
     
-    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name, response_schema=company_card_schema)
+    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name, response_schema=company_card_schema, tracker_ticker=ticker)
     if not ai_response_text: 
         logger.log(f"Error: No AI response for {ticker}."); 
         return None
@@ -713,7 +719,7 @@ def update_economy_card(
         }
     }
     
-    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name, response_schema=economy_card_schema)
+    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name, response_schema=economy_card_schema, tracker_ticker="ECONOMY")
     if not ai_response_text:
         logger.log("Error: No response from AI for economy card update.")
         return None
