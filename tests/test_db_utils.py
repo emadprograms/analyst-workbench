@@ -35,11 +35,11 @@ def test_upsert_daily_inputs(mock_db_client):
     mock_db_client.execute.assert_called_once()
     sql = mock_db_client.execute.call_args[0][0]
     assert "INSERT INTO daily_inputs" in sql
-    assert "(date, market_news)" in sql
+    assert "(target_date, news_text)" in sql
 
 def test_get_daily_inputs(mock_db_client):
     # Mock result set
-    mock_row = {'market_news': 'Some news'}
+    mock_row = {'news_text': 'Some news'}
     mock_rs = MagicMock()
     mock_rs.rows = [mock_row]
     mock_db_client.execute.return_value = mock_rs
@@ -50,7 +50,7 @@ def test_get_daily_inputs(mock_db_client):
     assert summaries is None
 
 def test_get_latest_daily_input_date(mock_db_client):
-    mock_row = {'date': '2023-10-27'}
+    mock_row = {'target_date': '2023-10-27'}
     mock_rs = MagicMock()
     mock_rs.rows = [mock_row]
     mock_db_client.execute.return_value = mock_rs
