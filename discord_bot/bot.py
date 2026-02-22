@@ -145,7 +145,14 @@ class DateSelectionView(discord.ui.View):
         for i in range(14):
             target = today - timedelta(days=i)
             date_str = target.strftime("%Y-%m-%d")
-            label = "Today" if i == 0 else "Yesterday" if i == 1 else target.strftime("%A, %b %d")
+            # Added (0) to Today and (-1) to Yesterday to educate user on shortcuts
+            if i == 0:
+                label = "Today (0)"
+            elif i == 1:
+                label = "Yesterday (-1)"
+            else:
+                label = target.strftime("%A, %b %d")
+            
             options.append(discord.SelectOption(label=label, description=date_str, value=date_str))
         
         self.add_item(DateDropdown(options, action_callback))
@@ -192,11 +199,12 @@ def get_target_date(date_input: str = None) -> str:
     """
     Parses date input. Supports:
     - None -> Today (UTC)
+    - "0" -> Today (UTC)
     - "-1", "-2", etc. -> Days relative to today
     - "YYYY-MM-DD" -> Specific date
     """
     today = datetime.utcnow()
-    if not date_input:
+    if not date_input or date_input == "0":
         return today.strftime("%Y-%m-%d")
     
     # Handle relative dates (-1, -2, etc)
@@ -206,7 +214,7 @@ def get_target_date(date_input: str = None) -> str:
         return target.strftime("%Y-%m-%d")
     
     if date_input.isdigit() and not date_input.startswith("-"):
-        # Support positive integers too just in case (e.g. "1" for 1 day back)
+        # Support positive integers too (e.g. "1" for 1 day back)
         days_back = int(date_input)
         target = today - timedelta(days=days_back)
         return target.strftime("%Y-%m-%d")
