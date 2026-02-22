@@ -31,8 +31,12 @@ def send_webhook_report(webhook_url, target_date, action, model, logger=None):
     }
     desc_action = action_map.get(action, action).replace("-", "_")
     
+    # Only show model if it's an AI-heavy action
+    ai_actions = ["run", "update-economy"]
+    model_display = model if action in ai_actions else "No_AI_Used"
+    
     timestamp = time.strftime("%H%M%S")
-    log_filename = f"{desc_action}_{target_date.isoformat()}_{model}_{timestamp}.log"
+    log_filename = f"{desc_action}_{target_date.isoformat()}_{model_display}_{timestamp}.log"
     
     # 2. Attach the captured logs as a file
     if logger and hasattr(logger, 'get_full_log'):
