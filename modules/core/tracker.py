@@ -22,6 +22,7 @@ class ExecutionTracker:
     def __init__(self):
         self.metrics = ExecutionMetrics()
         self.action_type = "Unknown"
+        self.custom_results = {}
 
     def start(self, action_type: str = "Unknown"):
         self.action_type = action_type
@@ -33,6 +34,11 @@ class ExecutionTracker:
         self.metrics.details = []
         self.metrics.errors = []
         self.metrics.artifacts = {}
+        self.custom_results = {}
+
+    def set_result(self, key: str, value: str):
+        """Sets a custom result field to be displayed on the dashboard."""
+        self.custom_results[key] = value
 
     def log_call(self, tokens: int, success: bool, model: str, ticker: str = None, error: str = None):
         self.metrics.total_calls += 1
@@ -106,7 +112,15 @@ class ExecutionTracker:
                 embed["fields"].append({"name": "📁 Files", "value": f"`{summary['artifacts_count'] + 1}`", "inline": True})
         else:
             # Simplified Data Dashboard (Input News, Check News, Inspect, etc.)
-            embed["fields"].append({"name": "📈 Status", "value": f"`{summary['success_rate']}`", "inline": True})
+            if self.action_type == "News_Check":
+                news_status = self.custom_results.get("news_status", "Unknown")
+                embed["fields"].append({"name": "📰 News Status", "value": f"**{news_status}**", "inline": True})
+            
+            # Show any other custom results
+            for k, v in self.custom_results.items():
+                if k == "news_status": continue
+                embed["fields"].append({"name": k.replace("_", " ").title(), "value": f"`{v}`", "inline": True})
+
             embed["fields"].append({"name": "🕒 Duration", "value": f"`{summary['duration']}`", "inline": True})
             if summary['artifacts_count'] > 0:
                 embed["fields"].append({"name": "📁 Files", "value": f"`{summary['artifacts_count'] + 1}`", "inline": True})

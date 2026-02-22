@@ -258,8 +258,10 @@ def main():
             market_news, _ = get_daily_inputs(target_date)
             if market_news:
                 logger.log(f"\n✅ NEWS FOUND for {target_date}:\n{'-'*40}\n{market_news}\n{'-'*40}")
+                TRACKER.set_result("news_status", "✅ Found")
             else:
                 logger.error(f"❌ NO NEWS FOUND for {target_date}")
+                TRACKER.set_result("news_status", "❌ Not Found")
         elif args.action == "test-webhook":
             logger.log("🧪 Sending a test Discord notification...")
             TRACKER.log_call(100, True, "Test-Model", ticker="TEST-TICKER")
