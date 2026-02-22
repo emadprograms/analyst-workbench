@@ -24,3 +24,5 @@ lab/
 # Environment variables
 .env
 .gemini/
+.vscode/
+.DS_Store
