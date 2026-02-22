@@ -17,3 +17,6 @@ cache/
 # Local testing environment
 lab/
 
+
+# Pytest cache
+.pytest_cache/
