@@ -56,16 +56,17 @@ from modules.data.db_utils import (
 from modules.ai.ai_services import update_economy_card, update_company_card
 from modules.data.data_processing import generate_analysis_text
 
-def run_update_economy(selected_date: date, model_name: str, logger: AppLogger):
+def run_update_economy(selected_date: date, model_name: str, logger: AppLogger) -> bool:
     logger.log(f"🧠 Updating Economy Card for {selected_date}...")
     
     # 1. Get Market News
     market_news, _ = get_daily_inputs(selected_date)
     if not market_news:
-        logger.error(f"No market news found for {selected_date}. Economy update skipped.")
+        err_msg = f"No market news found for {selected_date} in 'aw_daily_news'. Pipeline Halted."
+        logger.error(err_msg)
         from modules.ai.ai_services import TRACKER
-        TRACKER.log_call(0, False, model_name, ticker="ECONOMY", error="No market news found")
-        return
+        TRACKER.log_call(0, False, model_name, ticker="ECONOMY", error=err_msg)
+        return False
 
     # 2. Get Current Card
     current_eco_json, _ = get_economy_card(before_date=selected_date.isoformat())
@@ -74,6 +75,13 @@ def run_update_economy(selected_date: date, model_name: str, logger: AppLogger):
     logger.log("   Fetching ETF intraday analysis...")
     etf_summaries = generate_analysis_text(list(ETF_TICKERS), selected_date)
     
+    if "[ERROR]" in etf_summaries:
+        err_msg = f"Market data missing for {selected_date} in Price DB. Pipeline Halted."
+        logger.error(err_msg)
+        from modules.ai.ai_services import TRACKER
+        TRACKER.log_call(0, False, model_name, ticker="ECONOMY", error=err_msg)
+        return False
+
     # 4. Update via AI
     new_eco_json = update_economy_card(
         current_economy_card=current_eco_json,
@@ -89,19 +97,23 @@ def run_update_economy(selected_date: date, model_name: str, logger: AppLogger):
         success = upsert_economy_card(selected_date, etf_summaries, new_eco_json)
         if success:
             logger.log(f"✅ Economy Card updated for {selected_date}")
+            return True
         else:
             logger.error("❌ Failed to save Economy Card to DB")
             from modules.ai.ai_services import TRACKER
             TRACKER.log_call(0, False, model_name, ticker="ECONOMY", error="DB Save Failed")
+            return False
     else:
         logger.error("❌ AI failed to generate new Economy Card")
-        # TRACKER.log_call handled inside update_economy_card failure paths
+        return False
 
 def run_pipeline(selected_date: date, model_name: str, logger: AppLogger):
     logger.log(f"🚀 Starting Full Pipeline for {selected_date} using {model_name}")
 
     # 1. Update Economy Card
-    run_update_economy(selected_date, model_name, logger)
+    if not run_update_economy(selected_date, model_name, logger):
+        logger.error("🛑 Pipeline Halted: Economy update failed (likely missing data).")
+        return
 
     # 2. Update Company Cards
     logger.log("--- Updating Company Cards ---")
