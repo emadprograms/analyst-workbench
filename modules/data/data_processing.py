@@ -3,7 +3,7 @@ import pandas as pd
 import datetime as dt
 import numpy as np
 import re
-from modules.data.db_utils import get_db_connection # <-- NEW IMPORT
+from modules.data.db_utils import get_db_connection, get_price_db_connection # <-- UPDATED
 
 # --- DATA FETCHING (FROM TURSO DB) ---
 
@@ -20,9 +20,9 @@ def fetch_intraday_data(tickers_list, day, interval="5m"):
     
     conn = None
     try:
-        conn = get_db_connection()
+        conn = get_price_db_connection() # <-- USE PRICE DB CONNECTION
         if not conn:
-            print("[ERROR] Database connection failed.")
+            print("[ERROR] Price Database connection failed.")
             return pd.DataFrame()
 
         # Build placeholders for IN clause

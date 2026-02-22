@@ -4,7 +4,9 @@ from modules.core.config import (
     DEFAULT_ECONOMY_CARD_JSON, 
     DEFAULT_COMPANY_OVERVIEW_JSON,
     TURSO_DB_URL,
-    TURSO_AUTH_TOKEN
+    TURSO_AUTH_TOKEN,
+    TURSO_PRICE_DB_URL,
+    TURSO_PRICE_AUTH_TOKEN
 )
 import json
 import pandas as pd
@@ -38,6 +40,28 @@ def get_db_connection():
         logging.error(f"Failed to create Turso client: {e}")
         return None
 
+def get_price_db_connection():
+    """
+    Helper function to create a database connection to the external Price Database (Turso).
+    """
+    try:
+        if not TURSO_PRICE_DB_URL:
+            logging.error("TURSO_PRICE_DB_URL is not set.")
+            return None
+
+        # --- FIX: Force HTTPS connection ---
+        http_url = TURSO_PRICE_DB_URL.replace("libsql://", "https://")
+        
+        config = {
+            "url": http_url,
+            "auth_token": TURSO_PRICE_AUTH_TOKEN
+        }
+        client = create_client_sync(**config)
+        return client
+    except Exception as e:
+        logging.error(f"Failed to create Turso Price client: {e}")
+        return None
+
 # --- Daily Inputs ---
 
 def upsert_daily_inputs(selected_date: date, market_news: str) -> bool:
@@ -52,7 +76,7 @@ def upsert_daily_inputs(selected_date: date, market_news: str) -> bool:
         # The Turso client auto-commits; no 'commit()' needed
         conn.execute(
             """
-            INSERT INTO daily_inputs (target_date, news_text)
+            INSERT INTO aw_daily_news (target_date, news_text)
             VALUES (?, ?)
             ON CONFLICT(target_date) DO UPDATE SET
                 news_text = excluded.news_text
@@ -77,7 +101,7 @@ def get_daily_inputs(selected_date: date) -> tuple[str | None, str | None]:
             return None, None
 
         rs = conn.execute(
-            "SELECT news_text FROM daily_inputs WHERE target_date = ?",
+            "SELECT news_text FROM aw_daily_news WHERE target_date = ?",
             [selected_date.isoformat()]
         )
         row = rs.rows[0] if rs.rows else None
@@ -91,7 +115,7 @@ def get_daily_inputs(selected_date: date) -> tuple[str | None, str | None]:
     return None, None
 
 def get_latest_daily_input_date() -> str:
-    """Gets the most recent date from the daily_inputs table."""
+    """Gets the most recent date from the aw_daily_news table."""
     conn = None
     try:
         conn = get_db_connection()
@@ -100,7 +124,7 @@ def get_latest_daily_input_date() -> str:
              return None
 
         rs = conn.execute(
-            "SELECT target_date FROM daily_inputs ORDER BY target_date DESC LIMIT 1"
+            "SELECT target_date FROM aw_daily_news ORDER BY target_date DESC LIMIT 1"
         )
         # --- FIX: Use rs.rows ---
         row = rs.rows[0] if rs.rows else None
@@ -128,10 +152,10 @@ def get_economy_card(before_date: str | None = None) -> tuple[str, str | None]:
             return DEFAULT_ECONOMY_CARD_JSON, None
 
         if before_date:
-            query = "SELECT economy_card_json, date FROM economy_cards WHERE date < ? ORDER BY date DESC LIMIT 1"
+            query = "SELECT economy_card_json, date FROM aw_economy_cards WHERE date < ? ORDER BY date DESC LIMIT 1"
             params = (before_date,)
         else:
-            query = "SELECT economy_card_json, date FROM economy_cards ORDER BY date DESC LIMIT 1"
+            query = "SELECT economy_card_json, date FROM aw_economy_cards ORDER BY date DESC LIMIT 1"
             params = ()
 
         rs = conn.execute(query, params)
@@ -160,7 +184,7 @@ def upsert_economy_card(selected_date: date, raw_text_summary: str, economy_card
 
         conn.execute(
             """
-            INSERT INTO economy_cards (date, raw_text_summary, economy_card_json)
+            INSERT INTO aw_economy_cards (date, raw_text_summary, economy_card_json)
             VALUES (?, ?, ?)
             ON CONFLICT(date) DO UPDATE SET
                 raw_text_summary = excluded.raw_text_summary,
@@ -188,7 +212,7 @@ def get_archived_economy_card(selected_date: date) -> tuple[str | None, str | No
             return None, None
 
         rs = conn.execute(
-            "SELECT economy_card_json, raw_text_summary FROM economy_cards WHERE date = ?",
+            "SELECT economy_card_json, raw_text_summary FROM aw_economy_cards WHERE date = ?",
             (selected_date.isoformat(),)
         )
         # --- FIX: Use rs.rows ---
@@ -213,7 +237,7 @@ def get_all_tickers_from_db() -> list[str]:
             logging.error("Database connection failed.")
             return []
 
-        rs = conn.execute("SELECT DISTINCT ticker FROM stocks ORDER BY ticker ASC")
+        rs = conn.execute("SELECT DISTINCT ticker FROM aw_ticker_notes ORDER BY ticker ASC")
         # --- FIX: Use rs.rows ---
         rows = rs.rows
         return [row['ticker'] for row in rows]
@@ -241,7 +265,7 @@ def get_company_card_and_notes(ticker: str, selected_date: date = None) -> tuple
 
         # 1. Get historical notes
         notes_rs = conn.execute(
-            "SELECT historical_level_notes FROM stocks WHERE ticker = ?",
+            "SELECT historical_level_notes FROM aw_ticker_notes WHERE ticker = ?",
             (ticker,)
         )
         # --- FIX: Use .rows ---
@@ -254,7 +278,7 @@ def get_company_card_and_notes(ticker: str, selected_date: date = None) -> tuple
         if selected_date:
             card_rs = conn.execute(
                 """
-                SELECT company_card_json, date FROM company_cards 
+                SELECT company_card_json, date FROM aw_company_cards 
                 WHERE ticker = ? AND date < ?
                 ORDER BY date DESC LIMIT 1
                 """,
@@ -263,7 +287,7 @@ def get_company_card_and_notes(ticker: str, selected_date: date = None) -> tuple
         else:
             card_rs = conn.execute(
                 """
-                SELECT company_card_json, date FROM company_cards 
+                SELECT company_card_json, date FROM aw_company_cards 
                 WHERE ticker = ?
                 ORDER BY date DESC LIMIT 1
                 """,
@@ -299,7 +323,7 @@ def get_all_archive_dates() -> list[str]:
             return []
 
         rs = conn.execute(
-            "SELECT DISTINCT date FROM economy_cards ORDER BY date DESC"
+            "SELECT DISTINCT date FROM aw_economy_cards ORDER BY date DESC"
         )
         # --- FIX: Use rs.rows ---
         rows = rs.rows
@@ -321,7 +345,7 @@ def get_all_tickers_for_archive_date(selected_date: date) -> list[str]:
             return []
 
         rs = conn.execute(
-            "SELECT DISTINCT ticker FROM company_cards WHERE date = ? ORDER BY ticker ASC",
+            "SELECT DISTINCT ticker FROM aw_company_cards WHERE date = ? ORDER BY ticker ASC",
             (selected_date.isoformat(),)
         )
         # --- FIX: Use rs.rows ---
@@ -344,7 +368,7 @@ def get_archived_company_card(selected_date: date, ticker: str) -> tuple[str | N
             return None, None
 
         rs = conn.execute(
-            "SELECT company_card_json, raw_text_summary FROM company_cards WHERE date = ? AND ticker = ?",
+            "SELECT company_card_json, raw_text_summary FROM aw_company_cards WHERE date = ? AND ticker = ?",
             (selected_date.isoformat(), ticker)
         )
         # --- FIX: Use rs.rows ---
@@ -369,7 +393,7 @@ def upsert_company_card(selected_date: date, ticker: str, raw_text_summary: str,
 
         conn.execute(
             """
-            INSERT INTO company_cards (date, ticker, raw_text_summary, company_card_json)
+            INSERT INTO aw_company_cards (date, ticker, raw_text_summary, company_card_json)
             VALUES (?, ?, ?, ?)
             ON CONFLICT(date, ticker) DO UPDATE SET
                 raw_text_summary = excluded.raw_text_summary,
@@ -449,7 +473,7 @@ def upsert_data_archive(selected_date: date, ticker: str, raw_text_summary: str)
 
         conn.execute(
             """
-            INSERT INTO data_archive (date, ticker, raw_text_summary)
+            INSERT INTO aw_data_archive (date, ticker, raw_text_summary)
             VALUES (?, ?, ?)
             ON CONFLICT(date, ticker) DO UPDATE SET
                 raw_text_summary = excluded.raw_text_summary
@@ -474,7 +498,7 @@ def get_data_archive(selected_date: date, ticker: str) -> str | None:
             return None
 
         rs = conn.execute(
-            "SELECT raw_text_summary FROM data_archive WHERE date = ? AND ticker = ?",
+            "SELECT raw_text_summary FROM aw_data_archive WHERE date = ? AND ticker = ?",
             (selected_date.isoformat(), ticker)
         )
         row = rs.rows[0] if rs.rows else None

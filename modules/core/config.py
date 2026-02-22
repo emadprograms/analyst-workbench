@@ -72,36 +72,29 @@ try:
     if not TURSO_AUTH_TOKEN:
         TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
 
+    if TURSO_DB_URL:
+        logging.info(f"✅ TURSO_DB_URL is set (len: {len(TURSO_DB_URL)})")
+    if TURSO_AUTH_TOKEN:
+        logging.info(f"✅ TURSO_AUTH_TOKEN is set (len: {len(TURSO_AUTH_TOKEN)})")
+
+    # --- External Price Database ---
+    TURSO_PRICE_DB_URL = infisical_mgr.get_secret("turso_arshademad_stockdataarchive_db_url")
+    TURSO_PRICE_AUTH_TOKEN = infisical_mgr.get_secret("turso_arshademad_stockdataarchive_auth_token")
+
+    if TURSO_PRICE_DB_URL:
+        logging.info(f"✅ TURSO_PRICE_DB_URL is set (len: {len(TURSO_PRICE_DB_URL)})")
+    if TURSO_PRICE_AUTH_TOKEN:
+        logging.info(f"✅ TURSO_PRICE_AUTH_TOKEN is set (len: {len(TURSO_PRICE_AUTH_TOKEN)})")
+
     if not TURSO_DB_URL or not TURSO_AUTH_TOKEN:
-        logging.critical("CRITICAL: Turso DB URL or Auth Token not found (Infisical or environment variables).")
+        logging.critical(f"CRITICAL: Turso DB URL ({'Found' if TURSO_DB_URL else 'Missing'}) or Auth Token ({'Found' if TURSO_AUTH_TOKEN else 'Missing'}) not found.")
 
 except Exception as e:
     logging.critical(f"Error loading secrets: {e}")
 
 
 # ==========================================
-# 3. API KEYS (Legacy/Fallback Support)
-# ==========================================
-try:
-    # Attempt to load Gemini keys via Infisical
-    # 1. Try standard name first
-    api_keys_str = infisical_mgr.get_secret("GEMINI_API_KEYS")
-    
-    # 2. Fallback to any other variants if needed (optional)
-    
-    if api_keys_str:
-        API_KEYS = [k.strip() for k in api_keys_str.split(",") if k.strip()]
-    else:
-        # Fallback to local environment variables
-        api_keys_env = os.environ.get("GEMINI_API_KEYS", "")
-        API_KEYS = [k.strip() for k in api_keys_env.split(",") if k.strip()] 
-        
-except Exception:
-    API_KEYS = []
-
-
-# ==========================================
-# 4. DISCORD WEBHOOK
+# 3. DISCORD WEBHOOK
 # ==========================================
 DISCORD_WEBHOOK_URL = infisical_mgr.get_secret("discord_capitain_analyst_webhook_url")
 if not DISCORD_WEBHOOK_URL:

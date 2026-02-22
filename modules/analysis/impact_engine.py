@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta, time as dt_time
 from pytz import timezone as pytz_timezone
 from modules.core.logger import AppLogger
+from modules.data.db_utils import get_price_db_connection # <-- NEW
 
 US_EASTERN = pytz_timezone('US/Eastern')
 MARKET_OPEN_TIME = dt_time(9, 30)
@@ -12,18 +13,23 @@ MARKET_CLOSE_TIME = dt_time(16, 0)
 
 # --- DB FETCHING UTILITIES ---
 
-def get_latest_price_details(client, ticker: str, cutoff_str: str, logger: AppLogger) -> tuple[float | None, str | None]:
+def get_latest_price_details(client_unused, ticker: str, cutoff_str: str, logger: AppLogger) -> tuple[float | None, str | None]:
     query = "SELECT close, timestamp FROM market_data WHERE symbol = ? AND timestamp <= ? ORDER BY timestamp DESC LIMIT 1"
+    conn = None
     try:
-        rs = client.execute(query, [ticker, cutoff_str])
+        conn = get_price_db_connection()
+        if not conn: return None, None
+        rs = conn.execute(query, [ticker, cutoff_str])
         if rs.rows:
             return rs.rows[0][0], rs.rows[0][1]
         return None, None
     except Exception as e:
         logger.log(f"DB Read Error {ticker}: {e}")
         return None, None
+    finally:
+        if conn: conn.close()
 
-def get_session_bars_from_db(client, epic: str, benchmark_date: str, cutoff_str: str, logger: AppLogger) -> pd.DataFrame | None:
+def get_session_bars_from_db(client_unused, epic: str, benchmark_date: str, cutoff_str: str, logger: AppLogger) -> pd.DataFrame | None:
     try:
         # We fetch the FULL day (00:00 to 23:59)
         query = """
@@ -32,13 +38,17 @@ def get_session_bars_from_db(client, epic: str, benchmark_date: str, cutoff_str:
             WHERE symbol = ? AND date(timestamp) = ? AND timestamp <= ?
             ORDER BY timestamp ASC
         """
-        rs = client.execute(query, [epic, benchmark_date, cutoff_str])
+        conn = get_price_db_connection()
+        if not conn: return None
+        rs = conn.execute(query, [epic, benchmark_date, cutoff_str])
         if not rs.rows:
+            conn.close()
             return None
         df = pd.DataFrame(
             rs.rows,
             columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'session_db'],
         )
+        conn.close()
 
         df['timestamp'] = pd.to_datetime(df['timestamp'].astype(str).str.replace('Z', '').str.replace(' ', 'T'))
         
@@ -48,9 +58,6 @@ def get_session_bars_from_db(client, epic: str, benchmark_date: str, cutoff_str:
         # dt_eastern is the display time (New York)
         df['dt_eastern'] = df['timestamp'].dt.tz_convert(US_EASTERN)
         
-        # --- REMOVED: HARD FILTER FOR PRE-MARKET ---
-        # We now return the full dataset for slicing in the main function
-
         for col in ['open', 'high', 'low', 'close']:
             df[col] = pd.to_numeric(df[col], errors='coerce')
         
@@ -63,13 +70,17 @@ def get_session_bars_from_db(client, epic: str, benchmark_date: str, cutoff_str:
         logger.log(f"Data Error ({epic}): {e}")
         return None
 
-def get_previous_session_stats(client, ticker: str, current_date_str: str, logger: AppLogger) -> dict:
+def get_previous_session_stats(client_unused, ticker: str, current_date_str: str, logger: AppLogger) -> dict:
     """
     Fetches Yesterday's High, Low, and Close for context.
     """
+    conn = None
     try:
         date_query = "SELECT DISTINCT date(timestamp) as d FROM market_data WHERE symbol = ? AND date(timestamp) < ? ORDER BY d DESC LIMIT 1"
-        rs_date = client.execute(date_query, [ticker, current_date_str])
+        conn = get_price_db_connection()
+        if not conn: return {"yesterday_close": 0, "yesterday_high": 0, "yesterday_low": 0}
+        
+        rs_date = conn.execute(date_query, [ticker, current_date_str])
         
         if not rs_date.rows:
             return {"yesterday_close": 0, "yesterday_high": 0, "yesterday_low": 0}
@@ -82,7 +93,7 @@ def get_previous_session_stats(client, ticker: str, current_date_str: str, logge
             FROM market_data 
             WHERE symbol = ? AND date(timestamp) = ?
         """
-        rs = client.execute(stats_query, [ticker, prev_date, ticker, prev_date])
+        rs = conn.execute(stats_query, [ticker, prev_date, ticker, prev_date])
         
         if rs.rows:
             r = rs.rows[0]
@@ -95,6 +106,8 @@ def get_previous_session_stats(client, ticker: str, current_date_str: str, logge
         return {"yesterday_close": 0, "yesterday_high": 0, "yesterday_low": 0}
     except Exception:
         return {"yesterday_close": 0, "yesterday_high": 0, "yesterday_low": 0}
+    finally:
+        if conn: conn.close()
 
 
 # ==========================================

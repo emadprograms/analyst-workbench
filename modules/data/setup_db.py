@@ -1,15 +1,6 @@
-import os
 import libsql_client
 from libsql_client import LibsqlError
-
-# --- NEW: Load config from Environment Variables ---
-# This script is run from the command line, not Streamlit
-# You MUST set these in your terminal before running
-# export TURSO_DB_URL="libsql://..."
-# export TURSO_AUTH_TOKEN="..."
-
-TURSO_DB_URL = os.environ.get("TURSO_DB_URL")
-TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
+from modules.core.config import TURSO_DB_URL, TURSO_AUTH_TOKEN
 
 def create_tables():
     """
@@ -45,7 +36,7 @@ def create_tables():
         # Use a 'batch' operation to send all commands at once
         statements = [
             # Drop old tables first to ensure schema is clean
-            # We preserve 'stocks'
+            # We preserve 'stocks' (now 'aw_ticker_notes')
             "DROP TABLE IF EXISTS daily_inputs;",
             "DROP TABLE IF EXISTS economy_cards;",
             "DROP TABLE IF EXISTS company_cards;",
@@ -56,17 +47,16 @@ def create_tables():
             
             # --- 1. Daily Inputs Table ---
             """
-            CREATE TABLE IF NOT EXISTS daily_inputs (
-                date TEXT PRIMARY KEY,
-                market_news TEXT,
-                stock_raw_summaries TEXT
+            CREATE TABLE IF NOT EXISTS aw_daily_news (
+                target_date TEXT PRIMARY KEY,
+                news_text TEXT
             );
             """,
             
             # --- 2. Stocks Table (for Historical Notes ONLY) ---
             # We DON'T drop this one to preserve notes
             """
-            CREATE TABLE IF NOT EXISTS stocks (
+            CREATE TABLE IF NOT EXISTS aw_ticker_notes (
                 ticker TEXT PRIMARY KEY,
                 historical_level_notes TEXT
             );
@@ -74,7 +64,7 @@ def create_tables():
 
             # --- 3. Economy Cards Table ---
             """
-            CREATE TABLE IF NOT EXISTS economy_cards (
+            CREATE TABLE IF NOT EXISTS aw_economy_cards (
                 date TEXT PRIMARY KEY,
                 raw_text_summary TEXT,
                 economy_card_json TEXT
@@ -83,7 +73,7 @@ def create_tables():
 
             # --- 4. Company Cards Table ---
             """
-            CREATE TABLE IF NOT EXISTS company_cards (
+            CREATE TABLE IF NOT EXISTS aw_company_cards (
                 date TEXT NOT NULL,
                 ticker TEXT NOT NULL,
                 raw_text_summary TEXT,
@@ -94,7 +84,7 @@ def create_tables():
 
             # --- 5. Data Archive Table (Image Parser / Misc) ---
             """
-            CREATE TABLE IF NOT EXISTS data_archive (
+            CREATE TABLE IF NOT EXISTS aw_data_archive (
                 date TEXT NOT NULL,
                 ticker TEXT NOT NULL,
                 raw_text_summary TEXT,
@@ -106,11 +96,11 @@ def create_tables():
         # Execute the batch
         client.batch(statements)
 
-        print("  Created/Verified 'stocks' table.")
-        print("  Recreated 'daily_inputs' table.")
-        print("  Recreated 'economy_cards' table.")
-        print("  Recreated 'company_cards' table.")
-        print("  Recreated 'data_archive' table.")
+        print("  Created/Verified 'aw_ticker_notes' table.")
+        print("  Created/Verified 'aw_daily_news' table.")
+        print("  Created/Verified 'aw_economy_cards' table.")
+        print("  Created/Verified 'aw_company_cards' table.")
+        print("  Created/Verified 'aw_data_archive' table.")
         print("  Dropped all obsolete tables.")
         print("\n--- Turso Database setup complete! ---")
 

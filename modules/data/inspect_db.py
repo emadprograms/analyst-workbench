@@ -1,20 +1,15 @@
-import os
-import logging
 import libsql_client
-
-# Setup basic logging
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger(__name__)
+from modules.core.config import TURSO_DB_URL, TURSO_AUTH_TOKEN
 
 def inspect():
     # Load secrets
     try:
-        db_url = os.environ.get("TURSO_DB_URL")
-        auth_token = os.environ.get("TURSO_AUTH_TOKEN")
-
-        if not db_url or not auth_token:
-            print("❌ CRITICAL: Turso DB URL or Auth Token not found in environment variables.")
+        if not TURSO_DB_URL or not TURSO_AUTH_TOKEN:
+            print("❌ CRITICAL: Turso DB URL or Auth Token not found in config/Infisical.")
             return
+
+        db_url = TURSO_DB_URL
+        auth_token = TURSO_AUTH_TOKEN
 
         # Force HTTPS
         https_url = db_url.replace("libsql://", "https://")
@@ -61,76 +56,32 @@ def inspect():
             try:
                 rs = client.execute(f"SELECT * FROM {table} LIMIT 1")
                 print(f"Columns: {list(rs.columns)}")
+                rs_count = client.execute(f"SELECT COUNT(*) FROM {table}")
+                print(f"Row Count: {rs_count.rows[0][0]}")
             except Exception as e:
                 print(f"Error inspecting {table}: {e}")
 
-        # --- INSPECT MARKET_DATA SAMPLES ---
-        print("\n--- Inspecting Sample Data from market_data ---")
-        try:
-            rs = client.execute("SELECT * FROM market_data LIMIT 5")
-            for row in rs.rows:
-                print(list(row))
-        except Exception as e:
-            print(f"Error inspecting market_data samples: {e}")
-
-        # --- INSPECT KEYS & STATUS ---
-        print("\n--- Inspecting API Keys (Tiers) ---")
-        rs = client.execute("SELECT key_name, priority, tier FROM gemini_api_keys")
-        for row in rs.rows:
-            print(list(row))
-
-        print("\n--- Inspecting EURUSDT Data for Nov 24, 2025 ---")
-        rs = client.execute("SELECT * FROM market_data WHERE symbol = 'EURUSDT' AND timestamp >= '2025-11-24 00:00:00' AND timestamp < '2025-11-25 00:00:00' LIMIT 5")
-        if not rs.rows:
-            print("❌ No data found for EURUSDT on 2025-11-24.")
-            # Debug: Check surrounding dates
-            rs_check = client.execute("SELECT min(timestamp), max(timestamp), count(*) FROM market_data WHERE symbol = 'EURUSDT'")
-            print(f"DEBUG: EURUSDT Range: {list(rs_check.rows[0])}")
-        else:
-            print(f"✅ Found {len(rs.rows)} rows (Sample):")
-            for row in rs.rows:
-                print(list(row))
-        
-        print("\n--- Inspecting ^VIX Data ---")
-        rs = client.execute("SELECT * FROM market_data WHERE symbol = '^VIX' ORDER BY timestamp DESC LIMIT 5")
-        if not rs.rows:
-            print("❌ No data found for ^VIX.")
-        else:
-            print(f"✅ Found {len(rs.rows)} rows (Sample):")
-            for row in rs.rows:
-                # row[6] is volume
-                print(f"Timestamp: {row[0]}, Vol: {row[6]}")
-        
-        # Check specific date 2025-11-24
-        print("\n--- Inspecting ^VIX Data for Nov 24, 2025 ---")
-        rs = client.execute("SELECT * FROM market_data WHERE symbol = '^VIX' AND timestamp >= '2025-11-24 00:00:00' AND timestamp < '2025-11-25 00:00:00' LIMIT 5")
-        if not rs.rows:
-             print("❌ No data found for ^VIX on 2025-11-24.")
-        else:
-             print(f"✅ Found rows on Nov 24. First Volume: {rs.rows[0][6]}")
-        
-        print("\n--- DETAILED STATUS for arshad.emad@01 ---")
-        # Join to get the hash
-        sql = """
-            SELECT k.key_name, s.* 
-            FROM gemini_api_keys k 
-            JOIN gemini_key_status s ON s.key_hash = k.key_value OR s.key_hash = lower(hex(sha256(k.key_value))) 
-            WHERE k.key_name LIKE 'arshad.emad@01%'
-        """
-        # Note: the join ON clause is tricky with hashes in SQL vs Python. 
-        # Easier to just list all status rows and map them manually if needed, 
-        # OR just print the status row matching the hash we saw in debug_keys.py.
-        # Let's rely on the debug_keys output, wait.
-        # Actually, let's just dump the whole table with headers.
-        
-        print("\n--- ALL STATUS ROWS (With Headers) ---")
-        rs = client.execute("SELECT * FROM gemini_key_status")
-        cols = list(rs.columns)
-        print(f"Columns: {cols}")
-        for row in rs.rows:
-            print(dict(zip(cols, row)))
-
         client.close()
+        
+        # --- 3. Inspect PRICE Database ---
+        print("\n--- Inspecting External Price Database ---")
+        from modules.core.config import TURSO_PRICE_DB_URL, TURSO_PRICE_AUTH_TOKEN
+        if not TURSO_PRICE_DB_URL:
+            print("⚠️ TURSO_PRICE_DB_URL not found. Skipping price DB check.")
+        else:
+            try:
+                price_url = TURSO_PRICE_DB_URL.replace("libsql://", "https://")
+                price_client = libsql_client.create_client_sync(url=price_url, auth_token=TURSO_PRICE_AUTH_TOKEN)
+                print(f"✅ Connected to Price Database: {price_url}")
+                rs = price_client.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='market_data'")
+                if rs.rows:
+                    print("✅ Table 'market_data' FOUND in external database.")
+                else:
+                    print("❌ Table 'market_data' NOT FOUND in external database.")
+                price_client.close()
+            except Exception as e:
+                print(f"❌ Price DB Check Failed: {e}")
+
         print("Inspection Complete.")
 
     except Exception as e:
