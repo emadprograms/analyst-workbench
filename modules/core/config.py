@@ -55,6 +55,11 @@ try:
     TURSO_DB_URL = infisical_mgr.get_secret("turso_emadprograms_analystworkbench_db_url")
     TURSO_AUTH_TOKEN = infisical_mgr.get_secret("turso_emadprograms_analystworkbench_auth_token")
     
+    if TURSO_DB_URL:
+        logging.info("✅ Found turso_emadprograms_analystworkbench_db_url in Infisical")
+    if TURSO_AUTH_TOKEN:
+        logging.info("✅ Found turso_emadprograms_analystworkbench_auth_token in Infisical")
+
     # 2. Fallback to simplified names (if user adds them later)
     if not TURSO_DB_URL:
         TURSO_DB_URL = infisical_mgr.get_secret("TURSO_DB_URL")
