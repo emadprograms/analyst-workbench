@@ -151,7 +151,7 @@ def main():
         default="gemini-2.0-flash-paid",
         choices=list(AVAILABLE_MODELS.keys())
     )
-    parser.add_argument("--action", choices=["run", "update-economy", "input-news", "inspect", "setup", "test-webhook"], default="run", help="Action to perform")
+    parser.add_argument("--action", choices=["run", "update-economy", "input-news", "inspect", "setup", "test-webhook", "check-news"], default="run", help="Action to perform")
     parser.add_argument("--text", type=str, help="Market news text (used with --action input-news)")
     parser.add_argument("--file", type=str, help="Path to a text file containing market news (used with --action input-news)")
     parser.add_argument("--webhook", type=str, help="Optional Discord Webhook URL for reporting")
@@ -200,6 +200,12 @@ def main():
         elif args.action == "setup":
             from modules.data.setup_db import create_tables
             create_tables()
+        elif args.action == "check-news":
+            market_news, _ = get_daily_inputs(target_date)
+            if market_news:
+                logger.log(f"\n✅ NEWS FOUND for {target_date}:\n{'-'*40}\n{market_news}\n{'-'*40}")
+            else:
+                logger.error(f"❌ NO NEWS FOUND for {target_date}")
         elif args.action == "test-webhook":
             logger.log("🧪 Sending a test Discord notification...")
             TRACKER.log_call(100, True, "Test-Model", ticker="TEST-TICKER")
