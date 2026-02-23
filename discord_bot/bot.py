@@ -105,16 +105,19 @@ class NewsModal(discord.ui.Modal, title='Market News Entry'):
 
 # --- 3. Internal Logic Helpers ---
 
-def get_target_date(date_input: str = None) -> str:
+def get_target_date(date_input: str = None) -> str | None:
     """
     Parses date input. Supports:
-    - None -> Today (UTC)
+    - None -> Returns None (Forces picker in commands)
     - "0" -> Today (UTC)
     - "-1", "-2", etc. -> Days relative to today
     - "YYYY-MM-DD" -> Specific date
     """
     today = datetime.utcnow()
-    if not date_input or date_input == "0":
+    if not date_input:
+        return None
+    
+    if date_input == "0":
         return today.strftime("%Y-%m-%d")
     
     # Handle relative dates (MUST start with - and be followed by digits)
@@ -149,11 +152,16 @@ async def inputnews(ctx, date_indicator: str = None):
     """Opens a date picker, then a text box OR handles an attached .txt file."""
     print(f"[DEBUG] Command !inputnews called by {ctx.author}")
     
+    target_date = get_target_date(date_indicator)
+
     # Check for attachments first
     if ctx.message.attachments:
         attachment = ctx.message.attachments[0]
         if attachment.filename.endswith(('.txt', '.log')):
-            target_date = get_target_date(date_indicator)
+            # If no date was provided for the attachment, default to TODAY
+            if not target_date:
+                target_date = datetime.utcnow().strftime("%Y-%m-%d")
+
             await ctx.send(f"🛰️ **File Detected:** `{attachment.filename}`\nDispatching content for **{target_date}** to GitHub... 🚀")
             
             inputs = {
@@ -179,11 +187,10 @@ async def inputnews(ctx, date_indicator: str = None):
             await interaction.message.edit(content=f"🗓️ **News Entry Selected:** {selected_date}\n(Modal opened - check your pop-up box)", view=None)
         except: pass
 
-    if not date_indicator:
+    if not target_date:
         view = DateSelectionView(action_callback=news_callback)
         await ctx.send("🗓️ **Select Date for News Entry:**", view=view)
     else:
-        target_date = get_target_date(date_indicator)
         try:
             datetime.strptime(target_date, "%Y-%m-%d")
             class TriggerView(discord.ui.View):
@@ -204,6 +211,12 @@ async def inputnews(ctx, date_indicator: str = None):
 async def updateeconomy(ctx, date_str: str = None, model_name: str = "gemini-3-flash-free"):
     """Dispatch Economy Update to GitHub Actions."""
     print(f"[DEBUG] Command !updateeconomy called by {ctx.author}")
+    
+    # Handle the case where the first argument is actually the model name
+    if date_str and "-" in date_str and len(date_str) > 10 and not date_str.startswith("-"):
+        model_name = date_str
+        date_str = None
+
     target_date = get_target_date(date_str)
     
     async def economy_callback(interaction, selected_date):
@@ -216,14 +229,10 @@ async def updateeconomy(ctx, date_str: str = None, model_name: str = "gemini-3-f
         else:
             await msg.edit(content=f"🧠 **Updating Economy** ({selected_date})... ❌ **Failed:** {error}")
 
-    if not date_str:
+    if not target_date:
         view = DateSelectionView(action_callback=economy_callback)
         await ctx.send(f"🌎 **Select Date for Economy Update** (using `{model_name}`):", view=view)
     else:
-        if date_str and "-" in date_str and len(date_str) > 10 and not date_str.startswith("-"):
-            model_name = date_str
-            target_date = get_target_date(None)
-
         try:
             datetime.strptime(target_date, "%Y-%m-%d")
             msg = await ctx.send(f"🧠 **Updating Economy** ({target_date})... 🛰️")
@@ -252,6 +261,9 @@ async def inspect(ctx):
 async def checknews(ctx, date_str: str = None):
     """Dispatch market news check to GitHub Actions."""
     print(f"[DEBUG] Command !checknews called by {ctx.author}")
+    
+    target_date = get_target_date(date_str)
+
     async def check_callback(interaction, selected_date):
         await interaction.response.edit_message(content=f"🔍 **Checking news** for **{selected_date}**... 🛰️", view=None)
         msg = await interaction.original_response()
@@ -262,11 +274,10 @@ async def checknews(ctx, date_str: str = None):
         else:
             await msg.edit(content=f"🔍 **Checking news** for **{selected_date}**... ❌ **Failed:** {error}")
 
-    if not date_str:
+    if not target_date:
         view = DateSelectionView(action_callback=check_callback)
         await ctx.send("🔍 **Select Date to Check News:**", view=view)
     else:
-        target_date = get_target_date(date_str)
         try:
             datetime.strptime(target_date, "%Y-%m-%d")
             msg = await ctx.send(f"🔍 **Checking news** for **{target_date}**... 🛰️")
