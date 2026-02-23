@@ -122,8 +122,9 @@ class ExecutionTracker:
                 embed["fields"].append({"name": "📊 Price Data", "value": f"`{self.custom_results.get('market_data_rows', '0')} rows`", "inline": True})
             
             # Show any other custom results
+            excluded_keys = ["news_status", "market_news", "economy_card", "updated_tickers", "market_data_rows"]
             for k, v in self.custom_results.items():
-                if k == "news_status": continue
+                if k in excluded_keys: continue
                 embed["fields"].append({"name": k.replace("_", " ").title(), "value": f"`{v}`", "inline": True})
 
             embed["fields"].append({"name": "🕒 Duration", "value": f"`{summary['duration']}`", "inline": True})
