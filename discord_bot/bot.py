@@ -272,7 +272,7 @@ async def inspect(ctx):
     inputs = {"action": "inspect"}
     success, error = await dispatch_github_action(inputs)
     if success:
-        await msg.edit(content="🔍 **Inspecting Database**...\n✅ **Dispatched!** (ETA: ~2-3 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) ⏱️")
+        await msg.edit(content=f"🔍 **Inspecting Database**...\n✅ **Dispatched!** (ETA: ~2-3 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) ⏱️")
     else:
         await msg.edit(content=f"🔍 **Inspecting Database**... ❌ **Failed:** {error}")
 
