@@ -21,3 +21,5 @@ def pytest_configure(config):
     for key in keys:
         if key in os.environ:
             del os.environ[key]
+
+    os.environ["DISABLE_INFISICAL"] = "1"

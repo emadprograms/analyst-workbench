@@ -238,6 +238,7 @@ def main():
              exit_code = 1
              return
 
+        if args.action == "run":
             # Note: run_pipeline doesn't currently return status, but it logs errors.
             # We assume if it finishes without exception it's 'success' or handled internally.
             run_pipeline(target_date, args.model, logger)
