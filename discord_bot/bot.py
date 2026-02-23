@@ -137,19 +137,22 @@ class BuildTypeSelectionView(discord.ui.View):
 
     @discord.ui.button(label="🏢 Company Cards", style=discord.ButtonStyle.success, emoji="📊")
     async def company_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        view = TickerSelectionView(target_date=self.target_date)
+        # We only want to select STOCKS. ETFs are for economy cards only.
+        view = TickerSelectionView(target_date=self.target_date, stock_tickers=STOCK_TICKERS)
         await interaction.response.edit_message(content=f"🏢 **Select Companies** for **{self.target_date}**:\n(Select multiple from the menus below)", view=view)
 
 class TickerSelectionView(discord.ui.View):
-    def __init__(self, target_date):
+    def __init__(self, target_date, stock_tickers):
         super().__init__(timeout=300)
         self.target_date = target_date
+        self.stock_tickers = stock_tickers
         self.selected_tickers = set()
         self.dropdown_states = {} # Track state of each dropdown
 
         # Split tickers for Discord's 25-item limit
-        self.add_item(TickerDropdown(STOCK_TICKERS, "🏢 Select Stocks...", self))
-        self.add_item(TickerDropdown(ETF_TICKERS, "📈 Select ETFs...", self))
+        display_stocks = sorted(stock_tickers)[:25]
+        self.add_item(TickerDropdown(display_stocks, "🏢 Select Stocks...", self))
+        # REMOVED: ETF Dropdown (ETFs are for economy cards only)
 
     @discord.ui.button(label="✅ Build Cards", style=discord.ButtonStyle.success, row=2)
     async def dispatch_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -174,9 +177,9 @@ class TickerSelectionView(discord.ui.View):
 
     @discord.ui.button(label="🌟 Select All", style=discord.ButtonStyle.secondary, row=2)
     async def select_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.selected_tickers = set(ALL_TICKERS)
+        self.selected_tickers = set(self.stock_tickers)
         tickers_str = ",".join(sorted(list(self.selected_tickers)))
-        await interaction.response.edit_message(content=f"🌟 **All {len(ALL_TICKERS)} Tickers Selected!**\nReady to dispatch for **{self.target_date}**.", view=self)
+        await interaction.response.edit_message(content=f"🌟 **All {len(self.stock_tickers)} Stocks Selected!**\nReady to dispatch for **{self.target_date}**.", view=self)
 
     @discord.ui.button(label="🔄 Reset", style=discord.ButtonStyle.danger, row=2)
     async def reset_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -355,9 +358,9 @@ async def inputnews(ctx, date_indicator: str = None):
             await ctx.send(f"❌ Error: `{target_date}` is invalid.")
 
 @bot.command()
-async def inspectdb(ctx, date_str: str = None):
+async def inspect(ctx, date_str: str = None):
     """Dispatch database inspection to GitHub Actions."""
-    print(f"[DEBUG] Command !inspectdb called by {ctx.author}")
+    print(f"[DEBUG] Command !inspect called by {ctx.author}")
     
     target_date = get_target_date(date_str)
 
