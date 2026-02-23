@@ -57,8 +57,8 @@ def send_webhook_report(webhook_url, target_date, action, model, logger=None):
         requests.post(webhook_url, json=payload, timeout=15)
 
         # --- MESSAGE 2: The Files (Logs & Cards) ---
-        # Skip sending logs for input-news to keep feed clean, but KEEP for check-news
-        skip_files_actions = ["input-news"]
+        # Skip sending logs for input-news and inspect to keep feed clean, but KEEP for check-news
+        skip_files_actions = ["input-news", "inspect"]
         if files and action not in skip_files_actions:
             # We send a small follow-up message with the files
             requests.post(

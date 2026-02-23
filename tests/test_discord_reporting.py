@@ -83,5 +83,34 @@ class TestDiscordReporting(unittest.TestCase):
         self.assertEqual(kwargs['json']['embeds'][0]['title'], "Test Embed")
         self.assertNotIn('files', kwargs)
 
+    @patch('requests.post')
+    @patch('modules.ai.ai_services.TRACKER')
+    def test_send_webhook_report_inspect_skips_files(self, mock_tracker, mock_post):
+        send_webhook_report = get_send_webhook_report()
+        
+        target_date = date(2026, 2, 22)
+        webhook_url = "http://test-webhook.com"
+        
+        mock_tracker.get_discord_embeds.return_value = [{"title": "Test Embed"}]
+        mock_tracker.metrics.artifacts = {}
+        
+        # Logger WITH logs
+        logger = AppLogger("test_logger")
+        logger.log("This is a log that should NOT be sent for inspect")
+        
+        send_webhook_report(webhook_url, target_date, "inspect", "none", logger=logger)
+        
+        # Verify only the first post (dashboard) was made, and second one (files) skipped
+        # In main.py: 
+        # requests.post(webhook_url, json=payload, timeout=15) <- Always sent
+        # if files and action not in skip_files_actions: ... requests.post(...) <- Should be skipped
+        
+        # If we check mock_post.call_count, it should be 1
+        self.assertEqual(mock_post.call_count, 1)
+        
+        args, kwargs = mock_post.call_args
+        self.assertIn('json', kwargs)
+        self.assertNotIn('files', kwargs)
+
 if __name__ == '__main__':
     unittest.main()
