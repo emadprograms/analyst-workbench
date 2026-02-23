@@ -12,9 +12,13 @@ on:
         required: true
         default: 'gemini-3-flash-free'
       action:
-        description: 'Action to perform (run, update-economy, input-news, inspect)'
+        description: 'Action to perform (run, update-economy, update-company, input-news, inspect)'
         required: true
         default: 'update-economy'
+      tickers:
+        description: 'Comma-separated list of tickers (for update-company)'
+        required: false
+        default: ''
       text:
         description: 'News text (for input-news)'
         required: false
@@ -59,6 +63,7 @@ jobs:
           INPUT_DATE: ${{ github.event.inputs.target_date }}
           INPUT_MODEL: ${{ github.event.inputs.model }}
           INPUT_ACTION: ${{ github.event.inputs.action }}
+          INPUT_TICKERS: ${{ github.event.inputs.tickers }}
           INPUT_TEXT: ${{ github.event.inputs.text }}
           INPUT_URL: ${{ github.event.inputs.news_url }}
         run: |
@@ -66,12 +71,17 @@ jobs:
           if [ "$INPUT_DATE" != "today" ] && [ "$INPUT_DATE" != "" ]; then
             DATE_ARG="--date $INPUT_DATE"
           fi
+
+          TICKER_ARG=""
+          if [ "$INPUT_TICKERS" != "" ]; then
+            TICKER_ARG="--tickers $INPUT_TICKERS"
+          fi
           
           # Prioritize URL over text if both are present
           if [ "$INPUT_URL" != "" ]; then
-            python main.py --action "$INPUT_ACTION" $DATE_ARG --model "$INPUT_MODEL" --url "$INPUT_URL"
+            python main.py --action "$INPUT_ACTION" $DATE_ARG --model "$INPUT_MODEL" --url "$INPUT_URL" $TICKER_ARG
           elif [ "$INPUT_TEXT" != "" ]; then
-            python main.py --action "$INPUT_ACTION" $DATE_ARG --model "$INPUT_MODEL" --text "$INPUT_TEXT"
+            python main.py --action "$INPUT_ACTION" $DATE_ARG --model "$INPUT_MODEL" --text "$INPUT_TEXT" $TICKER_ARG
           else
-            python main.py --action "$INPUT_ACTION" $DATE_ARG --model "$INPUT_MODEL"
+            python main.py --action "$INPUT_ACTION" $DATE_ARG --model "$INPUT_MODEL" $TICKER_ARG
           fi

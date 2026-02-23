@@ -23,6 +23,7 @@ def send_webhook_report(webhook_url, target_date, action, model, logger=None):
     action_map = {
         "run": "Full_Pipeline_Run",
         "update-economy": "Economy_Card_Update",
+        "update-company": "Company_Card_Update",
         "input-news": "Market_News_Input",
         "inspect": "DB_Inspection",
         "setup": "DB_Setup",
@@ -138,6 +139,47 @@ def run_update_economy(selected_date: date, model_name: str, logger: AppLogger) 
         logger.error("❌ AI failed to generate new Economy Card")
         return False
 
+def run_update_company(selected_date: date, model_name: str, tickers: list[str], logger: AppLogger) -> bool:
+    logger.log(f"🧠 Updating Company Cards for {len(tickers)} tickers on {selected_date}...")
+    
+    # 1. Get Market News for context
+    market_news, _ = get_daily_inputs(selected_date)
+    if not market_news:
+        logger.warn(f"⚠️ No market news found for {selected_date}. Continuing without macro context.")
+
+    success_count = 0
+    for ticker in tickers:
+        logger.log(f"Processing {ticker}...")
+        prev_card, hist_notes, prev_date = get_company_card_and_notes(ticker, selected_date)
+        
+        # Generate ticker summary (Evidence)
+        # Note: In the future, this might be more sophisticated
+        ticker_summary = f"CLI Update for {ticker} on {selected_date}" 
+        
+        new_card = update_company_card(
+            ticker=ticker,
+            previous_card_json=prev_card,
+            previous_card_date=prev_date,
+            historical_notes=hist_notes,
+            new_eod_summary=ticker_summary,
+            new_eod_date=selected_date,
+            model_name=model_name,
+            market_context_summary=market_news,
+            logger=logger
+        )
+        
+        if new_card:
+            if upsert_company_card(selected_date, ticker, ticker_summary, new_card):
+                success_count += 1
+            else:
+                logger.error(f"❌ Failed to save {ticker} card to DB")
+        else:
+            from modules.ai.ai_services import TRACKER
+            TRACKER.log_call(0, False, model_name, ticker=ticker, error="Update Failed")
+    
+    logger.log(f"✅ Company Card updates complete. Success: {success_count}/{len(tickers)}")
+    return success_count > 0
+
 def run_pipeline(selected_date: date, model_name: str, logger: AppLogger):
     logger.log(f"🚀 Starting Full Pipeline for {selected_date} using {model_name}")
 
@@ -187,15 +229,16 @@ def run_pipeline(selected_date: date, model_name: str, logger: AppLogger):
 def main():
     parser = argparse.ArgumentParser(description="Analyst Workbench CLI")
     parser.add_argument("--date", type=str, help="Target date (YYYY-MM-DD)")
-    parser.add_argument(
-        "--model", 
+    parser.add_argument("--model", 
         type=str, 
         help=f"Gemini model name. Options: {', '.join(AVAILABLE_MODELS.keys())}", 
         default="gemini-3-flash-free",
         choices=list(AVAILABLE_MODELS.keys())
     )
-    parser.add_argument("--action", choices=["run", "update-economy", "input-news", "inspect", "setup", "test-webhook", "check-news"], default="run", help="Action to perform")
+    parser.add_argument("--action", choices=["run", "update-economy", "update-company", "input-news", "inspect", "setup", "test-webhook", "check-news"], default="run", help="Action to perform")
+    parser.add_argument("--tickers", type=str, help="Comma-separated list of tickers (used with --action update-company)")
     parser.add_argument("--text", type=str, help="Market news text (used with --action input-news)")
+    
     parser.add_argument("--file", type=str, help="Path to a text file containing market news (used with --action input-news)")
     parser.add_argument("--url", type=str, help="URL to a text file containing market news (used with --action input-news)")
     parser.add_argument("--webhook", type=str, help="Optional Discord Webhook URL for reporting")
@@ -222,6 +265,7 @@ def main():
         action_map = {
             "run": "Full_Pipeline_Run",
             "update-economy": "Economy_Card_Update",
+            "update-company": "Company_Card_Update",
             "input-news": "Market_News_Input",
             "inspect": "DB_Inspection",
             "setup": "DB_Setup",
@@ -244,6 +288,14 @@ def main():
             run_pipeline(target_date, args.model, logger)
         elif args.action == "update-economy":
             if not run_update_economy(target_date, args.model, logger):
+                exit_code = 1
+        elif args.action == "update-company":
+            if not args.tickers:
+                logger.error("🛑 Action 'update-company' requires --tickers.")
+                exit_code = 1
+                return
+            ticker_list = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
+            if not run_update_company(target_date, args.model, ticker_list, logger):
                 exit_code = 1
         elif args.action == "input-news":
             news_content = None

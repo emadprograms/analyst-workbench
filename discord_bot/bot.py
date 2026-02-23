@@ -14,6 +14,20 @@ GITHUB_REPO = os.getenv("GITHUB_REPO", "emadprograms/analyst-workbench")
 WORKFLOW_FILENAME = "manual_run.yml"
 ACTIONS_URL = f"<https://github.com/{GITHUB_REPO}/actions>"
 
+# --- 1.5 Ticker Configuration (Mirrored from modules/core/config.py) ---
+STOCK_TICKERS = [
+    "AAPL", "AMZN", "APP", "ABT", "PEP", "TSLA", "NVDA", "AMD",
+    "SNOW", "NET", "PLTR", "MU", "ORCL", "TSM",
+    "ADBE", "AVGO", "BABA", "GOOGL", "LRCX", "META", "MSFT", 
+    "NDAQ", "PANW", "QCOM", "SHOP"
+]
+ETF_TICKERS = [
+    "SPY", "QQQ", "IWM", "DIA", "TLT", "XLK", "XLF", "XLP", "XLE",
+    "SMH", "XLI", "XLV", "UUP", "PAXGUSDT", "BTCUSDT",
+    "XLC", "XLU", "EURUSDT", "CL=F", "^VIX"
+]
+ALL_TICKERS = sorted(STOCK_TICKERS + ETF_TICKERS)
+
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -103,6 +117,98 @@ class NewsModal(discord.ui.Modal, title='Market News Entry'):
         else:
             await msg.edit(content=f"🛰️ Dispatching news for **{self.target_date}**...\n❌ **Failed:** {error}")
 
+# --- NEW: BuildCards UI Components ---
+
+class BuildTypeSelectionView(discord.ui.View):
+    def __init__(self, target_date):
+        super().__init__(timeout=180)
+        self.target_date = target_date
+
+    @discord.ui.button(label="🌎 Economy Card", style=discord.ButtonStyle.primary, emoji="📈")
+    async def economy_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content=f"🧠 **Updating Economy** ({self.target_date})... 🛰️", view=None)
+        msg = await interaction.original_response()
+        inputs = {"target_date": self.target_date, "action": "update-economy"}
+        success, error = await dispatch_github_action(inputs)
+        if success:
+            await msg.edit(content=f"🧠 **Updating Economy** ({self.target_date})...\n✅ **Dispatched!** (ETA: ~5-7 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
+        else:
+            await msg.edit(content=f"🧠 **Updating Economy** ({self.target_date})... ❌ **Failed:** {error}")
+
+    @discord.ui.button(label="🏢 Company Cards", style=discord.ButtonStyle.success, emoji="📊")
+    async def company_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = TickerSelectionView(target_date=self.target_date)
+        await interaction.response.edit_message(content=f"🏢 **Select Companies** for **{self.target_date}**:\n(Select multiple from the menus below)", view=view)
+
+class TickerSelectionView(discord.ui.View):
+    def __init__(self, target_date):
+        super().__init__(timeout=300)
+        self.target_date = target_date
+        self.selected_tickers = set()
+        self.dropdown_states = {} # Track state of each dropdown
+
+        # Split tickers for Discord's 25-item limit
+        self.add_item(TickerDropdown(STOCK_TICKERS, "🏢 Select Stocks...", self))
+        self.add_item(TickerDropdown(ETF_TICKERS, "📈 Select ETFs...", self))
+
+    @discord.ui.button(label="✅ Dispatch Selected", style=discord.ButtonStyle.success, row=2)
+    async def dispatch_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.selected_tickers:
+            await interaction.response.send_message("❌ Please select at least one ticker!", ephemeral=True)
+            return
+        
+        tickers_str = ",".join(sorted(list(self.selected_tickers)))
+        await interaction.response.edit_message(content=f"🚀 **Dispatching Updates** for {len(self.selected_tickers)} tickers...\n`{tickers_str}`", view=None)
+        msg = await interaction.original_response()
+        
+        inputs = {
+            "target_date": self.target_date,
+            "action": "update-company",
+            "tickers": tickers_str
+        }
+        success, error = await dispatch_github_action(inputs)
+        if success:
+            await msg.edit(content=f"🚀 **Updates Dispatched!** ({len(self.selected_tickers)} tickers)\n✅ **Target Date:** {self.target_date}\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
+        else:
+            await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
+
+    @discord.ui.button(label="🌟 Select All", style=discord.ButtonStyle.secondary, row=2)
+    async def select_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.selected_tickers = set(ALL_TICKERS)
+        tickers_str = ",".join(sorted(list(self.selected_tickers)))
+        await interaction.response.edit_message(content=f"🌟 **All {len(ALL_TICKERS)} Tickers Selected!**\nReady to dispatch for **{self.target_date}**.", view=self)
+
+    @discord.ui.button(label="🔄 Reset", style=discord.ButtonStyle.danger, row=2)
+    async def reset_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.selected_tickers = set()
+        self.dropdown_states = {}
+        # We need to manually reset the Select components' current values too
+        # But for simplicity, we just clear the tracking set
+        await interaction.response.edit_message(content=f"🏢 **Select Companies** for **{self.target_date}**:\n(Selection Reset)", view=self)
+
+class TickerDropdown(discord.ui.Select):
+    def __init__(self, tickers, placeholder, parent_view):
+        options = [discord.SelectOption(label=t, value=t) for t in tickers]
+        # max_values must be at most 25 (Discord limit)
+        m_val = min(len(tickers), 25)
+        super().__init__(placeholder=placeholder, min_values=0, max_values=m_val, options=options)
+        self.parent_view = parent_view
+
+    async def callback(self, interaction: discord.Interaction):
+        # Update the parent view's tracking for THIS dropdown
+        # Note: We'll identify dropdowns by their placeholder or a custom ID
+        self.parent_view.dropdown_states[self.placeholder] = set(self.values)
+        
+        # Aggregate all selected tickers
+        all_selected = set()
+        for state in self.parent_view.dropdown_states.values():
+            all_selected.update(state)
+        
+        self.parent_view.selected_tickers = all_selected
+        
+        count = len(self.parent_view.selected_tickers)
+        await interaction.response.edit_message(content=f"🏢 **{count} Tickers Selected** for **{self.parent_view.target_date}**.\nAdd more or click dispatch below.", view=self.parent_view)
+
 # --- 3. Internal Logic Helpers ---
 
 def get_target_date(date_input: str = None) -> str | None:
@@ -146,6 +252,28 @@ async def dispatch_github_action(inputs: dict):
             return (True, "Success") if resp.status == 204 else (False, f"GitHub Error {resp.status}")
 
 # --- 4. Commands ---
+
+@bot.command()
+async def buildcards(ctx, date_indicator: str = None):
+    """Interactive command to build Economy or Company cards."""
+    print(f"[DEBUG] Command !buildcards called by {ctx.author}")
+    
+    target_date = get_target_date(date_indicator)
+
+    async def build_callback(interaction, selected_date):
+        view = BuildTypeSelectionView(target_date=selected_date)
+        await interaction.response.edit_message(content=f"🏗️ **Building Cards for {selected_date}**\nWhat type of update would you like to run?", view=view)
+
+    if not target_date:
+        view = DateSelectionView(action_callback=build_callback)
+        await ctx.send("🗓️ **Select Date for Card Generation:**", view=view)
+    else:
+        try:
+            datetime.strptime(target_date, "%Y-%m-%d")
+            view = BuildTypeSelectionView(target_date=target_date)
+            await ctx.send(f"🏗️ **Building Cards for {target_date}**\nWhat type of update would you like to run?", view=view)
+        except ValueError:
+            await ctx.send(f"❌ Error: `{target_date}` is invalid.")
 
 @bot.command()
 async def inputnews(ctx, date_indicator: str = None):
