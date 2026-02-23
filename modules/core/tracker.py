@@ -115,6 +115,11 @@ class ExecutionTracker:
             if self.action_type == "News_Check":
                 news_status = self.custom_results.get("news_status", "Unknown")
                 embed["fields"].append({"name": "📰 News Status", "value": f"**{news_status}**", "inline": True})
+            elif self.action_type == "DB_Inspection":
+                embed["fields"].append({"name": "📰 News", "value": f"**{self.custom_results.get('market_news', 'Unknown')}**", "inline": True})
+                embed["fields"].append({"name": "🌎 Economy", "value": f"**{self.custom_results.get('economy_card', 'Unknown')}**", "inline": True})
+                embed["fields"].append({"name": "📦 Tickers", "value": f"**{self.custom_results.get('updated_tickers', 'Unknown')}**", "inline": True})
+                embed["fields"].append({"name": "📊 Price Data", "value": f"`{self.custom_results.get('market_data_rows', '0')} rows`", "inline": True})
             
             # Show any other custom results
             for k, v in self.custom_results.items():

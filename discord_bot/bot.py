@@ -265,16 +265,37 @@ async def updateeconomy(ctx, date_str: str = None, model_name: str = "gemini-3-f
             await ctx.send(f"❌ Error: `{target_date}` is invalid.")
 
 @bot.command()
-async def inspect(ctx):
-    """Dispatch inspect command to GitHub Actions."""
+async def inspect(ctx, date_str: str = None):
+    """Dispatch database inspection to GitHub Actions."""
     print(f"[DEBUG] Command !inspect called by {ctx.author}")
-    msg = await ctx.send("🔍 **Inspecting Database**... 🛰️")
-    inputs = {"action": "inspect"}
-    success, error = await dispatch_github_action(inputs)
-    if success:
-        await msg.edit(content=f"🔍 **Inspecting Database**...\n✅ **Dispatched!** (ETA: ~2-3 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) ⏱️")
+    
+    target_date = get_target_date(date_str)
+
+    async def inspect_callback(interaction, selected_date):
+        await interaction.response.edit_message(content=f"🔍 **Inspecting Database** for **{selected_date}**... 🛰️", view=None)
+        msg = await interaction.original_response()
+        inputs = {"target_date": selected_date, "action": "inspect"}
+        success, error = await dispatch_github_action(inputs)
+        if success:
+            await msg.edit(content=f"🔍 **Inspecting Database** for **{selected_date}**...\n✅ **Dispatched!** (ETA: ~2-3 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
+        else:
+            await msg.edit(content=f"🔍 **Inspecting Database** for **{selected_date}**... ❌ **Failed:** {error}")
+
+    if not target_date:
+        view = DateSelectionView(action_callback=inspect_callback)
+        await ctx.send("🔍 **Select Date to Inspect Database:**", view=view)
     else:
-        await msg.edit(content=f"🔍 **Inspecting Database**... ❌ **Failed:** {error}")
+        try:
+            datetime.strptime(target_date, "%Y-%m-%d")
+            msg = await ctx.send(f"🔍 **Inspecting Database** for **{target_date}**... 🛰️")
+            inputs = {"target_date": target_date, "action": "inspect"}
+            success, error = await dispatch_github_action(inputs)
+            if success:
+                await msg.edit(content=f"🔍 **Inspecting Database** for **{target_date}**...\n✅ **Dispatched!** (ETA: ~2-3 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
+            else:
+                await msg.edit(content=f"🔍 **Inspecting Database** for **{target_date}**... ❌ **Failed:** {error}")
+        except ValueError:
+            await ctx.send(f"❌ Error: `{target_date}` is invalid.")
 
 @bot.command()
 async def checknews(ctx, date_str: str = None):

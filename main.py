@@ -281,7 +281,7 @@ def main():
                     exit_code = 1
         elif args.action == "inspect":
             from modules.data.inspect_db import inspect
-            inspect()
+            inspect(target_date, logger=logger)
         elif args.action == "setup":
             from modules.data.setup_db import create_tables
             create_tables()
