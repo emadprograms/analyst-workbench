@@ -202,34 +202,41 @@ def main():
     
     args = parser.parse_args()
     logger = AppLogger()
+    exit_code = 0  # Track exit status for GitHub Actions
 
-    try:
-        target_date = date.fromisoformat(args.date)
-    except ValueError:
-        logger.error(f"Invalid date format: {args.date}. Use YYYY-MM-DD.")
-        sys.exit(1)
-
-    from modules.core.config import infisical_mgr
+    # Define TRACKER here to ensure it's available in global catch
     from modules.ai.ai_services import TRACKER
-    
-    # Map actions to descriptive names
-    action_map = {
-        "run": "Full_Pipeline_Run",
-        "update-economy": "Economy_Card_Update",
-        "input-news": "Market_News_Input",
-        "inspect": "DB_Inspection",
-        "setup": "DB_Setup",
-        "check-news": "News_Check",
-        "test-webhook": "Webhook_Test"
-    }
-    desc_action = action_map.get(args.action, args.action).replace("-", "_")
+    from modules.core.config import infisical_mgr
 
-    TRACKER.start(action_type=desc_action)
     try:
+        try:
+            target_date = date.fromisoformat(args.date)
+        except ValueError:
+            logger.error(f"Invalid date format: {args.date}. Use YYYY-MM-DD.")
+            exit_code = 1
+            return # Skip to finally
+
+        # Map actions to descriptive names
+        action_map = {
+            "run": "Full_Pipeline_Run",
+            "update-economy": "Economy_Card_Update",
+            "input-news": "Market_News_Input",
+            "inspect": "DB_Inspection",
+            "setup": "DB_Setup",
+            "check-news": "News_Check",
+            "test-webhook": "Webhook_Test"
+        }
+        desc_action = action_map.get(args.action, args.action).replace("-", "_")
+
+        TRACKER.start(action_type=desc_action)
+        
         if args.action == "run":
+            # Note: run_pipeline doesn't currently return status, but it logs errors.
+            # We assume if it finishes without exception it's 'success' or handled internally.
             run_pipeline(target_date, args.model, logger)
         elif args.action == "update-economy":
-            run_update_economy(target_date, args.model, logger)
+            if not run_update_economy(target_date, args.model, logger):
+                exit_code = 1
         elif args.action == "input-news":
             news_content = None
             if args.text:
@@ -239,36 +246,39 @@ def main():
                     with open(args.file, 'r') as f:
                         news_content = f.read()
                 except Exception as e:
-                    logger.error(f"Failed to read file {args.file}: {e}")
-                    sys.exit(1)
+                    logger.error(f"Failed to read local file {args.file}: {e}")
+                    raise
             elif args.url:
                 try:
-                    logger.log(f"🌐 Downloading news from URL...")
+                    logger.log(f"🌐 Downloading news from URL: {args.url[:50]}...")
                     resp = requests.get(args.url, timeout=30)
+                    logger.log(f"   Response Status: {resp.status_code}")
                     resp.raise_for_status()
                     news_content = resp.text
-                    logger.log(f"✅ Downloaded {len(news_content)} characters from URL.")
+                    logger.log(f"✅ Downloaded {len(news_content)} characters.")
+                    if news_content:
+                        logger.log(f"   Preview Start: {news_content[:50]!r}")
+                        logger.log(f"   Preview End: {news_content[-50:]!r}")
                 except Exception as e:
                     logger.error(f"❌ Failed to download news from URL: {e}")
                     TRACKER.log_error("NEWS_DOWNLOAD", str(e))
-                    sys.exit(1)
+                    raise
             
             if not news_content:
-                logger.error("You must provide news content via --text, --file, or --url when using --action input-news")
-                TRACKER.log_error("NEWS_INPUT", "Empty news content provided")
-                sys.exit(1)
-            
-            logger.log(f"💾 Saving {len(news_content)} characters to 'aw_daily_news' for {target_date}...")
-            if upsert_daily_inputs(target_date, news_content):
-                char_count = len(news_content)
-                logger.log(f"✅ Market news successfully saved for {target_date} ({char_count} chars)")
-                from modules.ai.ai_services import TRACKER
-                TRACKER.metrics.details.append(f"✅ News Saved: {target_date} ({char_count:,} chars)")
-                TRACKER.metrics.success_count += 1 # Increment success count for the dashboard
+                logger.error("No news content provided (text, file, or url).")
+                TRACKER.log_error("NEWS_INPUT", "Empty news content")
+                exit_code = 1
             else:
-                logger.error(f"❌ Failed to save market news for {target_date}")
-                from modules.ai.ai_services import TRACKER
-                TRACKER.log_error("NEWS_SAVE", f"Database upsert failed for {target_date}")
+                logger.log(f"💾 Upserting news to Turso for {target_date}...")
+                if upsert_daily_inputs(target_date, news_content):
+                    char_count = len(news_content)
+                    logger.log(f"✅ Market news successfully saved for {target_date}")
+                    TRACKER.metrics.details.append(f"✅ News Saved: {target_date} ({char_count:,} chars)")
+                    TRACKER.metrics.success_count += 1
+                else:
+                    logger.error(f"❌ Database upsert FAILED for {target_date}")
+                    TRACKER.log_error("NEWS_SAVE", "DB UPSERT failed")
+                    exit_code = 1
         elif args.action == "inspect":
             from modules.data.inspect_db import inspect
             inspect()
@@ -279,7 +289,7 @@ def main():
             market_news, _ = get_daily_inputs(target_date)
             if market_news:
                 char_count = len(market_news)
-                logger.log(f"\n✅ NEWS FOUND for {target_date} ({char_count} chars):\n{'-'*40}\n{market_news}\n{'-'*40}")
+                logger.log(f"\n✅ NEWS FOUND for {target_date} ({char_count} chars):\n{'-'*40}\n{market_news[:500]}...\n{'-'*40}")
                 TRACKER.set_result("news_status", f"✅ Found ({char_count} chars)")
             else:
                 logger.error(f"❌ NO NEWS FOUND for {target_date}")
@@ -287,21 +297,31 @@ def main():
         elif args.action == "test-webhook":
             logger.log("🧪 Sending a test Discord notification...")
             TRACKER.log_call(100, True, "Test-Model", ticker="TEST-TICKER")
-        
-        # Send Report if webhook exists
+            
+    except Exception as e:
+        logger.error(f"💥 Fatal Exception in main pipeline: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        exit_code = 1
+    finally:
+        # Final Reporting
         webhook = getattr(args, 'webhook', None) or DISCORD_WEBHOOK_URL
         if webhook:
-            send_webhook_report(webhook, target_date, args.action, args.model, logger=logger)
+            try:
+                # Always finish tracker before report
+                send_webhook_report(webhook, target_date, args.action, args.model, logger=logger)
+            except Exception as report_err:
+                print(f"CRITICAL: Failed to send final Discord report: {report_err}")
 
-    finally:
-        # 6. Cleanup Resources
+        # Cleanup
         if 'infisical_mgr' in locals() or 'infisical_mgr' in globals():
-            infisical_mgr.close()
+            try:
+                infisical_mgr.close()
+            except: pass
         
-        # 7. Force Exit
-        # os._exit(0) is used to ensure the process dies immediately,
-        # preventing hangs from unclosed background sessions/threads.
-        os._exit(0)
+        # Force Exit with status code to prevent hangs and report correctly to GitHub
+        logger.log(f"System Exit with code: {exit_code}")
+        os._exit(exit_code)
 
 if __name__ == "__main__":
     main()

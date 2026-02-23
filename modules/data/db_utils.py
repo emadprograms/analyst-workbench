@@ -14,15 +14,16 @@ import logging
 import libsql_client
 from libsql_client import LibsqlError, create_client_sync
 
+# --- Setup Logger ---
+logger = logging.getLogger("analyst_workbench")
+
 def get_db_connection():
     """
     Helper function to create a database connection to Turso.
-    This now uses the create_client_sync for Streamlit compatibility
-    and forces an HTTPS connection.
     """
     try:
         if not TURSO_DB_URL:
-            logging.error("TURSO_DB_URL is not set.")
+            logger.error("TURSO_DB_URL is not set.")
             return None
 
         # --- FIX: Force HTTPS connection ---
@@ -32,12 +33,10 @@ def get_db_connection():
             "url": http_url,
             "auth_token": TURSO_AUTH_TOKEN
         }
-        # --- FIX: Use create_client_sync ---
-        # This is the synchronous client required
         client = create_client_sync(**config)
         return client
     except Exception as e:
-        logging.error(f"Failed to create Turso client: {e}")
+        logger.error(f"Failed to create Turso client: {e}")
         return None
 
 def get_price_db_connection():
@@ -46,7 +45,7 @@ def get_price_db_connection():
     """
     try:
         if not TURSO_PRICE_DB_URL:
-            logging.error("TURSO_PRICE_DB_URL is not set.")
+            logger.error("TURSO_PRICE_DB_URL is not set.")
             return None
 
         # --- FIX: Force HTTPS connection ---
@@ -59,20 +58,21 @@ def get_price_db_connection():
         client = create_client_sync(**config)
         return client
     except Exception as e:
-        logging.error(f"Failed to create Turso Price client: {e}")
+        logger.error(f"Failed to create Turso Price client: {e}")
         return None
 
 # --- Daily Inputs ---
 
 def upsert_daily_inputs(selected_date: date, market_news: str) -> bool:
-    """Saves or updates the daily inputs for a specific date."""
+    """Saves or updates the daily inputs for a specific date (Force Overwrite)."""
     conn = None
     try:
         conn = get_db_connection()
         if not conn:
-            logging.error("Database connection failed.")
+            logger.error("Database connection failed for UPSERT.")
             return False
 
+        logger.log(20, f"Updating 'aw_daily_news' for {selected_date} ({len(market_news)} chars)...")
         # The Turso client auto-commits; no 'commit()' needed
         conn.execute(
             """
@@ -83,9 +83,13 @@ def upsert_daily_inputs(selected_date: date, market_news: str) -> bool:
             """,
             (selected_date.isoformat(), market_news)
         )
+        logger.log(20, f"✅ UPSERT Successful for {selected_date}")
         return True
     except LibsqlError as e:
-        logging.error(f"Error in upsert_daily_inputs: {e}")
+        logger.error(f"Error in upsert_daily_inputs for {selected_date}: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error in upsert_daily_inputs: {e}")
         return False
     finally:
         if conn:
