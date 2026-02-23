@@ -3,7 +3,7 @@ import discord
 from discord.ext import commands
 import aiohttp
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 
 # --- 1. Setup & Config ---
@@ -64,7 +64,7 @@ class DateSelectionView(discord.ui.View):
         self.action_callback = action_callback
         
         options = []
-        today = datetime.utcnow()
+        today = datetime.now(timezone.utc)
         for i in range(14):
             target = today - timedelta(days=i)
             date_str = target.strftime("%Y-%m-%d")
@@ -222,7 +222,7 @@ def get_target_date(date_input: str = None) -> str | None:
     - "-1", "-2", etc. -> Days relative to today
     - "YYYY-MM-DD" -> Specific date
     """
-    today = datetime.utcnow()
+    today = datetime.now(timezone.utc)
     if not date_input:
         return None
     
