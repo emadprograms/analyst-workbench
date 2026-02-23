@@ -158,16 +158,35 @@ async def inputnews(ctx, date_indicator: str = None):
     if ctx.message.attachments:
         attachment = ctx.message.attachments[0]
         if attachment.filename.endswith(('.txt', '.log')):
-            # If no date was provided for the attachment, default to TODAY
+            
+            # --- VISION FIX: If no date, show the picker instead of defaulting to today ---
             if not target_date:
-                target_date = datetime.utcnow().strftime("%Y-%m-%d")
+                async def attachment_date_callback(interaction, selected_date):
+                    await interaction.response.edit_message(content=f"🛰️ **File Detected:** `{attachment.filename}`\nDispatching content for **{selected_date}**... 🚀", view=None)
+                    msg = await interaction.original_response()
+                    
+                    inputs = {
+                        "target_date": selected_date,
+                        "action": "input-news",
+                        "news_url": attachment.url
+                    }
+                    success, error = await dispatch_github_action(inputs)
+                    if success:
+                        await msg.edit(content=f"🛰️ **File Detected:** `{attachment.filename}`\n✅ **Dispatch Successful for {selected_date}!**\n🔗 [Monitor Progress]({ACTIONS_URL}) ⏱️")
+                    else:
+                        await msg.edit(content=f"❌ **File Dispatch Failed:** {error}")
 
+                view = DateSelectionView(action_callback=attachment_date_callback)
+                await ctx.send(f"📁 **File detected:** `{attachment.filename}`\n🗓️ Please select the target date for this news file:", view=view)
+                return
+
+            # If date was provided (e.g. !inputnews 0 or !inputnews 2026-02-23)
             await ctx.send(f"🛰️ **File Detected:** `{attachment.filename}`\nDispatching content for **{target_date}** to GitHub... 🚀")
             
             inputs = {
                 "target_date": target_date,
                 "action": "input-news",
-                "news_url": attachment.url # Pass the Discord URL
+                "news_url": attachment.url
             }
             
             success, error = await dispatch_github_action(inputs)
