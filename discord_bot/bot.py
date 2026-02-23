@@ -384,9 +384,9 @@ async def inputnews(ctx, date_indicator: str = None):
             await ctx.send(f"❌ Error: `{target_date}` is invalid.")
 
 @bot.command()
-async def inspect(ctx, date_str: str = None):
+async def inspectdb(ctx, date_str: str = None):
     """Dispatch database inspection to GitHub Actions."""
-    print(f"[DEBUG] Command !inspect called by {ctx.author}")
+    print(f"[DEBUG] Command !inspectdb called by {ctx.author}")
     
     target_date = get_target_date(date_str)
 
