@@ -73,8 +73,8 @@ def inspect(target_date: date, logger=None):
                 price_url = TURSO_PRICE_DB_URL.replace("libsql://", "https://")
                 price_client = libsql_client.create_client_sync(url=price_url, auth_token=TURSO_PRICE_AUTH_TOKEN)
                 
-                # Check row count for that date
-                rs = price_client.execute("SELECT COUNT(*) FROM market_data WHERE date LIKE ?", [f"{date_str}%"])
+                # Check row count for that date using date() function on timestamp
+                rs = price_client.execute("SELECT COUNT(*) FROM market_data WHERE date(timestamp) = ?", [date_str])
                 row_count = rs.rows[0][0]
                 log_msg(f"Market Data Rows (Price DB): {row_count:,}")
                 TRACKER.set_result("market_data_rows", f"{row_count:,}")

@@ -6,7 +6,7 @@ on:
       target_date:
         description: 'Target Date (YYYY-MM-DD)'
         required: false
-        default: 'today'
+        default: ''
       model:
         description: 'Gemini Model'
         required: true

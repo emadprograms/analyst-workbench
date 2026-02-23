@@ -186,7 +186,7 @@ def run_pipeline(selected_date: date, model_name: str, logger: AppLogger):
 
 def main():
     parser = argparse.ArgumentParser(description="Analyst Workbench CLI")
-    parser.add_argument("--date", type=str, help="Target date (YYYY-MM-DD), defaults to today", default=date.today().isoformat())
+    parser.add_argument("--date", type=str, help="Target date (YYYY-MM-DD)")
     parser.add_argument(
         "--model", 
         type=str, 
@@ -209,10 +209,12 @@ def main():
     from modules.core.config import infisical_mgr
 
     try:
+        # Default date logic
+        date_input = args.date or date.today().isoformat()
         try:
-            target_date = date.fromisoformat(args.date)
+            target_date = date.fromisoformat(date_input)
         except ValueError:
-            logger.error(f"Invalid date format: {args.date}. Use YYYY-MM-DD.")
+            logger.error(f"Invalid date format: {date_input}. Use YYYY-MM-DD.")
             exit_code = 1
             return # Skip to finally
 
@@ -230,7 +232,12 @@ def main():
 
         TRACKER.start(action_type=desc_action)
         
-        if args.action == "run":
+        # --- NEW: Mandatory Date Enforcement for specific actions ---
+        if args.action == "inspect" and not args.date:
+             logger.error("🛑 Action 'inspect' requires a specific --date. It will not default to today.")
+             exit_code = 1
+             return
+
             # Note: run_pipeline doesn't currently return status, but it logs errors.
             # We assume if it finishes without exception it's 'success' or handled internally.
             run_pipeline(target_date, args.model, logger)
