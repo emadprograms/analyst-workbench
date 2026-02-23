@@ -1,28 +1,32 @@
 # Analyst Workbench
 
-**Analyst Workbench** is a comprehensive market intelligence platform designed to streamline the workflow of financial analysts. It combines quantitative data processing (price action, volume, VWAP) with qualitative AI analysis (narrative generation, sentiment analysis) to create a persistent, date-aware database of market insights.
+**Analyst Workbench** is a high-performance market intelligence platform designed for senior traders and analysts. It transforms raw market data (price action, volume, VWAP) into sophisticated, date-aware AI narratives. Using a CLI-first architecture with Discord remote control, it automates the generation of "Economy Cards" (Macro) and "Company Cards" (Micro) to maintain a persistent database of market structure and trade plans.
 
-## 🚀 Features
+## 🚀 Key Features
 
-*   **Date-Aware EOD Workflow:** A robust pipeline to process "Economy Cards" (Macro) and "Company Cards" (Micro) for any specific date.
-*   **AI-Powered Analysis:** Utilizes Google Gemini (Pro & Flash) models to generate insights, trade plans, and market narratives.
-*   **Gemini Key Rotation System:** A sophisticated `KeyManager` that handles API key rotation, rate limits, and usage quotas automatically.
-*   **Unified Editor:** A "Single Source of Truth" editor that allows you to view and modify historical cards seamlessly.
-*   **AI Image Parser:** A dedicated tool to extract text from complex images (charts, news screenshots) using Multimodal AI and OCR, saving directly to the database.
-*   **Turso (LibSQL) Database:** Built on a remote, scalable database architecture for secure data persistence.
+*   **Date-Aware EOD Pipeline:** Fully automated workflow to process market news, ETF price action, and individual ticker behavior for any specific date.
+*   **Discord-to-GitHub Remote Control:** A custom Discord bot (`!inputnews`, `!updateeconomy`) that dispatches GitHub Actions workflows for serverless execution.
+*   **Gemini Key Rotation (KeyManager):** Sophisticated management of Google Gemini (Pro & Flash) API keys, handling rate limits, quotas, and automatic rotation via a central database.
+*   **Impact Engine:** Advanced quantitative analysis that calculates "Value Migration" and "Committed Participant" behavior to determine the nature of a trading session.
+*   **Infisical Secret Management:** Secure, centralized management of all API keys (GitHub, Discord, Turso, Gemini) via the Infisical platform.
+*   **Persistent Market Memory:** Built on **Turso (LibSQL)** to store historical notes, AI-generated cards, and raw news inputs, creating a "Single Source of Truth" for your trading history.
 
 ---
 
 ## 🛠️ System Architecture
 
-The application is built with **Streamlit** for the frontend and **Turso (LibSQL)** for the backend database.
+The application is built for reliability and automation, utilizing a modular Python backend and cloud-native execution.
 
-### The Core Components
+### Core Components
 
-1.  **`app.py`**: The landing page and entry point.
-2.  **`pages/eod_workflow.py`**: The main engine. Handles data fetching (yfinance), AI analysis, and database CRUD operations.
-3.  **`pages/image_parser.py`**: A utility to convert images to text and archive them.
-4.  **`modules/key_manager.py`**: The brain of the AI system. It manages a pool of API keys stored in the database to ensure high availability.
+1.  **`main.py`**: The primary CLI entry point. Handles pipeline execution, news input, and database maintenance.
+2.  **`discord_bot/bot.py`**: A Discord interaction layer that triggers remote execution via GitHub Actions.
+3.  **`modules/`**:
+    *   **`ai/`**: Prompt engineering and Gemini API orchestration.
+    *   **`analysis/`**: The "Impact Engine" and session analysis logic.
+    *   **`core/`**: Configuration, logging, secret management (Infisical), and the KeyManager.
+    *   **`data/`**: Database utilities, price data fetching (yfinance), and migrations.
+4.  **`.github/workflows/manual_run.yml`**: The automation engine that executes the pipeline on GitHub's infrastructure.
 
 ---
 
@@ -30,123 +34,88 @@ The application is built with **Streamlit** for the frontend and **Turso (LibSQL
 
 ### 1. Environment Setup
 
-Ensure you have **Python 3.10+** installed.
+Ensure you have **Python 3.12+** installed.
 
 ```bash
 # Clone the repository
-git clone [your-repo-url]
+git clone https://github.com/emadprograms/analyst-workbench
 cd analyst-workbench
 
 # Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
 ```
 
-### 2. Database Configuration (Turso)
+### 2. Secret Management (Infisical)
 
-This project uses **Turso**. You need a Turso database URL and an Auth Token.
+This project uses **Infisical** for all secrets. You must set the following environment variables in your environment (or GitHub Secrets):
 
-Create a file at `.streamlit/secrets.toml`:
+*   `INFISICAL_CLIENT_ID`
+*   `INFISICAL_CLIENT_SECRET`
+*   `INFISICAL_PROJECT_ID`
 
-```toml
-[turso]
-db_url = "libsql://your-database-name.turso.io"
-auth_token = "your-long-auth-token-here"
-```
+These credentials allow the system to securely fetch the Turso DB URL, Discord tokens, and GitHub PATs.
 
-### 3. API Key Setup (The Key Manager)
+### 3. Database Initialization (Turso)
 
-Unlike standard apps that store keys in `.env` files, **Analyst Workbench manages AI keys inside the database**. This allows for dynamic rotation and usage tracking.
+To create the required tables (`aw_daily_news`, `aw_economy_cards`, `aw_company_cards`, `stocks`, `gemini_api_keys`), run the setup script:
 
-You must insert your Google Gemini API keys into the `gemini_api_keys` table in your Turso database.
-
-**Table Schema (`gemini_api_keys`):**
-*   `key_name` (TEXT): A nickname for the key (e.g., "Pro_Key_1").
-*   `key_value` (TEXT): The actual API key starting with `AIza...`.
-*   `priority` (INT): Order of use (Lower = Higher priority).
-
-**How to Add Keys:**
-You can use the Turso CLI or the Turso dashboard web UI to run this SQL command:
-
-```sql
-INSERT INTO gemini_api_keys (key_name, key_value, priority)
-VALUES
-('My_Primary_Key', 'AIzaSyYourKeyHere...', 10),
-('My_Backup_Key', 'AIzaSyYourBackupKey...', 20);
-```
-
-*The system will automatically detect these keys and start rotating them.*
-
----
-
-## 🗄️ Database Initialization
-
-To create the required tables (`daily_inputs`, `economy_cards`, `company_cards`, `data_archive`), run the setup script.
-
-**⚠️ WARNING: This script wipes existing data tables (except `stocks`). Use with caution on a production DB.**
-
-You must export your credentials as environment variables for this script to work (since it doesn't read Streamlit secrets):
-
-**Linux/Mac:**
 ```bash
-export TURSO_DB_URL="libsql://your-db.turso.io"
-export TURSO_AUTH_TOKEN="your-token"
-python modules/setup_db.py
-```
-
-**Windows (PowerShell):**
-```powershell
-$env:TURSO_DB_URL="libsql://your-db.turso.io"
-$env:TURSO_AUTH_TOKEN="your-token"
-python modules/setup_db.py
+python modules/data/setup_db.py
 ```
 
 ---
 
 ## 🖥️ Usage Guide
 
-Run the application:
+### A. CLI Commands (`main.py`)
 
-```bash
-streamlit run app.py
-```
+Run the pipeline or individual tasks directly from your terminal.
 
-### 1. Pipeline Runner (EOD Workflow)
-Navigate to the **EOD Workflow** page.
-1.  **Step 1:** Select a Date and input the "Market News Summary" (Manual context). Save it.
-2.  **Step 2:** Click "Generate Economy Card". The AI will analyze ETF data + your news to create the Macro card.
-3.  **Step 3:** Select Tickers and click "Run Update". The AI analyzes price action/volume for each stock and generates Company Cards.
+*   **Full Pipeline Run:**
+    ```bash
+    python main.py --action run --date 2026-02-23 --model gemini-3-flash-free
+    ```
+*   **Update Economy Card Only:**
+    ```bash
+    python main.py --action update-economy --date 2026-02-23
+    ```
+*   **Input Market News:**
+    ```bash
+    python main.py --action input-news --date 2026-02-23 --text "Your news here..."
+    ```
+*   **Inspect Database:**
+    ```bash
+    python main.py --action inspect
+    ```
 
-### 2. Card Editor
-Use the **Card Editor** tab in the EOD Workflow page to go back in time. You can view or edit the JSON structure of any card for any date. This is the "Single Source of Truth."
+### B. Discord Bot Commands
 
-### 3. Image Parser
-Navigate to the **Image Parser** page.
-*   Upload screenshots of news, charts, or documents.
-*   Select "AI Extraction" or "Tesseract OCR".
-*   Click **Save to Database Archive** to store the text permanently in the `data_archive` table.
+Use these commands in your Discord server to trigger the automation remotely.
+
+*   **`!inputnews [date]`**: Opens a text box to paste headlines or accepts an attached `.txt` file.
+*   **`!updateeconomy [date]`**: Dispatches a GitHub Action to generate the day's Macro card.
+*   **`!checknews [date]`**: Verifies if news has been successfully ingested for a specific date.
+*   **`!inspect`**: Triggers a database health check and reports back via webhook.
 
 ---
 
 ## 🧩 Directory Structure
 
-```
-/
-├── app.py                 # Landing page
+```text
+analyst-workbench/
+├── main.py                # CLI Entry Point
+├── requirements.txt       # Dependencies
+├── discord_bot/
+│   └── bot.py             # Discord Bot Controller
 ├── modules/
-│   ├── ai_services.py     # AI Logic (Prompt Engineering)
-│   ├── config.py          # App Configuration
-│   ├── data_processing.py # Quantitative Data (yfinance)
-│   ├── db_utils.py        # Database Interactions
-│   ├── key_manager.py     # AI Key Rotation System
-│   ├── setup_db.py        # Database Schema Setup Script
-│   └── ui_components.py   # Streamlit UI Helpers
-├── pages/
-│   ├── eod_workflow.py    # Main Application Logic
-│   └── image_parser.py    # Image Intelligence Tool
-├── requirements.txt       # Python Dependencies
-└── README.md              # Documentation
+│   ├── ai/                # AI Services & Prompts
+│   ├── analysis/          # Impact Engine (Quant Logic)
+│   ├── core/              # Config, Keys, Logs, Secrets
+│   └── data/              # DB Utils & Data Fetching
+├── tests/                 # Pytest Suite
+└── .github/workflows/     # Automation (GitHub Actions)
 ```
