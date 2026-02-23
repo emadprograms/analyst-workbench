@@ -134,14 +134,14 @@ class BuildTypeSelectionView(discord.ui.View):
 
     @discord.ui.button(label="🌎 Economy Card", style=discord.ButtonStyle.primary, emoji="📈")
     async def economy_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content=f"🧠 **Updating Economy** ({self.target_date})... 🛰️", view=None)
+        await interaction.response.edit_message(content=f"🧠 **Building Economy Card** ({self.target_date})... 🛰️", view=None)
         msg = await interaction.original_response()
         inputs = {"target_date": self.target_date, "action": "update-economy"}
         success, error = await dispatch_github_action(inputs)
         if success:
-            await msg.edit(content=f"🧠 **Updating Economy** ({self.target_date})...\n✅ **Dispatched!** (ETA: ~5-7 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
+            await msg.edit(content=f"🧠 **Building Economy Card** ({self.target_date})...\n✅ **Dispatched!** (ETA: ~5-7 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
         else:
-            await msg.edit(content=f"🧠 **Updating Economy** ({self.target_date})... ❌ **Failed:** {error}")
+            await msg.edit(content=f"🧠 **Building Economy Card** ({self.target_date})... ❌ **Failed:** {error}")
 
     @discord.ui.button(label="🏢 Company Cards", style=discord.ButtonStyle.success, emoji="📊")
     async def company_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -180,14 +180,14 @@ class TickerSelectionView(discord.ui.View):
         self.add_item(TickerDropdown(display_stocks, "🏢 Select Stocks...", self))
         self.add_item(TickerDropdown(ETF_TICKERS, "📈 Select ETFs...", self))
 
-    @discord.ui.button(label="✅ Dispatch Selected", style=discord.ButtonStyle.success, row=2)
+    @discord.ui.button(label="✅ Build Cards", style=discord.ButtonStyle.success, row=2)
     async def dispatch_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.selected_tickers:
             await interaction.response.send_message("❌ Please select at least one ticker!", ephemeral=True)
             return
         
         tickers_str = ",".join(sorted(list(self.selected_tickers)))
-        await interaction.response.edit_message(content=f"🚀 **Dispatching Updates** for {len(self.selected_tickers)} tickers...\n`{tickers_str}`", view=None)
+        await interaction.response.edit_message(content=f"🚀 **Building Cards** for {len(self.selected_tickers)} tickers...\n`{tickers_str}`", view=None)
         msg = await interaction.original_response()
         
         inputs = {
@@ -197,9 +197,9 @@ class TickerSelectionView(discord.ui.View):
         }
         success, error = await dispatch_github_action(inputs)
         if success:
-            await msg.edit(content=f"🚀 **Updates Dispatched!** ({len(self.selected_tickers)} tickers)\n✅ **Target Date:** {self.target_date}\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
+            await msg.edit(content=f"🚀 **Cards Dispatched!** ({len(self.selected_tickers)} tickers)\n✅ **Target Date:** {self.target_date}\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
         else:
-            await msg.edit(content=f"❌ **Dispatch Failed:** {error}")
+            await msg.edit(content=f"❌ **Build Failed:** {error}")
 
     @discord.ui.button(label="🌟 Select All", style=discord.ButtonStyle.secondary, row=2)
     async def select_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -291,7 +291,7 @@ async def buildcards(ctx, date_indicator: str = None):
 
     async def build_callback(interaction, selected_date):
         view = BuildTypeSelectionView(target_date=selected_date)
-        await interaction.response.edit_message(content=f"🏗️ **Building Cards for {selected_date}**\nWhat type of update would you like to run?", view=view)
+        await interaction.response.edit_message(content=f"🏗️ **Building Cards for {selected_date}**\nWhich kind of card would you like to build?", view=view)
 
     if not target_date:
         view = DateSelectionView(action_callback=build_callback)
@@ -300,7 +300,7 @@ async def buildcards(ctx, date_indicator: str = None):
         try:
             datetime.strptime(target_date, "%Y-%m-%d")
             view = BuildTypeSelectionView(target_date=target_date)
-            await ctx.send(f"🏗️ **Building Cards for {target_date}**\nWhat type of update would you like to run?", view=view)
+            await ctx.send(f"🏗️ **Building Cards for {target_date}**\nWhich kind of card would you like to build?", view=view)
         except ValueError:
             await ctx.send(f"❌ Error: `{target_date}` is invalid.")
 
@@ -380,44 +380,6 @@ async def inputnews(ctx, date_indicator: str = None):
                         await interaction.message.edit(content=f"✅ **Target Date:** {self.date}\n(Modal opened)", view=None)
                     except: pass
             await ctx.send(f"✅ Target Date: **{target_date}**", view=TriggerView(target_date))
-        except ValueError:
-            await ctx.send(f"❌ Error: `{target_date}` is invalid.")
-
-@bot.command()
-async def updateeconomy(ctx, date_str: str = None, model_name: str = "gemini-3-flash-free"):
-    """Dispatch Economy Update to GitHub Actions."""
-    print(f"[DEBUG] Command !updateeconomy called by {ctx.author}")
-    
-    # Handle the case where the first argument is actually the model name
-    if date_str and "-" in date_str and len(date_str) > 10 and not date_str.startswith("-"):
-        model_name = date_str
-        date_str = None
-
-    target_date = get_target_date(date_str)
-    
-    async def economy_callback(interaction, selected_date):
-        await interaction.response.edit_message(content=f"🧠 **Updating Economy** ({selected_date})... 🛰️", view=None)
-        msg = await interaction.original_response()
-        inputs = {"target_date": selected_date, "model": model_name}
-        success, error = await dispatch_github_action(inputs)
-        if success:
-            await msg.edit(content=f"🧠 **Updating Economy** ({selected_date})...\n✅ **Dispatched!** (ETA: ~5-7 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
-        else:
-            await msg.edit(content=f"🧠 **Updating Economy** ({selected_date})... ❌ **Failed:** {error}")
-
-    if not target_date:
-        view = DateSelectionView(action_callback=economy_callback)
-        await ctx.send(f"🌎 **Select Date for Economy Update** (using `{model_name}`):", view=view)
-    else:
-        try:
-            datetime.strptime(target_date, "%Y-%m-%d")
-            msg = await ctx.send(f"🧠 **Updating Economy** ({target_date})... 🛰️")
-            inputs = {"target_date": target_date, "model": model_name}
-            success, error = await dispatch_github_action(inputs)
-            if success:
-                await msg.edit(content=f"🧠 **Updating Economy** ({target_date})...\n✅ **Dispatched!** (ETA: ~5-7 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
-            else:
-                await msg.edit(content=f"🧠 **Updating Economy** ({target_date})... ❌ **Failed:** {error}")
         except ValueError:
             await ctx.send(f"❌ Error: `{target_date}` is invalid.")
 
