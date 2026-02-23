@@ -1,5 +1,4 @@
 import os
-import sys
 import discord
 from discord.ext import commands
 import aiohttp
@@ -9,14 +8,6 @@ from dotenv import load_dotenv
 
 # --- 1. Setup & Config ---
 load_dotenv()
-
-# Add project root to sys.path for module imports
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if PROJECT_ROOT not in sys.path:
-    sys.path.append(PROJECT_ROOT)
-
-from modules.data.db_utils import get_all_tickers_from_db
-
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_PAT")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "emadprograms/analyst-workbench") 
@@ -24,17 +15,18 @@ WORKFLOW_FILENAME = "manual_run.yml"
 ACTIONS_URL = f"<https://github.com/{GITHUB_REPO}/actions>"
 
 # --- 1.5 Ticker Configuration ---
-# ETFs remain pre-defined as they are a stable macro baseline
+STOCK_TICKERS = [
+    "AAPL", "AMZN", "APP", "ABT", "PEP", "TSLA", "NVDA", "AMD",
+    "SNOW", "NET", "PLTR", "MU", "ORCL", "TSM",
+    "ADBE", "AVGO", "BABA", "GOOGL", "LRCX", "META", "MSFT", 
+    "NDAQ", "PANW", "QCOM", "SHOP"
+]
 ETF_TICKERS = [
     "SPY", "QQQ", "IWM", "DIA", "TLT", "XLK", "XLF", "XLP", "XLE",
     "SMH", "XLI", "XLV", "UUP", "PAXGUSDT", "BTCUSDT",
     "XLC", "XLU", "EURUSDT", "CL=F", "^VIX"
 ]
-
-# Stocks will be fetched dynamically from aw_ticker_notes
-# We keep these as placeholders for initialization
-STOCK_TICKERS = [] 
-ALL_TICKERS = []
+ALL_TICKERS = sorted(STOCK_TICKERS + ETF_TICKERS)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -145,39 +137,18 @@ class BuildTypeSelectionView(discord.ui.View):
 
     @discord.ui.button(label="🏢 Company Cards", style=discord.ButtonStyle.success, emoji="📊")
     async def company_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # 1. Immediate feedback
-        await interaction.response.edit_message(content="🔍 **Fetching active tickers from database...**", view=None)
-        
-        # 2. Fetch Tickers (Run in executor to avoid blocking)
-        loop = asyncio.get_event_loop()
-        db_tickers = await loop.run_in_executor(None, get_all_tickers_from_db)
-        
-        # 3. Filter out ETFs from the stock list to avoid duplicates
-        stock_list = [t for t in db_tickers if t not in ETF_TICKERS]
-        all_available = sorted(list(set(stock_list + ETF_TICKERS)))
-
-        if not stock_list:
-            # Fallback if DB is empty or fails
-            await interaction.edit_original_response(content="⚠️ **No stocks found in database.** Please check `aw_ticker_notes` table.")
-            return
-
-        view = TickerSelectionView(target_date=self.target_date, stock_tickers=stock_list, all_tickers=all_available)
-        await interaction.edit_original_response(content=f"🏢 **Select Companies** for **{self.target_date}**:\n(Pulled {len(stock_list)} stocks from database)", view=view)
+        view = TickerSelectionView(target_date=self.target_date)
+        await interaction.response.edit_message(content=f"🏢 **Select Companies** for **{self.target_date}**:\n(Select multiple from the menus below)", view=view)
 
 class TickerSelectionView(discord.ui.View):
-    def __init__(self, target_date, stock_tickers, all_tickers):
+    def __init__(self, target_date):
         super().__init__(timeout=300)
         self.target_date = target_date
-        self.stock_tickers = stock_tickers
-        self.all_tickers = all_tickers
         self.selected_tickers = set()
         self.dropdown_states = {} # Track state of each dropdown
 
         # Split tickers for Discord's 25-item limit
-        # Note: If stock_tickers > 25, we might need a third dropdown or pagination
-        # For now, we take the first 25
-        display_stocks = sorted(stock_tickers)[:25]
-        self.add_item(TickerDropdown(display_stocks, "🏢 Select Stocks...", self))
+        self.add_item(TickerDropdown(STOCK_TICKERS, "🏢 Select Stocks...", self))
         self.add_item(TickerDropdown(ETF_TICKERS, "📈 Select ETFs...", self))
 
     @discord.ui.button(label="✅ Build Cards", style=discord.ButtonStyle.success, row=2)
@@ -203,9 +174,9 @@ class TickerSelectionView(discord.ui.View):
 
     @discord.ui.button(label="🌟 Select All", style=discord.ButtonStyle.secondary, row=2)
     async def select_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.selected_tickers = set(self.all_tickers)
+        self.selected_tickers = set(ALL_TICKERS)
         tickers_str = ",".join(sorted(list(self.selected_tickers)))
-        await interaction.response.edit_message(content=f"🌟 **All {len(self.all_tickers)} Tickers Selected!**\nReady to dispatch for **{self.target_date}**.", view=self)
+        await interaction.response.edit_message(content=f"🌟 **All {len(ALL_TICKERS)} Tickers Selected!**\nReady to dispatch for **{self.target_date}**.", view=self)
 
     @discord.ui.button(label="🔄 Reset", style=discord.ButtonStyle.danger, row=2)
     async def reset_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
