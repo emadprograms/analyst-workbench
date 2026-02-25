@@ -51,6 +51,9 @@ class AppLogger:
         self.logger.warning(message)
         self.logs.append(f"WARNING: {message}")
 
+    # Alias for compatibility (stdlib uses both warn/warning)
+    warn = warning
+
     def log_code(self, code: str, language: str = 'text'):
         """Logs a code block and captures it."""
         self.logger.info(f"--- {language.upper()} BLOCK ---")

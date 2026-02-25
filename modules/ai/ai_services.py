@@ -475,8 +475,9 @@ def update_company_card(
         
         # --- FIX: Rebuild the full card in Python ---
         
-        # 1. Get a fresh copy of the *previous* card
-        final_card = previous_overview_card_dict.copy()
+        # 1. Get a deep copy of the *previous* card to avoid mutating it
+        import copy
+        final_card = copy.deepcopy(previous_overview_card_dict)
         
         # 2. **Deeply update** the card with the new AI data
         # This merges the new data (plans, sentiment) while preserving read-only fields
@@ -673,7 +674,8 @@ def update_economy_card(
             return None
 
         # --- FIX: Rebuild the full card in Python ---
-        final_card = previous_economy_card_dict.copy()
+        import copy
+        final_card = copy.deepcopy(previous_economy_card_dict)
         
         # 2. **Deeply update** the card with the new AI data
         def deep_update(d, u):

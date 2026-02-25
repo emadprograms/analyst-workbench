@@ -35,7 +35,7 @@ def send_webhook_report(webhook_url, target_date, action, model, logger=None):
     desc_action = action_map.get(action, action).replace("-", "_")
     
     # Only show model if it's an AI-heavy action
-    ai_actions = ["run", "update-economy"]
+    ai_actions = ["update-economy", "update-company"]
     model_display = model if action in ai_actions else "No_AI_Used"
     
     timestamp = time.strftime("%H%M%S")
@@ -147,7 +147,7 @@ def run_update_company(selected_date: date, model_name: str, tickers: list[str],
     # 1. Get Market News for context
     market_news, _ = get_daily_inputs(selected_date)
     if not market_news:
-        logger.warn(f"⚠️ No market news found for {selected_date}. Continuing without macro context.")
+        logger.warning(f"⚠️ No market news found for {selected_date}. Continuing without macro context.")
 
     success_count = 0
     for ticker in tickers:
@@ -175,8 +175,9 @@ def run_update_company(selected_date: date, model_name: str, tickers: list[str],
             else:
                 logger.error(f"❌ Failed to save {ticker} card to DB")
         else:
-            from modules.ai.ai_services import TRACKER
-            TRACKER.log_call(0, False, model_name, ticker=ticker, error="Update Failed")
+            # Note: call_gemini_api already tracks failures internally via TRACKER.
+            # Only log a non-API error here if the card update failed for non-API reasons.
+            logger.error(f"❌ AI update failed for {ticker}")
     
     logger.log(f"✅ Company Card updates complete. Success: {success_count}/{len(tickers)}")
     return success_count > 0
@@ -206,6 +207,7 @@ def main():
     from modules.ai.ai_services import TRACKER
     from modules.core.config import infisical_mgr
 
+    target_date = None  # Initialize to prevent UnboundLocalError in finally
     try:
         # Default date logic
         date_input = args.date or date.today().isoformat()
@@ -316,7 +318,7 @@ def main():
     finally:
         # Final Reporting
         webhook = getattr(args, 'webhook', None) or DISCORD_WEBHOOK_URL
-        if webhook:
+        if webhook and target_date is not None:
             try:
                 # Always finish tracker before report
                 send_webhook_report(webhook, target_date, args.action, args.model, logger=logger)

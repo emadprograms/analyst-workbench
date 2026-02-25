@@ -467,7 +467,8 @@ class KeyManager:
                     [key_hash, model_id, now, tokens, today_str]
                 )
                 
-            self.available_keys.append(key)
+            # NOTE: Key is already re-added by get_key() on success path.
+            # Do NOT append again here to avoid duplicates in available_keys.
         except Exception as e:
             import traceback
             log.error(f"Report Usage Failed: {e}\n{traceback.format_exc()}")

@@ -64,7 +64,7 @@ def get_session_bars_from_db(client_unused, epic: str, benchmark_date: str, cuto
         df.dropna(subset=['close'], inplace=True)
         
         # Normalize columns for the Engine
-        df.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close'}, inplace=True)
+        df.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume'}, inplace=True)
         return df.reset_index(drop=True)
     except Exception as e:
         logger.log(f"Data Error ({epic}): {e}")
