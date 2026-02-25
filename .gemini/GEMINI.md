@@ -129,11 +129,14 @@ If these are missing, the app logs a warning and enters "Offline/Legacy Mode."
 ## 6. Deployment Architecture
 
 ### A. Discord Bot — Railway (Python 3.13)
-*   **Root Directory**: Railway deploys with `discord_bot/` as the service root. This means the directory contents are deployed directly (not as a sub-package), so `discord_bot/` is **NOT** a Python package at runtime.
-*   **Import Convention**: All intra-bot imports must use **plain imports** (`from config import ...`, `from ui_components import ...`), **never** package-qualified imports (`from discord_bot.config import ...`). The bot's `sys.path` setup ensures both plain imports and cross-package `modules.*` imports resolve correctly.
+*   **Dockerfile**: `discord_bot/Dockerfile`. Uses the **repo root** as build context so both `discord_bot/` and `modules/` are available at runtime.
+*   **Railway Settings** (critical):
+    *   **Root Directory** → `/` (repo root, **not** `discord_bot/`).
+    *   **Dockerfile Path** → `discord_bot/Dockerfile`.
+    *   Setting Root Directory to `discord_bot/` will break the build because `modules/` lives at the repo root and won't be included in the build context.
+*   **Import Convention**: All intra-bot imports must use **plain imports** (`from config import ...`, `from ui_components import ...`), **never** package-qualified imports (`from discord_bot.config import ...`). The Dockerfile sets `WORKDIR /app/discord_bot` so plain imports resolve, and `bot.py` adds the parent (`/app/`) to `sys.path` for `modules.*` access.
 *   **Python Version**: Railway runs **Python 3.13**. All dependencies in `discord_bot/requirements.txt` must be 3.13-compatible.
 *   **Dependencies**: Managed separately in `discord_bot/requirements.txt` (not the root `requirements.txt`).
-*   **Cross-Package Access**: `bot.py` adds the project root (`..`) to `sys.path` so `from modules.data.db_utils import ...` works when the full repo is available at deploy time.
 
 ### B. Main Pipeline — GitHub Actions
 *   **Entry Point**: `main.py` at the repo root.
