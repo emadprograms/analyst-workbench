@@ -157,7 +157,6 @@ def update_company_card(
     previous_card_json: str, 
     previous_card_date: str, 
     historical_notes: str, 
-    new_eod_summary: str, 
     new_eod_date: date, 
     model_name:str,
     market_context_summary: str, 
@@ -328,9 +327,9 @@ def update_company_card(
 
     **6. `technicalStructure.volumeMomentum` (The "Volume Analysis"):**
         * **This is your next analysis.** Your job is to be the volume analyst.
-        * Describe ONLY how volume from `[Today's New Price Action Summary]` *confirmed or denied* the action *at the specific levels*.
-        * **Example 1 (Confirmation):** "High-volume defense. The rejection of the $239.15 low was confirmed by the day's highest volume spike, proving Committed Buyers were present in force."
-        * **Example 2 (No Confirmation):** "Low-volume breakout. The move above $420 resistance was on low, unconvincing volume, signaling a 'Stable Market' (Committed Seller) exhaustion, not 'Unstable' (Desperate Buyer) panic."
+        * Describe ONLY how volume from `[Today's New Price Action Summary]` *confirmed or denied* the action *at the specific levels*, explicitly using the 'volume_profile' (POC, VAH, VAL) and 'key_volume_events'.
+        * **Example 1 (Confirmation):** "High-volume defense. The rejection of the $239.15 low was confirmed by the day's highest volume spike (key event) and the Value Area Low (VAL), proving Committed Buyers were present in force."
+        * **Example 2 (No Confirmation):** "Low-volume breakout. The move above $420 resistance occurred far from the Volume POC on unconvincing volume, signaling a 'Stable Market' (Committed Seller) exhaustion, not 'Unstable' (Desperate Buyer) panic."
 
     **7. `behavioralSentiment` Section (The "Micro" / Today's Analysis):**
         * **`emotionalTone` (The 3-Act Pattern + Proof of Reasoning):**
