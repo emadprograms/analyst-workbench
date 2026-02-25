@@ -212,6 +212,71 @@ class TickerDropdown(discord.ui.Select):
         count = len(self.parent_view.selected_tickers)
         await interaction.response.edit_message(content=f"🏢 **{count} Tickers Selected** for **{self.parent_view.target_date}**.\nAdd more or click dispatch below.", view=self.parent_view)
 
+class ViewTypeSelectionView(discord.ui.View):
+    def __init__(self, target_date):
+        super().__init__(timeout=180)
+        self.target_date = target_date
+
+    @discord.ui.button(label="🌎 Economy Card", style=discord.ButtonStyle.primary, emoji="📈")
+    async def economy_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content=f"🔎 **Retrieving Economy Card** ({self.target_date})... 🛰️", view=None)
+        msg = await interaction.original_response()
+        inputs = {"target_date": self.target_date, "action": "view-economy"}
+        success, error = await dispatch_github_action(inputs)
+        if success:
+            await msg.edit(content=f"🔎 **Retrieving Economy Card** ({self.target_date})...\n✅ **Dispatched!** (ETA: ~1 min)\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
+        else:
+            await msg.edit(content=f"🔎 **Retrieving Economy Card** ({self.target_date})... ❌ **Failed:** {error}")
+
+    @discord.ui.button(label="🏢 Company Cards", style=discord.ButtonStyle.success, emoji="📊")
+    async def company_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = ViewTickerSelectionView(target_date=self.target_date, stock_tickers=STOCK_TICKERS)
+        await interaction.response.edit_message(content=f"🏢 **Select Companies to View** for **{self.target_date}**:\n(Select multiple from the menus below)", view=view)
+
+class ViewTickerSelectionView(discord.ui.View):
+    def __init__(self, target_date, stock_tickers):
+        super().__init__(timeout=300)
+        self.target_date = target_date
+        self.stock_tickers = stock_tickers
+        self.selected_tickers = set()
+        self.dropdown_states = {}
+
+        display_stocks = sorted(stock_tickers)[:25]
+        self.add_item(TickerDropdown(display_stocks, "🏢 Select Stocks...", self))
+
+    @discord.ui.button(label="✅ View Cards", style=discord.ButtonStyle.success, row=2)
+    async def dispatch_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.selected_tickers:
+            await interaction.response.send_message("❌ Please select at least one ticker!", ephemeral=True)
+            return
+        
+        tickers_str = ",".join(sorted(list(self.selected_tickers)))
+        await interaction.response.edit_message(content=f"🚀 **Retrieving Cards** for {len(self.selected_tickers)} tickers...\n`{tickers_str}`", view=None)
+        msg = await interaction.original_response()
+        
+        inputs = {
+            "target_date": self.target_date,
+            "action": "view-company",
+            "tickers": tickers_str
+        }
+        success, error = await dispatch_github_action(inputs)
+        if success:
+            await msg.edit(content=f"🚀 **Retrieval Dispatched!** ({len(self.selected_tickers)} tickers)\n✅ **Target Date:** {self.target_date}\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
+        else:
+            await msg.edit(content=f"❌ **Retrieval Failed:** {error}")
+
+    @discord.ui.button(label="🌟 Select All", style=discord.ButtonStyle.secondary, row=2)
+    async def select_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.selected_tickers = set(self.stock_tickers)
+        tickers_str = ",".join(sorted(list(self.selected_tickers)))
+        await interaction.response.edit_message(content=f"🌟 **All {len(self.stock_tickers)} Stocks Selected!**\nReady to retrieve for **{self.target_date}**.", view=self)
+
+    @discord.ui.button(label="🔄 Reset", style=discord.ButtonStyle.danger, row=2)
+    async def reset_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.selected_tickers = set()
+        self.dropdown_states = {}
+        await interaction.response.edit_message(content=f"🏢 **Select Companies to View** for **{self.target_date}**:\n(Selection Reset)", view=self)
+
 # --- 3. Internal Logic Helpers ---
 
 def get_target_date(date_input: str = None) -> str | None:
@@ -275,6 +340,28 @@ async def buildcards(ctx, date_indicator: str = None):
             datetime.strptime(target_date, "%Y-%m-%d")
             view = BuildTypeSelectionView(target_date=target_date)
             await ctx.send(f"🏗️ **Building Cards for {target_date}**\nWhich kind of card would you like to build?", view=view)
+        except ValueError:
+            await ctx.send(f"❌ Error: `{target_date}` is invalid.")
+
+@bot.command()
+async def viewcards(ctx, date_indicator: str = None):
+    """Interactive command to view Economy or Company cards."""
+    print(f"[DEBUG] Command !viewcards called by {ctx.author}")
+    
+    target_date = get_target_date(date_indicator)
+
+    async def view_callback(interaction, selected_date):
+        view = ViewTypeSelectionView(target_date=selected_date)
+        await interaction.response.edit_message(content=f"🔎 **Viewing Cards for {selected_date}**\nWhich kind of card would you like to view?", view=view)
+
+    if not target_date:
+        view = DateSelectionView(action_callback=view_callback)
+        await ctx.send("🗓️ **Select Date for Card Viewing:**", view=view)
+    else:
+        try:
+            datetime.strptime(target_date, "%Y-%m-%d")
+            view = ViewTypeSelectionView(target_date=target_date)
+            await ctx.send(f"🔎 **Viewing Cards for {target_date}**\nWhich kind of card would you like to view?", view=view)
         except ValueError:
             await ctx.send(f"❌ Error: `{target_date}` is invalid.")
 
