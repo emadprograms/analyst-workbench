@@ -126,7 +126,23 @@ If these are missing, the app logs a warning and enters "Offline/Legacy Mode."
 
 ---
 
-## 6. CLI Operational Mandates (Gemini CLI ONLY)
+## 6. Deployment Architecture
+
+### A. Discord Bot — Railway (Python 3.13)
+*   **Root Directory**: Railway deploys with `discord_bot/` as the service root. This means the directory contents are deployed directly (not as a sub-package), so `discord_bot/` is **NOT** a Python package at runtime.
+*   **Import Convention**: All intra-bot imports must use **plain imports** (`from config import ...`, `from ui_components import ...`), **never** package-qualified imports (`from discord_bot.config import ...`). The bot's `sys.path` setup ensures both plain imports and cross-package `modules.*` imports resolve correctly.
+*   **Python Version**: Railway runs **Python 3.13**. All dependencies in `discord_bot/requirements.txt` must be 3.13-compatible.
+*   **Dependencies**: Managed separately in `discord_bot/requirements.txt` (not the root `requirements.txt`).
+*   **Cross-Package Access**: `bot.py` adds the project root (`..`) to `sys.path` so `from modules.data.db_utils import ...` works when the full repo is available at deploy time.
+
+### B. Main Pipeline — GitHub Actions
+*   **Entry Point**: `main.py` at the repo root.
+*   **Orchestration**: The Discord Bot dispatches GitHub Actions workflows (`manual_run.yml`) for heavy compute (card building, news ingestion).
+*   **Secrets**: Passed via `env` block in the workflow YAML from GitHub repository secrets.
+
+---
+
+## 7. CLI Operational Mandates (Gemini CLI ONLY)
 
 The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this interface). They do **NOT** apply to automated agents like Antigravity.
 

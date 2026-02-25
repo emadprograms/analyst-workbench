@@ -6,17 +6,22 @@ import aiohttp
 import asyncio
 from datetime import datetime, timedelta, timezone
 
-# Add project root to sys.path for module imports
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+# Add bot directory to sys.path so plain imports (config, ui_components) always resolve,
+# then add project root so cross-package imports (modules.*) work when the full repo is available.
+BOT_DIR = os.path.abspath(os.path.dirname(__file__))
+if BOT_DIR not in sys.path:
+    sys.path.insert(0, BOT_DIR)
+
+PROJECT_ROOT = os.path.abspath(os.path.join(BOT_DIR, ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
-# Core Imports
-from discord_bot.config import (
+# Core Imports (plain imports — discord_bot/ is the Railway root, not a package)
+from config import (
     DISCORD_TOKEN, GITHUB_TOKEN, GITHUB_REPO, WORKFLOW_FILENAME, ACTIONS_URL,
     STOCK_TICKERS, ETF_TICKERS, ALL_TICKERS
 )
-from discord_bot.ui_components import (
+from ui_components import (
     DateSelectionView, NewsModal, BuildTypeSelectionView, TickerSelectionView,
     ViewTypeSelectionView, EditNotesTickerSelectionView, EditNotesModal, EditNotesTriggerView
 )
