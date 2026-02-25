@@ -20,6 +20,9 @@ The **Analyst Workbench** is a Streamlit-based Python application designed to ac
     *   `modules/impact_engine.py`: The quantitative heart. Slice price action into 3 sessions (Pre, RTH, Post), detects "Impact Levels" (Support/Resistance), tracks "Value Migration" (30min blocks), and calculates **Volume Profiles** (POC, VAH, VAL) and Key Volume Events.
     *   `modules/ai_services.py`: The logic layer. Constructs the massive "Masterclass" prompts, manages API keys (`KeyManager`), and parses the AI's JSON response.
     *   `app.py`: The frontend. Handles UI, user inputs, and triggers the batch update loops.
+    *   **Discord Bot (`discord_bot/bot.py`)**: The Command & Control layer.
+        *   **Orchestration**: Dispatches heavy compute tasks (Card Building, News Input) to GitHub Actions to maintain a serverless architecture.
+        *   **Direct Interaction**: Performs lightweight, high-latency tasks (Retrieving Cards, Editing Historical Notes) directly against the database for instantaneous user feedback.
 
 *   **Caching Layer (Context Freezing)**:
     *   **Goal**: Reduce DB reads.
