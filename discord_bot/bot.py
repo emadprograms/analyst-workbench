@@ -37,6 +37,13 @@ async def on_ready():
 
 # --- Logic Helpers ---
 
+async def get_stock_tickers() -> list[str]:
+    """Fetches active tickers from DB and filters out ETFs."""
+    loop = asyncio.get_event_loop()
+    db_tickers = await loop.run_in_executor(None, get_all_tickers_from_db)
+    stock_list = [t for t in db_tickers if t not in ETF_TICKERS]
+    return stock_list or STOCK_TICKERS
+
 def get_target_date(date_input: str = None) -> str | None:
     today = datetime.now(timezone.utc)
     if not date_input: return None
@@ -88,15 +95,17 @@ async def save_notes(ticker, notes):
 async def buildcards(ctx, date_indicator: str = None):
     """Interactive command to build Economy or Company cards."""
     target_date = get_target_date(date_indicator)
+    stock_list = await get_stock_tickers()
+    
     async def build_callback(interaction, selected_date):
-        view = BuildTypeSelectionView(selected_date, dispatch_github_action, ACTIONS_URL, STOCK_TICKERS, TickerSelectionView)
+        view = BuildTypeSelectionView(selected_date, dispatch_github_action, ACTIONS_URL, stock_list, TickerSelectionView)
         await interaction.response.edit_message(content=f"🏗️ **Building Cards for {selected_date}**\nWhich kind of card would you like to build?", view=view)
     if not target_date:
         await ctx.send("🗓️ **Select Date for Card Generation:**", view=DateSelectionView(build_callback))
     else:
         try:
             datetime.strptime(target_date, "%Y-%m-%d")
-            view = BuildTypeSelectionView(target_date, dispatch_github_action, ACTIONS_URL, STOCK_TICKERS, TickerSelectionView)
+            view = BuildTypeSelectionView(target_date, dispatch_github_action, ACTIONS_URL, stock_list, TickerSelectionView)
             await ctx.send(f"🏗️ **Building Cards for {target_date}**\nWhich kind of card would you like to build?", view=view)
         except ValueError: await ctx.send(f"❌ Error: `{target_date}` is invalid.")
 
@@ -104,17 +113,20 @@ async def buildcards(ctx, date_indicator: str = None):
 async def viewcards(ctx, date_indicator: str = None):
     """Interactive command to view Economy or Company cards."""
     target_date = get_target_date(date_indicator)
+    stock_list = await get_stock_tickers()
+
     async def view_callback(interaction, selected_date):
-        view = ViewTypeSelectionView(selected_date, fetch_economy_card, fetch_company_card, STOCK_TICKERS)
+        view = ViewTypeSelectionView(selected_date, fetch_economy_card, fetch_company_card, stock_list)
         await interaction.response.edit_message(content=f"🔎 **Viewing Cards for {selected_date}**\nWhich kind of card would you like to view?", view=view)
     if not target_date:
         await ctx.send("🗓️ **Select Date for Card Viewing:**", view=DateSelectionView(view_callback))
     else:
         try:
             datetime.strptime(target_date, "%Y-%m-%d")
-            view = ViewTypeSelectionView(target_date, fetch_economy_card, fetch_company_card, STOCK_TICKERS)
+            view = ViewTypeSelectionView(target_date, fetch_economy_card, fetch_company_card, stock_list)
             await ctx.send(f"🔎 **Viewing Cards for {target_date}**\nWhich kind of card would you like to view?", view=view)
         except ValueError: await ctx.send(f"❌ Error: `{target_date}` is invalid.")
+
 
 @bot.command()
 async def listcards(ctx):
@@ -139,9 +151,7 @@ async def editnotes(ctx, ticker: str = None):
         modal = EditNotesModal(ticker, current_notes or "", save_notes)
         await ctx.send(f"📝 Click the button below to edit notes for **{ticker}**:", view=EditNotesTriggerView(modal))
     else:
-        loop = asyncio.get_event_loop()
-        db_tickers = await loop.run_in_executor(None, get_all_tickers_from_db)
-        stock_list = [t for t in db_tickers if t not in ETF_TICKERS] or STOCK_TICKERS
+        stock_list = await get_stock_tickers()
         await ctx.send("🏢 **Select a company to edit historical notes:**", view=EditNotesTickerSelectionView(stock_list, fetch_notes, save_notes))
 
 @bot.command()
