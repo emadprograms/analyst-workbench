@@ -21,8 +21,9 @@ The **Analyst Workbench** is a Streamlit-based Python application designed to ac
     *   `modules/ai_services.py`: The logic layer. Constructs the massive "Masterclass" prompts, manages API keys (`KeyManager`), and parses the AI's JSON response.
     *   `app.py`: The frontend. Handles UI, user inputs, and triggers the batch update loops.
     *   **Discord Bot (`discord_bot/bot.py`)**: The Command & Control layer.
-        *   **Orchestration**: Dispatches heavy compute tasks (Card Building, News Input) to GitHub Actions to maintain a serverless architecture.
+        *   **Orchestration**: Dispatches heavy compute tasks (Card Building, News Input) to GitHub Actions to maintain a serverless architecture and keep Railway costs near zero.
         *   **Direct Interaction**: Performs lightweight, low-compute tasks (Retrieving Cards, Editing Historical Notes, Checking News Ingestion, DB Inspection) directly against the database for instantaneous user feedback.
+        *   **Dynamic Discovery**: Fetches the active stock watch list directly from `aw_ticker_notes`, eliminating hardcoded lists in the UI.
 
 *   **Caching Layer (Context Freezing)**:
     *   **Goal**: Reduce DB reads.
