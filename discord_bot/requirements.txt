@@ -2,3 +2,7 @@
 discord.py>=2.4.0
 aiohttp>=3.11.1
 python-dotenv
+pandas
+libsql-client
+infisicalsdk
+pytz

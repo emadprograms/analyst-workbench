@@ -492,6 +492,26 @@ def upsert_data_archive(selected_date: date, ticker: str, raw_text_summary: str)
         if conn:
             conn.close()
 
+def update_ticker_notes(ticker: str, notes: str) -> bool:
+    """Updates the historical level notes for a specific ticker."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+        conn.execute(
+            "INSERT INTO aw_ticker_notes (ticker, historical_level_notes) VALUES (?, ?) "
+            "ON CONFLICT(ticker) DO UPDATE SET historical_level_notes = excluded.historical_level_notes",
+            (ticker.upper(), notes)
+        )
+        return True
+    except Exception as e:
+        logging.error(f"Error updating ticker notes: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
 def get_data_archive(selected_date: date, ticker: str) -> str | None:
     """Fetches a record from the data_archive table."""
     conn = None

@@ -1,4 +1,5 @@
 import os
+import sys
 import discord
 from discord.ext import commands
 import aiohttp
@@ -8,6 +9,14 @@ from dotenv import load_dotenv
 
 # --- 1. Setup & Config ---
 load_dotenv()
+
+# Add project root to sys.path for module imports
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
+
+from modules.data.db_utils import get_all_tickers_from_db, get_company_card_and_notes, update_ticker_notes
+
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_PAT")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "emadprograms/analyst-workbench") 
@@ -277,6 +286,59 @@ class ViewTickerSelectionView(discord.ui.View):
         self.dropdown_states = {}
         await interaction.response.edit_message(content=f"🏢 **Select Companies to View** for **{self.target_date}**:\n(Selection Reset)", view=self)
 
+# --- NEW: EditNotes UI Components ---
+
+class EditNotesModal(discord.ui.Modal):
+    def __init__(self, ticker, current_notes):
+        super().__init__(title=f"Edit Notes: {ticker}")
+        self.ticker = ticker
+        self.notes_input = discord.ui.TextInput(
+            label="Historical Level Notes",
+            style=discord.TextStyle.paragraph,
+            placeholder="Enter major multi-year levels, structural patterns, etc...",
+            default=current_notes,
+            required=True,
+            max_length=4000
+        )
+        self.add_item(self.notes_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        # Run DB update in executor
+        loop = asyncio.get_event_loop()
+        success = await loop.run_in_executor(None, update_ticker_notes, self.ticker, self.notes_input.value)
+        
+        if success:
+            await interaction.followup.send(f"✅ **{self.ticker}** notes updated successfully!", ephemeral=True)
+        else:
+            await interaction.followup.send(f"❌ Failed to update notes for **{self.ticker}**. Check bot logs.", ephemeral=True)
+
+class EditNotesTickerSelectionView(discord.ui.View):
+    def __init__(self, stock_tickers):
+        super().__init__(timeout=180)
+        self.stock_tickers = stock_tickers
+        
+        # Simple dropdown for single selection
+        options = [discord.SelectOption(label=t, value=t) for t in sorted(stock_tickers)[:25]]
+        self.add_item(EditNotesTickerDropdown(options))
+
+class EditNotesTickerDropdown(discord.ui.Select):
+    def __init__(self, options):
+        super().__init__(placeholder="Select company to edit notes...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        ticker = self.values[0]
+        await interaction.response.edit_message(content=f"🔍 **Fetching current notes for {ticker}...**", view=None)
+        
+        # Fetch current notes
+        loop = asyncio.get_event_loop()
+        _, current_notes, _ = await loop.run_in_executor(None, get_company_card_and_notes, ticker)
+        
+        modal = EditNotesModal(ticker=ticker, current_notes=current_notes or "")
+        await interaction.followup.send(f"📝 Opening editor for **{ticker}**...", ephemeral=True)
+        await interaction.followup.send_modal(modal)
+
 # --- 3. Internal Logic Helpers ---
 
 def get_target_date(date_input: str = None) -> str | None:
@@ -320,6 +382,41 @@ async def dispatch_github_action(inputs: dict):
             return (True, "Success") if resp.status == 204 else (False, f"GitHub Error {resp.status}")
 
 # --- 4. Commands ---
+
+@bot.command()
+async def editnotes(ctx, ticker: str = None):
+    """Opens a dialog to edit historical notes for a company."""
+    print(f"[DEBUG] Command !editnotes called by {ctx.author}")
+    
+    if ticker:
+        ticker = ticker.upper()
+        await ctx.send(f"🔍 **Fetching current notes for {ticker}...**")
+        
+        loop = asyncio.get_event_loop()
+        _, current_notes, _ = await loop.run_in_executor(None, get_company_card_and_notes, ticker)
+        
+        modal = EditNotesModal(ticker=ticker, current_notes=current_notes or "")
+        await ctx.send(f"📝 Click the button below to edit notes for **{ticker}**:", view=EditNotesTriggerView(modal))
+    else:
+        # Fetch active tickers from DB
+        loop = asyncio.get_event_loop()
+        db_tickers = await loop.run_in_executor(None, get_all_tickers_from_db)
+        stock_list = [t for t in db_tickers if t not in ETF_TICKERS]
+        
+        if not stock_list:
+            stock_list = STOCK_TICKERS # Fallback
+            
+        view = EditNotesTickerSelectionView(stock_tickers=stock_list)
+        await ctx.send("🏢 **Select a company to edit historical notes:**", view=view)
+
+class EditNotesTriggerView(discord.ui.View):
+    def __init__(self, modal):
+        super().__init__(timeout=60)
+        self.modal = modal
+    
+    @discord.ui.button(label="📝 Open Editor", style=discord.ButtonStyle.primary)
+    async def open_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(self.modal)
 
 @bot.command()
 async def buildcards(ctx, date_indicator: str = None):

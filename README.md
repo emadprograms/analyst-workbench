@@ -97,6 +97,7 @@ Use these commands in your Discord server to trigger the automation remotely.
 *   **`!viewcards [date]`**: Opens an interactive UI to retrieve and view previously generated Economy or Company Cards as JSON files in Discord.
 *   **`!checknews [date]`**: Verifies if news has been successfully ingested for a specific date.
 *   **`!inspect [date]`**: Triggers a database health check and reports back via webhook.
+*   **`!editnotes [ticker]`**: Opens a Discord dialog box to edit the historical level notes for a specific company.
 
 ---
 
