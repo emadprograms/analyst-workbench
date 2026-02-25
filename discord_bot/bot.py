@@ -15,7 +15,8 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
-from modules.data.db_utils import get_all_tickers_from_db, get_company_card_and_notes, update_ticker_notes
+from modules.data.db_utils import get_all_tickers_from_db, get_company_card_and_notes, update_ticker_notes, get_daily_inputs
+from modules.data.inspect_db import inspect as db_inspect_func
 
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_PAT")
@@ -543,69 +544,90 @@ async def inputnews(ctx, date_indicator: str = None):
 
 @bot.command()
 async def inspect(ctx, date_str: str = None):
-    """Dispatch database inspection to GitHub Actions."""
+    """Performs a deep database inspection for a specific date directly in the bot."""
     print(f"[DEBUG] Command !inspect called by {ctx.author}")
     
-    target_date = get_target_date(date_str)
+    target_date_str = get_target_date(date_str)
 
-    async def inspect_callback(interaction, selected_date):
-        await interaction.response.edit_message(content=f"🔍 **Inspecting Database** for **{selected_date}**... 🛰️", view=None)
-        msg = await interaction.original_response()
-        inputs = {"target_date": selected_date, "action": "inspect"}
-        success, error = await dispatch_github_action(inputs)
-        if success:
-            await msg.edit(content=f"🔍 **Inspecting Database** for **{selected_date}**...\n✅ **Dispatched!** (ETA: ~2-3 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
-        else:
-            await msg.edit(content=f"🔍 **Inspecting Database** for **{selected_date}**... ❌ **Failed:** {error}")
+    async def inspect_callback(interaction, selected_date_str):
+        await interaction.response.edit_message(content=f"🔍 **Inspecting Database** for **{selected_date_str}**... 🛰️", view=None)
+        
+        # We need a custom logger-like object to capture inspect output
+        class CapturingLogger:
+            def __init__(self): self.lines = []
+            def log(self, msg): self.lines.append(msg)
+        
+        cap_logger = CapturingLogger()
+        target_date_obj = datetime.strptime(selected_date_str, "%Y-%m-%d").date()
+        
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, db_inspect_func, target_date_obj, cap_logger)
+        
+        output = "\n".join(cap_logger.lines)
+        # Use code block for formatting
+        await interaction.followup.send(f"```\n{output}\n```")
 
-    if not target_date:
+    if not target_date_str:
         view = DateSelectionView(action_callback=inspect_callback)
         await ctx.send("🔍 **Select Date to Inspect Database:**", view=view)
     else:
         try:
-            datetime.strptime(target_date, "%Y-%m-%d")
-            msg = await ctx.send(f"🔍 **Inspecting Database** for **{target_date}**... 🛰️")
-            inputs = {"target_date": target_date, "action": "inspect"}
-            success, error = await dispatch_github_action(inputs)
-            if success:
-                await msg.edit(content=f"🔍 **Inspecting Database** for **{target_date}**...\n✅ **Dispatched!** (ETA: ~2-3 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
-            else:
-                await msg.edit(content=f"🔍 **Inspecting Database** for **{target_date}**... ❌ **Failed:** {error}")
+            target_date_obj = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+            msg = await ctx.send(f"🔍 **Inspecting Database** for **{target_date_str}**... 🛰️")
+            
+            class CapturingLogger:
+                def __init__(self): self.lines = []
+                def log(self, msg): self.lines.append(msg)
+            
+            cap_logger = CapturingLogger()
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, db_inspect_func, target_date_obj, cap_logger)
+            
+            output = "\n".join(cap_logger.lines)
+            await msg.edit(content=f"✅ **Inspection Complete for {target_date_str}:**\n```\n{output}\n```")
         except ValueError:
-            await ctx.send(f"❌ Error: `{target_date}` is invalid.")
+            await ctx.send(f"❌ Error: `{target_date_str}` is invalid.")
 
 @bot.command()
 async def checknews(ctx, date_str: str = None):
-    """Dispatch market news check to GitHub Actions."""
+    """Verifies market news ingestion for a specific date directly in the bot."""
     print(f"[DEBUG] Command !checknews called by {ctx.author}")
     
-    target_date = get_target_date(date_str)
+    target_date_str = get_target_date(date_str)
 
-    async def check_callback(interaction, selected_date):
-        await interaction.response.edit_message(content=f"🔍 **Checking news** for **{selected_date}**... 🛰️", view=None)
-        msg = await interaction.original_response()
-        inputs = {"target_date": selected_date, "action": "check-news"}
-        success, error = await dispatch_github_action(inputs)
-        if success:
-            await msg.edit(content=f"🔍 **Checking news** for **{selected_date}**...\n✅ **Dispatched!** (ETA: ~2-3 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
+    async def check_callback(interaction, selected_date_str):
+        await interaction.response.edit_message(content=f"🔍 **Checking news** for **{selected_date_str}**... 🛰️", view=None)
+        
+        target_date_obj = datetime.strptime(selected_date_str, "%Y-%m-%d").date()
+        loop = asyncio.get_event_loop()
+        market_news, _ = await loop.run_in_executor(None, get_daily_inputs, target_date_obj)
+        
+        if market_news:
+            char_count = len(market_news)
+            preview = market_news[:1000] + "..." if char_count > 1000 else market_news
+            await interaction.followup.send(f"✅ **News Found for {selected_date_str} ({char_count:,} chars):**\n```\n{preview}\n```")
         else:
-            await msg.edit(content=f"🔍 **Checking news** for **{selected_date}**... ❌ **Failed:** {error}")
+            await interaction.followup.send(f"❌ **NO NEWS FOUND** for **{selected_date_str}**.")
 
-    if not target_date:
+    if not target_date_str:
         view = DateSelectionView(action_callback=check_callback)
         await ctx.send("🔍 **Select Date to Check News:**", view=view)
     else:
         try:
-            datetime.strptime(target_date, "%Y-%m-%d")
-            msg = await ctx.send(f"🔍 **Checking news** for **{target_date}**... 🛰️")
-            inputs = {"target_date": target_date, "action": "check-news"}
-            success, error = await dispatch_github_action(inputs)
-            if success:
-                await msg.edit(content=f"🔍 **Checking news** for **{target_date}**...\n✅ **Dispatched!** (ETA: ~2-3 mins)\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
+            target_date_obj = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+            msg = await ctx.send(f"🔍 **Checking news** for **{target_date_str}**... 🛰️")
+            
+            loop = asyncio.get_event_loop()
+            market_news, _ = await loop.run_in_executor(None, get_daily_inputs, target_date_obj)
+            
+            if market_news:
+                char_count = len(market_news)
+                preview = market_news[:1000] + "..." if char_count > 1000 else market_news
+                await msg.edit(content=f"✅ **News Found for {target_date_str} ({char_count:,} chars):**\n```\n{preview}\n```")
             else:
-                await msg.edit(content=f"🔍 **Checking news** for **{target_date}**... ❌ **Failed:** {error}")
+                await msg.edit(content=f"❌ **NO NEWS FOUND** for **{target_date_str}**.")
         except ValueError:
-            await ctx.send(f"❌ Error: `{target_date}` is invalid.")
+            await ctx.send(f"❌ Error: `{target_date_str}` is invalid.")
 
 if __name__ == "__main__":
     if not DISCORD_TOKEN:
