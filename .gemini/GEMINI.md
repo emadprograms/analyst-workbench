@@ -22,7 +22,7 @@ The **Analyst Workbench** is a Streamlit-based Python application designed to ac
     *   `app.py`: The frontend. Handles UI, user inputs, and triggers the batch update loops.
     *   **Discord Bot (`discord_bot/bot.py`)**: The Command & Control layer.
         *   **Orchestration**: Dispatches heavy compute tasks (Card Building, News Input) to GitHub Actions to maintain a serverless architecture.
-        *   **Direct Interaction**: Performs lightweight, high-latency tasks (Retrieving Cards, Editing Historical Notes) directly against the database for instantaneous user feedback.
+        *   **Direct Interaction**: Performs lightweight, low-compute tasks (Retrieving Cards, Editing Historical Notes, Checking News Ingestion, DB Inspection) directly against the database for instantaneous user feedback.
 
 *   **Caching Layer (Context Freezing)**:
     *   **Goal**: Reduce DB reads.
