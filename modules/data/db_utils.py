@@ -512,6 +512,32 @@ def update_ticker_notes(ticker: str, notes: str) -> bool:
         if conn:
             conn.close()
 
+def get_ticker_stats() -> list[dict]:
+    """Gets all tickers from aw_ticker_notes and their latest card date from aw_company_cards."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+        
+        # SQL to get ticker and its latest card date
+        # LEFT JOIN to include tickers that don't have cards yet
+        query = """
+            SELECT n.ticker, MAX(c.date) as last_card_date
+            FROM aw_ticker_notes n
+            LEFT JOIN aw_company_cards c ON n.ticker = c.ticker
+            GROUP BY n.ticker
+            ORDER BY n.ticker ASC
+        """
+        rs = conn.execute(query)
+        return [dict(row) for row in rs.rows]
+    except Exception as e:
+        logging.error(f"Error in get_ticker_stats: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
 def get_data_archive(selected_date: date, ticker: str) -> str | None:
     """Fetches a record from the data_archive table."""
     conn = None

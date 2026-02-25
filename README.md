@@ -94,7 +94,8 @@ Use these commands in your Discord server to trigger the automation remotely.
 
 *   **`!inputnews [date]`**: Opens a text box to paste headlines or accepts an attached `.txt` file.
 *   **`!buildcards [date]`**: Opens an interactive UI to select between building an Economy Card or Company Cards, and dispatches the corresponding GitHub Action.
-*   **`!viewcards [date]`**: Opens an interactive UI to retrieve and view previously generated Economy or Company Cards as JSON files in Discord.
+*   **`!viewcards [date]`**: Instantly retrieves and uploads previously generated Economy or Company Cards as JSON files directly from the bot.
+*   **`!listcards`**: Displays a status table of all tracked companies and their latest available card dates.
 *   **`!checknews [date]`**: Verifies if news has been successfully ingested for a specific date.
 *   **`!inspect [date]`**: Triggers a database health check and reports back via webhook.
 *   **`!editnotes [ticker]`**: Opens a Discord dialog box to edit the historical level notes for a specific company.

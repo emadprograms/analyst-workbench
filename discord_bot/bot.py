@@ -1,5 +1,7 @@
 import os
 import sys
+import io
+import json
 import discord
 from discord.ext import commands
 import aiohttp
@@ -15,7 +17,15 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
-from modules.data.db_utils import get_all_tickers_from_db, get_company_card_and_notes, update_ticker_notes, get_daily_inputs
+from modules.data.db_utils import (
+    get_all_tickers_from_db, 
+    get_company_card_and_notes, 
+    update_ticker_notes, 
+    get_daily_inputs,
+    get_archived_economy_card,
+    get_archived_company_card,
+    get_ticker_stats
+)
 from modules.data.inspect_db import inspect as db_inspect_func
 
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -230,13 +240,22 @@ class ViewTypeSelectionView(discord.ui.View):
     @discord.ui.button(label="🌎 Economy Card", style=discord.ButtonStyle.primary, emoji="📈")
     async def economy_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(content=f"🔎 **Retrieving Economy Card** ({self.target_date})... 🛰️", view=None)
-        msg = await interaction.original_response()
-        inputs = {"target_date": self.target_date, "action": "view-economy"}
-        success, error = await dispatch_github_action(inputs)
-        if success:
-            await msg.edit(content=f"🔎 **Retrieving Economy Card** ({self.target_date})...\n✅ **Dispatched!** (ETA: ~1 min)\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
+        
+        target_date_obj = datetime.strptime(self.target_date, "%Y-%m-%d").date()
+        loop = asyncio.get_event_loop()
+        card_json, _ = await loop.run_in_executor(None, get_archived_economy_card, target_date_obj)
+        
+        if card_json:
+            try:
+                # Format JSON
+                formatted = json.dumps(json.loads(card_json), indent=2)
+                file_data = io.BytesIO(formatted.encode("utf-8"))
+                file = discord.File(file_data, filename=f"Economy_Card_{self.target_date}.json")
+                await interaction.followup.send(f"✅ **Economy Card for {self.target_date}**:", file=file)
+            except Exception as e:
+                await interaction.followup.send(f"❌ Failed to process card: {e}")
         else:
-            await msg.edit(content=f"🔎 **Retrieving Economy Card** ({self.target_date})... ❌ **Failed:** {error}")
+            await interaction.followup.send(f"❌ No Economy Card found for **{self.target_date}**.")
 
     @discord.ui.button(label="🏢 Company Cards", style=discord.ButtonStyle.success, emoji="📊")
     async def company_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -260,20 +279,36 @@ class ViewTickerSelectionView(discord.ui.View):
             await interaction.response.send_message("❌ Please select at least one ticker!", ephemeral=True)
             return
         
-        tickers_str = ",".join(sorted(list(self.selected_tickers)))
-        await interaction.response.edit_message(content=f"🚀 **Retrieving Cards** for {len(self.selected_tickers)} tickers...\n`{tickers_str}`", view=None)
-        msg = await interaction.original_response()
+        count = len(self.selected_tickers)
+        await interaction.response.edit_message(content=f"🚀 **Retrieving {count} Cards** for **{self.target_date}**...", view=None)
         
-        inputs = {
-            "target_date": self.target_date,
-            "action": "view-company",
-            "tickers": tickers_str
-        }
-        success, error = await dispatch_github_action(inputs)
-        if success:
-            await msg.edit(content=f"🚀 **Retrieval Dispatched!** ({len(self.selected_tickers)} tickers)\n✅ **Target Date:** {self.target_date}\n🔗 [Monitor Progress]({ACTIONS_URL}) 📡⏱️")
-        else:
-            await msg.edit(content=f"❌ **Retrieval Failed:** {error}")
+        target_date_obj = datetime.strptime(self.target_date, "%Y-%m-%d").date()
+        loop = asyncio.get_event_loop()
+        
+        files = []
+        not_found = []
+        
+        for ticker in sorted(list(self.selected_tickers)):
+            card_json, _ = await loop.run_in_executor(None, get_archived_company_card, target_date_obj, ticker)
+            if card_json:
+                try:
+                    formatted = json.dumps(json.loads(card_json), indent=2)
+                    file_data = io.BytesIO(formatted.encode("utf-8"))
+                    files.append(discord.File(file_data, filename=f"{ticker}_Card_{self.target_date}.json"))
+                except:
+                    not_found.append(ticker)
+            else:
+                not_found.append(ticker)
+        
+        if files:
+            # Discord limit is 10 files per message
+            chunks = [files[i:i + 10] for i in range(0, len(files), 10)]
+            for i, chunk in enumerate(chunks):
+                msg = f"✅ **Company Cards ({self.target_date})** - Part {i+1}:" if len(chunks) > 1 else f"✅ **Company Cards ({self.target_date})**:"
+                await interaction.followup.send(msg, files=chunk)
+        
+        if not_found:
+            await interaction.followup.send(f"❌ Cards not found for: `{', '.join(not_found)}`")
 
     @discord.ui.button(label="🌟 Select All", style=discord.ButtonStyle.secondary, row=2)
     async def select_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -418,6 +453,30 @@ class EditNotesTriggerView(discord.ui.View):
     @discord.ui.button(label="📝 Open Editor", style=discord.ButtonStyle.primary)
     async def open_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(self.modal)
+
+@bot.command()
+async def listcards(ctx):
+    """Lists all tracked tickers and their last update status."""
+    print(f"[DEBUG] Command !listcards called by {ctx.author}")
+    
+    await ctx.send("🔍 **Fetching ticker status from database...**")
+    
+    loop = asyncio.get_event_loop()
+    stats = await loop.run_in_executor(None, get_ticker_stats)
+    
+    if not stats:
+        await ctx.send("⚠️ No tickers found in database.")
+        return
+    
+    # Format the list
+    lines = ["📊 **Tracked Companies Status:**", "```", f"{'Ticker':<8} | {'Last Card Date':<15}", "-" * 30]
+    for s in stats:
+        ticker = s['ticker']
+        last_date = s['last_card_date'] or "No Cards Yet"
+        lines.append(f"{ticker:<8} | {last_date:<15}")
+    lines.append("```")
+    
+    await ctx.send("\n".join(lines))
 
 @bot.command()
 async def buildcards(ctx, date_indicator: str = None):

@@ -12,11 +12,11 @@ on:
         required: true
         default: 'gemini-3-flash-free'
       action:
-        description: 'Action to perform (update-economy, update-company, view-economy, view-company, input-news, inspect)'
+        description: 'Action to perform (update-economy, update-company, input-news, inspect)'
         required: true
         default: 'update-economy'
       tickers:
-        description: 'Comma-separated list of tickers (for update-company / view-company)'
+        description: 'Comma-separated list of tickers (for update-company)'
         required: false
         default: ''
       text:

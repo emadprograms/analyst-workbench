@@ -181,54 +181,6 @@ def run_update_company(selected_date: date, model_name: str, tickers: list[str],
     logger.log(f"✅ Company Card updates complete. Success: {success_count}/{len(tickers)}")
     return success_count > 0
 
-def run_view_economy(selected_date: date, logger: AppLogger) -> bool:
-    logger.log(f"🔎 Retrieving Economy Card for {selected_date}...")
-    current_eco_json, _ = get_economy_card(before_date=selected_date.isoformat())
-    
-    from modules.ai.ai_services import TRACKER
-    if not current_eco_json:
-        err_msg = f"No Economy Card found for {selected_date}."
-        logger.error(err_msg)
-        TRACKER.log_error("VIEW_ECONOMY", err_msg)
-        return False
-    
-    try:
-        parsed_json = json.loads(current_eco_json)
-        formatted_json = json.dumps(parsed_json, indent=2)
-        TRACKER.metrics.artifacts[f"Economy_Card_{selected_date.isoformat()}"] = formatted_json
-        TRACKER.set_result("View Status", "✅ Success")
-        logger.log(f"✅ Economy Card retrieved and attached for {selected_date}")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to parse Economy Card JSON: {e}")
-        TRACKER.log_error("VIEW_ECONOMY", "Invalid JSON format in DB")
-        return False
-
-def run_view_company(selected_date: date, tickers: list[str], logger: AppLogger) -> bool:
-    logger.log(f"🔎 Retrieving Company Cards for {len(tickers)} tickers on {selected_date}...")
-    success_count = 0
-    from modules.ai.ai_services import TRACKER
-    
-    for ticker in tickers:
-        logger.log(f"Fetching {ticker}...")
-        card_json, _, _ = get_company_card_and_notes(ticker, selected_date)
-        if card_json:
-            try:
-                parsed_json = json.loads(card_json)
-                formatted_json = json.dumps(parsed_json, indent=2)
-                TRACKER.metrics.artifacts[f"{ticker}_Card_{selected_date.isoformat()}"] = formatted_json
-                success_count += 1
-                logger.log(f"✅ Retrieved {ticker}")
-            except Exception as e:
-                logger.error(f"Failed to parse {ticker} Card JSON: {e}")
-                TRACKER.log_error("VIEW_COMPANY", f"Invalid JSON for {ticker}")
-        else:
-            logger.error(f"❌ No card found for {ticker}")
-            TRACKER.log_error("VIEW_COMPANY", f"Missing {ticker}")
-    
-    TRACKER.set_result("View Status", f"✅ {success_count}/{len(tickers)} Retrieved")
-    return success_count > 0
-
 def main():
     parser = argparse.ArgumentParser(description="Analyst Workbench CLI")
     parser.add_argument("--date", type=str, help="Target date (YYYY-MM-DD)")
@@ -238,7 +190,7 @@ def main():
         default="gemini-3-flash-free",
         choices=list(AVAILABLE_MODELS.keys())
     )
-    parser.add_argument("--action", choices=["update-economy", "update-company", "view-economy", "view-company", "input-news", "inspect", "setup", "test-webhook", "check-news"], default="update-economy", help="Action to perform")
+    parser.add_argument("--action", choices=["update-economy", "update-company", "input-news", "inspect", "setup", "test-webhook", "check-news"], default="update-economy", help="Action to perform")
     parser.add_argument("--tickers", type=str, help="Comma-separated list of tickers (used with --action update-company)")
     parser.add_argument("--text", type=str, help="Market news text (used with --action input-news)")
     
@@ -268,8 +220,6 @@ def main():
         action_map = {
             "update-economy": "Economy_Card_Update",
             "update-company": "Company_Card_Update",
-            "view-economy": "View_Economy_Card",
-            "view-company": "View_Company_Card",
             "input-news": "Market_News_Input",
             "inspect": "DB_Inspection",
             "setup": "DB_Setup",
@@ -296,17 +246,6 @@ def main():
                 return
             ticker_list = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
             if not run_update_company(target_date, args.model, ticker_list, logger):
-                exit_code = 1
-        elif args.action == "view-economy":
-            if not run_view_economy(target_date, logger):
-                exit_code = 1
-        elif args.action == "view-company":
-            if not args.tickers:
-                logger.error("🛑 Action 'view-company' requires --tickers.")
-                exit_code = 1
-                return
-            ticker_list = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
-            if not run_view_company(target_date, ticker_list, logger):
                 exit_code = 1
         elif args.action == "input-news":
             news_content = None
