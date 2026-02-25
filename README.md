@@ -5,7 +5,7 @@
 ## 🚀 Key Features
 
 *   **Date-Aware EOD Pipeline:** Fully automated workflow to process market news, ETF price action, and individual ticker behavior for any specific date.
-*   **Discord-to-GitHub Remote Control:** A custom Discord bot (`!inputnews`, `!updateeconomy`) that dispatches GitHub Actions workflows for serverless execution.
+*   **Discord-to-GitHub Remote Control:** A custom Discord bot (`!inputnews`, `!buildcards`) that dispatches GitHub Actions workflows for serverless execution.
 *   **Gemini Key Rotation (KeyManager):** Sophisticated management of Google Gemini (Pro & Flash) API keys, handling rate limits, quotas, and automatic rotation via a central database.
 *   **Impact Engine:** Advanced quantitative analysis that calculates "Value Migration" and "Committed Participant" behavior to determine the nature of a trading session.
 *   **Infisical Secret Management:** Secure, centralized management of all API keys (GitHub, Discord, Turso, Gemini) via the Infisical platform.
@@ -97,9 +97,9 @@ Run the pipeline or individual tasks directly from your terminal.
 Use these commands in your Discord server to trigger the automation remotely.
 
 *   **`!inputnews [date]`**: Opens a text box to paste headlines or accepts an attached `.txt` file.
-*   **`!updateeconomy [date]`**: Dispatches a GitHub Action to generate the day's Macro card.
+*   **`!buildcards [date]`**: Opens an interactive UI to select between building an Economy Card or Company Cards, and dispatches the corresponding GitHub Action.
 *   **`!checknews [date]`**: Verifies if news has been successfully ingested for a specific date.
-*   **`!inspect`**: Triggers a database health check and reports back via webhook.
+*   **`!inspect [date]`**: Triggers a database health check and reports back via webhook.
 
 ---
 
