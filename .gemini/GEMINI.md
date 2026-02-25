@@ -17,7 +17,7 @@ The **Analyst Workbench** is a Streamlit-based Python application designed to ac
     *   `daily_inputs`: Stores the daily raw news/macro context provided by the user.
 
 *   **Computation Layer (Python)**:
-    *   `modules/impact_engine.py`: The quantitative heart. Slice price action into 3 sessions (Pre, RTH, Post), detects "Impact Levels" (Support/Resistance), and tracks "Value Migration" (30min blocks).
+    *   `modules/impact_engine.py`: The quantitative heart. Slice price action into 3 sessions (Pre, RTH, Post), detects "Impact Levels" (Support/Resistance), tracks "Value Migration" (30min blocks), and calculates **Volume Profiles** (POC, VAH, VAL) and Key Volume Events.
     *   `modules/ai_services.py`: The logic layer. Constructs the massive "Masterclass" prompts, manages API keys (`KeyManager`), and parses the AI's JSON response.
     *   `app.py`: The frontend. Handles UI, user inputs, and triggers the batch update loops.
 

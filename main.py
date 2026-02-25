@@ -86,7 +86,7 @@ from modules.data.db_utils import (
     get_all_tickers_from_db
 )
 from modules.ai.ai_services import update_economy_card, update_company_card
-from modules.data.data_processing import generate_analysis_text
+from modules.analysis.impact_engine import get_latest_price_details
 
 def run_update_economy(selected_date: date, model_name: str, logger: AppLogger) -> bool:
     logger.log(f"🧠 Updating Economy Card for {selected_date}...")
@@ -103,11 +103,11 @@ def run_update_economy(selected_date: date, model_name: str, logger: AppLogger) 
     # 2. Get Current Card
     current_eco_json, _ = get_economy_card(before_date=selected_date.isoformat())
     
-    # 3. Generate ETF Summaries (The 'Evidence')
-    logger.log("   Fetching ETF intraday analysis...")
-    etf_summaries = generate_analysis_text(list(ETF_TICKERS), selected_date)
-    
-    if "[ERROR]" in etf_summaries:
+    # 3. Check for Data Availability
+    logger.log("   Verifying market data availability...")
+    cutoff_str = f"{selected_date.isoformat()} 23:59:59"
+    close_price, ts = get_latest_price_details(None, "SPY", cutoff_str, logger)
+    if not ts or not ts.startswith(selected_date.isoformat()):
         err_msg = f"Market data missing for {selected_date} in Price DB. Pipeline Halted."
         logger.error(err_msg)
         from modules.ai.ai_services import TRACKER
@@ -119,14 +119,14 @@ def run_update_economy(selected_date: date, model_name: str, logger: AppLogger) 
         current_economy_card=current_eco_json,
         daily_market_news=market_news,
         model_name=model_name,
-        etf_summaries=etf_summaries,
         selected_date=selected_date,
         logger=logger
     )
     
     # 5. Save
     if new_eco_json:
-        success = upsert_economy_card(selected_date, etf_summaries, new_eco_json)
+        # Use a placeholder summary since we now store this purely in JSON
+        success = upsert_economy_card(selected_date, "Evidence processed via Impact Engine", new_eco_json)
         if success:
             logger.log(f"✅ Economy Card updated for {selected_date}")
             return True

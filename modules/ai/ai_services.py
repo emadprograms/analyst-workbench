@@ -20,8 +20,7 @@ from modules.core.config import (
     TURSO_AUTH_TOKEN # Imported
 )
 from modules.core.key_manager import KeyManager # <-- Imported Class
-# 3. FIX: Added missing newline that was causing syntax errors
-from modules.data.data_processing import parse_raw_summary
+# 3. FIX: Removed missing data processing module import
 from modules.core.logger import AppLogger
 from modules.data.db_utils import get_db_connection
 from modules.analysis.impact_engine import get_or_compute_context
@@ -544,7 +543,6 @@ def update_economy_card(
     current_economy_card: str, 
     daily_market_news: str, 
     model_name: str,
-    etf_summaries: str, 
     selected_date: date, 
     logger: AppLogger = None
 ):
@@ -607,7 +605,7 @@ def update_economy_card(
         finally:
             conn.close()
     
-    combined_etf_evidence = etf_summaries + "\\n\\n[IMPACT ENGINE CONTEXT]\\n" + json.dumps(etf_impact_data, indent=2)
+    combined_etf_evidence = "[IMPACT ENGINE CONTEXT]\\n" + json.dumps(etf_impact_data, indent=2)
 
     # --- FIX: Main Prompt ---
     system_prompt = (
@@ -636,7 +634,7 @@ def update_economy_card(
     </raw_market_news>
 
     [Key ETF Summaries (The 'How' / IMPACT CONTEXT CARDS)]
-    (This is the quantitative, level-based 'proof'. Use the 'Value Migration Log' and 'Impact Levels' for SPY, QQQ, etc. to confirm the narrative.)
+    (This is the quantitative, level-based 'proof'. Use the 'Value Migration Log', 'volume_profile', 'key_volume_events', and 'key_levels' for SPY, QQQ, etc. to confirm the narrative.)
     <key_etf_summaries>
     {combined_etf_evidence}
     </key_etf_summaries>

@@ -318,6 +318,77 @@ def _analyze_slice_migration(df):
     return value_migration_log
 
 
+def _calculate_volume_profile(df, bins=50):
+    if df.empty or 'Volume' not in df.columns or df['Volume'].sum() == 0:
+        return None, None, None
+        
+    price_mid = (df['High'] + df['Low']) / 2
+    price_bins = pd.cut(price_mid, bins=bins)
+    
+    if price_bins.empty:
+        return None, None, None
+        
+    grouped = df.groupby(price_bins, observed=False)['Volume'].sum()
+    
+    if grouped.empty:
+        return None, None, None
+        
+    poc_bin = grouped.idxmax()
+    if not isinstance(poc_bin, pd.Interval):
+         return None, None, None
+    poc_price = round(poc_bin.mid, 2)
+    
+    total_volume = grouped.sum()
+    if total_volume == 0:
+        return poc_price, None, None
+        
+    target_volume = total_volume * 0.70
+    sorted_by_vol = grouped.sort_values(ascending=False)
+    cumulative_vol = sorted_by_vol.cumsum()
+    value_area_bins = sorted_by_vol[cumulative_vol <= target_volume]
+    
+    if value_area_bins.empty:
+        return poc_price, None, None
+        
+    val_price = round(value_area_bins.index.min().left, 2)
+    vah_price = round(value_area_bins.index.max().right, 2)
+    
+    return poc_price, vah_price, val_price
+
+def _find_key_volume_events(df, count=3):
+    if df.empty or 'Volume' not in df.columns or 'dt_eastern' not in df.columns:
+        return []
+
+    hod = df['High'].max()
+    lod = df['Low'].min()
+    sorted_by_vol = df.sort_values(by='Volume', ascending=False)
+    top_events = sorted_by_vol.head(count)
+    
+    events_list = []
+    for _, row in top_events.iterrows():
+        time_str = row['dt_eastern'].strftime('%H:%M') if hasattr(row['dt_eastern'], 'strftime') else str(row['dt_eastern'])
+        price = row['Close']
+        vol = row['Volume']
+        
+        action_parts = []
+        if row['High'] >= hod: action_parts.append("Set High-of-Day")
+        if row['Low'] <= lod: action_parts.append("Set Low-of-Day")
+        
+        if row['Close'] > row['Open']: action_parts.append("Strong Up-Bar")
+        elif row['Close'] < row['Open']: action_parts.append("Strong Down-Bar")
+        else: action_parts.append("Neutral Bar")
+            
+        brief_action = " | ".join(action_parts)
+        events_list.append({
+            "time": time_str,
+            "price": round(price, 2),
+            "volume": int(vol),
+            "action": brief_action
+        })
+        
+    return events_list
+
+
 # ==========================================
 # MASTER FUNCTION: 3-PART ANALYSIS
 # ==========================================
@@ -362,11 +433,20 @@ def analyze_market_context(df, ref_levels, ticker="UNKNOWN") -> dict:
         low = slice_df['Low'].min()
         vol = slice_df['Volume'].sum() if 'Volume' in slice_df.columns else 0
         
+        poc, vah, val = _calculate_volume_profile(slice_df)
+        key_vol_events = _find_key_volume_events(slice_df)
+        
         return {
             "status": "Active",
             "high": round(high, 2),
             "low": round(low, 2),
             "volume_approx": int(vol),
+            "volume_profile": {
+                "POC": poc,
+                "VAH": vah,
+                "VAL": val
+            },
+            "key_volume_events": key_vol_events,
             "key_levels": rejections,
             "value_migration": migration
         }
