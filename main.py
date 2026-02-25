@@ -22,7 +22,6 @@ def send_webhook_report(webhook_url, target_date, action, model, logger=None):
     # 1. Enhance Log Filename
     # Format: {descriptive_action}_{date}_{model}_{timestamp}.log
     action_map = {
-        "run": "Full_Pipeline_Run",
         "update-economy": "Economy_Card_Update",
         "update-company": "Company_Card_Update",
         "view-economy": "View_Economy_Card",
@@ -182,51 +181,6 @@ def run_update_company(selected_date: date, model_name: str, tickers: list[str],
     logger.log(f"✅ Company Card updates complete. Success: {success_count}/{len(tickers)}")
     return success_count > 0
 
-def run_pipeline(selected_date: date, model_name: str, logger: AppLogger):
-    logger.log(f"🚀 Starting Full Pipeline for {selected_date} using {model_name}")
-
-    # 1. Update Economy Card
-    if not run_update_economy(selected_date, model_name, logger):
-        logger.error("🛑 Pipeline Halted: Economy update failed (likely missing data).")
-        return
-
-    # 2. Update Company Cards
-    logger.log("--- Updating Company Cards ---")
-    tickers = get_all_tickers_from_db()
-    if not tickers:
-        logger.log("⚠️ No tickers found in 'stocks' table. Using config fallback.")
-        tickers = STOCK_TICKERS
-
-    for ticker in tickers:
-        logger.log(f"Processing {ticker}...")
-        prev_card, hist_notes, prev_date = get_company_card_and_notes(ticker, selected_date)
-        
-        # In CLI, we'd ideally fetch the ticker summary from DB or generate it.
-        # For now, we'll placeholder the summary input as we move towards full automation
-        ticker_summary = f"CLI Update for {ticker} on {selected_date}" 
-        
-        # market_news for context
-        market_news, _ = get_daily_inputs(selected_date)
-
-        new_card = update_company_card(
-            ticker=ticker,
-            previous_card_json=prev_card,
-            previous_card_date=prev_date,
-            historical_notes=hist_notes,
-            new_eod_date=selected_date,
-            model_name=model_name,
-            market_context_summary=market_news,
-            logger=logger
-        )
-        
-        if new_card:
-            upsert_company_card(selected_date, ticker, ticker_summary, new_card)
-        else:
-            from modules.ai.ai_services import TRACKER
-            TRACKER.log_call(0, False, model_name, ticker=ticker, error="Update Failed")
-    
-    logger.log("✅ Full Pipeline run complete.")
-
 def run_view_economy(selected_date: date, logger: AppLogger) -> bool:
     logger.log(f"🔎 Retrieving Economy Card for {selected_date}...")
     current_eco_json, _ = get_economy_card(before_date=selected_date.isoformat())
@@ -284,7 +238,7 @@ def main():
         default="gemini-3-flash-free",
         choices=list(AVAILABLE_MODELS.keys())
     )
-    parser.add_argument("--action", choices=["run", "update-economy", "update-company", "view-economy", "view-company", "input-news", "inspect", "setup", "test-webhook", "check-news"], default="run", help="Action to perform")
+    parser.add_argument("--action", choices=["update-economy", "update-company", "view-economy", "view-company", "input-news", "inspect", "setup", "test-webhook", "check-news"], default="update-economy", help="Action to perform")
     parser.add_argument("--tickers", type=str, help="Comma-separated list of tickers (used with --action update-company)")
     parser.add_argument("--text", type=str, help="Market news text (used with --action input-news)")
     
@@ -312,7 +266,6 @@ def main():
 
         # Map actions to descriptive names
         action_map = {
-            "run": "Full_Pipeline_Run",
             "update-economy": "Economy_Card_Update",
             "update-company": "Company_Card_Update",
             "view-economy": "View_Economy_Card",
@@ -333,11 +286,7 @@ def main():
              exit_code = 1
              return
 
-        if args.action == "run":
-            # Note: run_pipeline doesn't currently return status, but it logs errors.
-            # We assume if it finishes without exception it's 'success' or handled internally.
-            run_pipeline(target_date, args.model, logger)
-        elif args.action == "update-economy":
+        if args.action == "update-economy":
             if not run_update_economy(target_date, args.model, logger):
                 exit_code = 1
         elif args.action == "update-company":

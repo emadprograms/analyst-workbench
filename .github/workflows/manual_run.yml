@@ -12,7 +12,7 @@ on:
         required: true
         default: 'gemini-3-flash-free'
       action:
-        description: 'Action to perform (run, update-economy, update-company, view-economy, view-company, input-news, inspect)'
+        description: 'Action to perform (update-economy, update-company, view-economy, view-company, input-news, inspect)'
         required: true
         default: 'update-economy'
       tickers:

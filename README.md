@@ -75,10 +75,6 @@ python modules/data/setup_db.py
 
 Run the pipeline or individual tasks directly from your terminal.
 
-*   **Full Pipeline Run:**
-    ```bash
-    python main.py --action run --date 2026-02-23 --model gemini-3-flash-free
-    ```
 *   **Update Economy Card Only:**
     ```bash
     python main.py --action update-economy --date 2026-02-23
