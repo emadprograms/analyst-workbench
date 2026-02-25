@@ -6,3 +6,5 @@ pandas
 libsql-client
 infisicalsdk
 pytz
+deepdiff
+requests
