@@ -502,15 +502,20 @@ class TestCaching:
         from modules.core.logger import AppLogger
         logger = AppLogger("test")
         
-        # Pre-populate cache
+        # Pre-populate cache with a valid context (_is_valid_context requires
+        # status != 'No Data' and meta.data_points > 0).
         cache_file = f"{self.CACHE_DIR}/{self.TEST_TICKER}_{self.TEST_DATE}.json"
         os.makedirs(self.CACHE_DIR, exist_ok=True)
-        cached_data = {"meta": {"ticker": self.TEST_TICKER}, "cached": True}
+        cached_data = {
+            "meta": {"ticker": self.TEST_TICKER, "data_points": 5},
+            "status": "Active",
+            "cached": True,
+        }
         with open(cache_file, "w") as f:
             json.dump(cached_data, f)
-        
+
         result = get_or_compute_context(MagicMock(), self.TEST_TICKER, self.TEST_DATE, logger)
-        
+
         assert result["cached"] is True
         mock_bars.assert_not_called()
         mock_stats.assert_not_called()

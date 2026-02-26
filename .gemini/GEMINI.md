@@ -21,13 +21,17 @@ The **Analyst Workbench** is a Streamlit-based Python application designed to ac
     *   `modules/ai_services.py`: The logic layer. Constructs the massive "Masterclass" prompts, manages API keys (`KeyManager`), and parses the AI's JSON response.
     *   `app.py`: The frontend. Handles UI, user inputs, and triggers the batch update loops.
     *   **Discord Bot (`discord_bot/bot.py`)**: The Command & Control layer.
-        *   **Orchestration**: Dispatches heavy compute tasks (Card Building, News Input) to GitHub Actions to maintain a serverless architecture and keep Railway costs near zero.
+        *   **Orchestration**: Dispatches heavy compute tasks (Card Building) to GitHub Actions to maintain a serverless architecture and keep Railway costs near zero.
+        *   **Local Ingestion**: Directly handles `!inputnews` to save news context to the database without GitHub Actions. Supports manual text entry, file attachments (.txt, .log), and URL fetching (with auto-conversion of Pastebin links to raw format).
         *   **Direct Interaction**: Performs lightweight, low-compute tasks (Retrieving Cards, Editing Historical Notes, Checking News Ingestion, DB Inspection) directly against the database for instantaneous user feedback.
         *   **Dynamic Discovery**: Fetches the active stock watch list directly from `aw_ticker_notes`, eliminating hardcoded lists in the UI.
 
 *   **Caching Layer (Context Freezing)**:
     *   **Goal**: Reduce DB reads.
-    *   **Mechanism**: The `impact_engine` checks for a local file `cache/context/{ticker}_{date}.json`. If found, it loads it instantly. Use `impact_engine.get_or_compute_context`.
+    *   **Mechanism**: The `impact_engine` checks for a local file `cache/context/{ticker}_{date}.json`. If found **and valid**, it loads it instantly. Use `impact_engine.get_or_compute_context`.
+    *   **Validation Gate (`_is_valid_context`)**: A cached file is only served if it passes the validity check: `status != "No Data"` AND `meta.data_points > 0`. Files that fail this check are deleted from disk and re-computed. This prevents stale "No Data" results from being returned forever when the DB was transiently empty.
+    *   **Write Gate**: Only a result that passes `_is_valid_context` is written to disk. A failed computation never enters the cache.
+    *   **Numpy Serialisation**: The `json.dump` call uses the `_numpy_json_default` encoder to handle `np.int64` / `np.float64` values that pandas produces from integer-valued price data.
 
 ---
 
@@ -76,6 +80,10 @@ The AI explicitly hunts for **Disconnects**:
 1.  **Do NOT edit `get_or_compute_context`** casually. It protects the database bill.
 2.  **Prompt Engineering**: All prompts live in `modules/ai_services.py`. If you change the logic there, update this document.
 3.  **Data Integrity**: Users cannot manually edit the `todaysAction` log. It is an immutable record of the AI's daily analysis.
+4.  **`keyActionLog` is append-only (IMMUTABLE)**. Both `update_company_card` and `update_economy_card` must **never** overwrite an existing log entry for a given date. If an entry already exists for `trade_date_str`, log a warning and preserve the original. If you find an `else` branch that mutates an existing entry, it is a bug.
+5.  **AI JSON parsing must use `_safe_parse_ai_json`**. Never call `json.loads` directly on a raw Gemini response. The helper tries three strategies (direct parse → last fenced block → bare braces) and returns `None` on total failure, which the caller must handle with a clean exception rather than silent data loss.
+6.  **`fundamentalContext.valuation` is user-managed and read-only**. After every AI update to a company card, the previous card's `valuation` value must be restored. The AI is not permitted to overwrite it with placeholder text.
+7.  **`dispatch_github_action` returns a 3-tuple `(bool, str, str | None)`**. All call sites must unpack all three values. The third element is the direct Actions run URL (or `None`); callers should fall back to `ACTIONS_URL` when it is `None`.
 
 ---
 
@@ -140,7 +148,7 @@ If these are missing, the app logs a warning and enters "Offline/Legacy Mode."
 
 ### B. Main Pipeline — GitHub Actions
 *   **Entry Point**: `main.py` at the repo root.
-*   **Orchestration**: The Discord Bot dispatches GitHub Actions workflows (`manual_run.yml`) for heavy compute (card building, news ingestion).
+*   **Orchestration**: The Discord Bot dispatches GitHub Actions workflows (`manual_run.yml`) for heavy compute (card building).
 *   **Secrets**: Passed via `env` block in the workflow YAML from GitHub repository secrets.
 
 ---
@@ -151,3 +159,40 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 1.  **Automatic Pushing**: Because all actions in the Gemini CLI are directed and approved by the user in real-time, the agent must **always** execute a `git push` immediately after completing a code modification or bug fix. 
 2.  **No Manual Staging Required**: The agent should assume that once a task is finished, the state is ready for the remote repository.
+
+---
+
+## 8. Engineering Log
+
+This section records resolved bugs and structural changes for traceability. Newest entries first.
+
+### 2026-02-26 — `inputnews` Command Hardening (discord_bot/bot.py)
+*   **URL regex path truncation**: `r'https?://(?:[-\w.]|...)'` excluded `/` from its character class, so every URL was captured up to the first slash (domain only). This broke Pastebin raw-URL rewriting and any path-based URL. Fixed to `r'https?://[^\s<>"\']+'`.
+*   **`aiohttp` timeout type**: `session.get(url, timeout=30)` raised `ValueError` (aiohttp requires `ClientTimeout`, not an int). Fixed to `aiohttp.ClientTimeout(total=30)`.
+*   **Attachment safety**: Added 5 MB size guard before `attachment.read()`; changed `.decode("utf-8")` to `.decode("utf-8", errors="replace")` to survive non-UTF-8 news files.
+
+### 2026-02-26 — Four Core Bug Fixes + Test Suite
+
+#### Bug 1 — Cache Staleness (`modules/analysis/impact_engine.py`)
+*   **Root cause**: `get_or_compute_context` wrote any result (including `{"status": "No Data"}`) to disk and then blindly served it forever on every subsequent call.
+*   **Fix**: Added `_is_valid_context()` gate on both cache reads and writes. Stale / corrupt files are removed from disk before re-computing. Added `_numpy_json_default()` encoder to handle numpy scalar types from pandas aggregations.
+
+#### Bug 2 — `keyActionLog` Immutability Violation (`modules/ai/ai_services.py`)
+*   **Root cause**: Both `update_company_card` and `update_economy_card` had an `else` branch that iterated the log and overwrote the existing entry for the same date, violating the append-only rule in Section 4.
+*   **Fix**: The `else` branch now logs `⚠️ IMMUTABILITY: ... Preserving original entry` and does nothing.
+
+#### Bug 3 — JSON Parsing Vulnerability (`modules/ai/ai_services.py`)
+*   **Root cause**: `update_economy_card` had no markdown stripping at all; `update_company_card` used a lazy regex that could grab an incomplete JSON object from earlier in the prompt string.
+*   **Fix**: Added `_safe_parse_ai_json(text)` shared utility (3-strategy: direct `json.loads` → last fenced block → bare braces). Both card functions now use it exclusively.
+
+#### Bug 4 — Silent Fire-and-Forget Dispatch (`discord_bot/bot.py`)
+*   **Root cause**: `dispatch_github_action` returned `(True, "Success")` with no response body on error, and gave no confirmation URL when the dispatch succeeded.
+*   **Fix**: Returns `(bool, str, str | None)` 3-tuple. Error responses include up to 300 chars of the response body. Success path polls GitHub once (after a 5 s delay) via `_fetch_latest_run_url` to retrieve the direct Actions run URL.
+
+#### Bug 5 (discovered via tests) — `valuation` Overwritten by AI (`modules/ai/ai_services.py`)
+*   **Root cause**: The `deep_update` call in `update_company_card` allowed the AI to overwrite the user's real `fundamentalContext.valuation` with its echoed placeholder text.
+*   **Fix**: After `deep_update`, the previous card's `valuation` is explicitly restored.
+
+#### Test Suite (`tests/test_fixes.py`)
+*   58 tests across 9 classes covering all 5 bugs, the `_safe_parse_ai_json` helper, `_is_valid_context`, `_fetch_latest_run_url`, deep-copy isolation, and read-only field protection.
+*   All 182 tests in the full suite pass (`DISABLE_INFISICAL=1 .venv/bin/python -m pytest tests/ -q`).
