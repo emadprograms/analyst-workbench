@@ -40,6 +40,58 @@ except Exception as e:
     logging.critical(f"CRITICAL: Failed to initialize KeyManager: {e}")
     KEY_MANAGER = None
 
+
+# ---------------------------------------------------------------------------
+# JSON PARSING UTILITIES
+# ---------------------------------------------------------------------------
+
+def _safe_parse_ai_json(text: str) -> dict | None:
+    r"""
+    Robustly parses an AI response string into a Python dict.
+
+    Handles three cases in priority order:
+
+    1. Direct JSON string -- the common path when using structured-output mode
+       (``responseMimeType: application/json``).
+    2. A triple-backtick fenced code block -- the AI sometimes wraps its output
+       in fences even with structured outputs requested.  We search for the
+       **last** fenced block so that stray examples inside the prompt don't
+       accidentally match.
+    3. First bare ``{...}`` object found anywhere in the text -- last-resort
+       extraction when fences are absent but the JSON is embedded in prose.
+
+    Returns ``None`` (not an empty dict) if parsing fails at every level so that
+    callers can distinguish "nothing usable" from "an empty object".
+    """
+    if not text or not isinstance(text, str):
+        return None
+
+    stripped = text.strip()
+
+    # --- Case 1: direct JSON ---
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        pass
+
+    # --- Case 2: last ```json … ``` block ---
+    fenced_blocks = re.findall(r"```(?:json)?\s*([\s\S]+?)\s*```", stripped)
+    for candidate in reversed(fenced_blocks):  # prefer the last / outermost block
+        try:
+            return json.loads(candidate.strip())
+        except json.JSONDecodeError:
+            continue
+
+    # --- Case 3: first bare {...} object ---
+    brace_match = re.search(r"\{[\s\S]+\}", stripped)
+    if brace_match:
+        try:
+            return json.loads(brace_match.group(0))
+        except json.JSONDecodeError:
+            pass
+
+    return None
+
 # --- The Robust API Caller (V8) ---
 def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_name: str, max_retries=5, **kwargs) -> str | None:
     """
@@ -459,11 +511,15 @@ def update_company_card(
         return None
     
     logger.log(f"4. Received EOD Card for {ticker}. Parsing & Validating...")
-    json_match = re.search(r"```json\s*([\s\S]+?)\s*```", ai_response_text)
-    ai_response_text = json_match.group(1) if json_match else ai_response_text.strip()
-    
+
     try:
-        ai_data = json.loads(ai_response_text)
+        # Robust multi-format JSON parsing (handles direct JSON + markdown fences).
+        # _safe_parse_ai_json returns None — never raises — on parse failure.
+        ai_data = _safe_parse_ai_json(ai_response_text)
+        if ai_data is None:
+            raise json.JSONDecodeError(
+                "_safe_parse_ai_json could not extract a valid JSON object", ai_response_text, 0
+            )
         new_action = ai_data.pop("todaysAction", None)
         
         if not new_action:
@@ -493,6 +549,13 @@ def update_company_card(
         
         # 3. Manually update fields the AI shouldn't control
         final_card['basicContext']['tickerDate'] = f"{ticker} | {trade_date_str}"
+
+        # 'valuation' is READ-ONLY per GEMINI.md: "Set during initialization/manual edit".
+        # The AI is instructed to echo the placeholder text, so deep_update would
+        # overwrite the real valuation data.  Explicitly restore the previous value.
+        prev_valuation = previous_overview_card_dict.get('fundamentalContext', {}).get('valuation', '')
+        if prev_valuation:
+            final_card.setdefault('fundamentalContext', {})['valuation'] = prev_valuation
         
         # 4. Programmatically append to the log
         if "technicalStructure" not in final_card:
@@ -511,15 +574,13 @@ def update_company_card(
                 "action": new_action
             })
         else:
-            logger.log("   ...Log entry for this date already exists. Overwriting.")
-            # Find and overwrite the existing entry
-            for i, entry in enumerate(final_card['technicalStructure']['keyActionLog']):
-                if entry.get('date') == trade_date_str:
-                    final_card['technicalStructure']['keyActionLog'][i] = {
-                        "date": trade_date_str,
-                        "action": new_action
-                    }
-                    break
+            logger.log(
+                f"   ⚠️ IMMUTABILITY: Log entry for {trade_date_str} already exists in "
+                f"{ticker} card.  Preserving original entry — not overwriting."
+            )
+            # Do NOT overwrite.  The keyActionLog is an immutable daily record per GEMINI.md:
+            # "Users cannot manually edit the todaysAction log.
+            #  It is an immutable record of the AI's daily analysis."
 
         # 5. --- FIX: REMOVED the lines that reset the trade plans ---
         # final_card['openingTradePlan'] = ...
@@ -663,8 +724,12 @@ def update_economy_card(
         return None
 
     try:
-        # --- FIX: We are now parsing the AI's *new* output ---
-        ai_data = json.loads(ai_response_text)
+        # Robust multi-format JSON parsing (handles direct JSON + markdown fences).
+        ai_data = _safe_parse_ai_json(ai_response_text)
+        if ai_data is None:
+            raise json.JSONDecodeError(
+                "_safe_parse_ai_json could not extract a valid JSON object", ai_response_text, 0
+            )
         
         # --- FIX: Extract the 'todaysAction' ---
         new_action = ai_data.pop("todaysAction", None)
@@ -702,14 +767,11 @@ def update_economy_card(
                 "action": new_action
             })
         else:
-            logger.log("   ...Log entry for this date already exists. Overwriting.")
-            for i, entry in enumerate(final_card['keyActionLog']):
-                if entry.get('date') == trade_date_str:
-                    final_card['keyActionLog'][i] = {
-                        "date": trade_date_str,
-                        "action": new_action
-                    }
-                    break
+            logger.log(
+                f"   ⚠️ IMMUTABILITY: Log entry for {trade_date_str} already exists in "
+                f"economy card.  Preserving original entry — not overwriting."
+            )
+            # Do NOT overwrite.  The keyActionLog is an immutable daily record.
 
         logger.log("--- Success: Economy Card generation complete! ---")
         final_json = json.dumps(final_card, indent=4)

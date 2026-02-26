@@ -61,11 +61,10 @@ class DateDropdown(discord.ui.Select):
         await self.action_callback(interaction, self.values[0])
 
 class NewsModal(discord.ui.Modal, title='Market News Entry'):
-    def __init__(self, target_date, dispatch_callback, actions_url):
+    def __init__(self, target_date, save_callback):
         super().__init__()
         self.target_date = target_date
-        self.dispatch_callback = dispatch_callback
-        self.actions_url = actions_url
+        self.save_callback = save_callback
 
     news_text = discord.ui.TextInput(
         label=f'Market News Content',
@@ -76,16 +75,15 @@ class NewsModal(discord.ui.Modal, title='Market News Entry'):
     )
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.send_message(f"🛰️ Dispatching news for **{self.target_date}**... 🚀", ephemeral=False)
+        await interaction.response.defer(ephemeral=False)
         msg = await interaction.original_response()
+        await msg.edit(content=f"💾 **Saving news** for **{self.target_date}** to database... 🛰️")
         
-        inputs = {"target_date": self.target_date, "action": "input-news", "text": self.news_text.value}
-        success, error = await self.dispatch_callback(inputs)
-        
+        success = await self.save_callback(self.target_date, self.news_text.value)
         if success:
-            await msg.edit(content=f"🛰️ Dispatching news for **{self.target_date}**...\n✅ **Dispatched!** (ETA: ~2-3 mins)\n🔗 [Monitor Progress]({self.actions_url}) ⏱️")
+            await msg.edit(content=f"✅ **Market news successfully saved** for **{self.target_date}**! 🚀")
         else:
-            await msg.edit(content=f"🛰️ Dispatching news for **{self.target_date}**...\n❌ **Failed:** {error}")
+            await msg.edit(content=f"❌ **Failed to save news** for **{self.target_date}** to database.")
 
 # --- Build Cards UI ---
 
@@ -103,11 +101,12 @@ class BuildTypeSelectionView(discord.ui.View):
         await interaction.response.edit_message(content=f"🧠 **Building Economy Card** ({self.target_date})... 🛰️", view=None)
         msg = await interaction.original_response()
         inputs = {"target_date": self.target_date, "action": "update-economy"}
-        success, error = await self.dispatch_callback(inputs)
+        success, message, run_url = await self.dispatch_callback(inputs)
+        monitor_link = run_url or self.actions_url
         if success:
-            await msg.edit(content=f"🧠 **Building Economy Card** ({self.target_date})...\n✅ **Dispatched!** (ETA: ~5-7 mins)\n🔗 [Monitor Progress]({self.actions_url}) 📡⏱️")
+            await msg.edit(content=f"🧠 **Building Economy Card** ({self.target_date})...\n✅ **Dispatched!** (ETA: ~5-7 mins)\n🔗 [Monitor Progress]({monitor_link}) 📡⏱️")
         else:
-            await msg.edit(content=f"🧠 **Building Economy Card** ({self.target_date})... ❌ **Failed:** {error}")
+            await msg.edit(content=f"🧠 **Building Economy Card** ({self.target_date})... ❌ **Failed:** {message}")
 
     @discord.ui.button(label="🏢 Company Cards", style=discord.ButtonStyle.success, emoji="📊")
     async def company_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -147,11 +146,12 @@ class TickerSelectionView(discord.ui.View):
             "action": "update-company",
             "tickers": tickers_str
         }
-        success, error = await self.dispatch_callback(inputs)
+        success, message, run_url = await self.dispatch_callback(inputs)
+        monitor_link = run_url or self.actions_url
         if success:
-            await msg.edit(content=f"🚀 **Cards Dispatched!** ({len(self.selected_tickers)} tickers)\n✅ **Target Date:** {self.target_date}\n🔗 [Monitor Progress]({self.actions_url}) 📡⏱️")
+            await msg.edit(content=f"🚀 **Cards Dispatched!** ({len(self.selected_tickers)} tickers)\n✅ **Target Date:** {self.target_date}\n🔗 [Monitor Progress]({monitor_link}) 📡⏱️")
         else:
-            await msg.edit(content=f"❌ **Build Failed:** {error}")
+            await msg.edit(content=f"❌ **Build Failed:** {message}")
 
     @discord.ui.button(label="🌟 Select All", style=discord.ButtonStyle.secondary, row=2)
     async def select_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):

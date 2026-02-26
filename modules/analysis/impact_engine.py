@@ -473,43 +473,113 @@ def analyze_market_context(df, ref_levels, ticker="UNKNOWN") -> dict:
 # CACHING LAYER (Context Freezing)
 # ==========================================
 
+def _numpy_json_default(obj):
+    """
+    Custom JSON serializer for numpy scalar types emitted by pandas aggregations.
+
+    Pandas operations like ``.max()``, ``.min()``, ``.mean()`` return ``np.float64``
+    or ``np.int64`` values.  Python's built-in ``json.dumps`` can't handle these,
+    raising ``TypeError: Object of type int64 is not JSON serializable``.  This
+    encoder converts them to equivalent Python primitives transparently.
+    """
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def _is_valid_context(data: dict) -> bool:
+    """
+    Returns True only if a context card represents a successful, non-empty computation.
+    
+    A card is INVALID (must not be cached or served from cache) when:
+    1. It is None or not a dict.
+    2. Its top-level 'status' key equals 'No Data' (no price bars found).
+    3. Its 'meta.data_points' is 0 or absent (computation ran but produced nothing).
+    
+    This guard prevents stale empty results from being frozen to disk and served
+    forever on repeat calls.
+    """
+    if not data or not isinstance(data, dict):
+        return False
+    if data.get("status") == "No Data":
+        return False
+    data_points = data.get("meta", {}).get("data_points", 0)
+    if not data_points or data_points == 0:
+        return False
+    return True
+
+
 def get_or_compute_context(client, ticker: str, date_str: str, logger: AppLogger):
     """
     Checks for a locally cached 'Impact Context Card' JSON first.
-    If found -> Returns cached JSON (0 DB Reads).
-    If missing -> Fetches DB data, Computes, Saves to Cache, Returning JSON.
+    If found AND valid -> Returns cached JSON (0 DB Reads).
+    If missing OR invalid -> Fetches DB data, Computes, Saves to Cache, Returns JSON.
     
     Cache Path: cache/context/{ticker}_{date}.json
+    
+    IMPORTANT: Only results that contain real price data are persisted to cache.
+    Empty / 'No Data' results are never frozen so that a later call (once data
+    arrives in the DB) can compute a proper context.
     """
     cache_dir = "cache/context"
-    if not os.path.exists(cache_dir):
-        os.makedirs(cache_dir)
+    os.makedirs(cache_dir, exist_ok=True)
 
     cache_file = f"{cache_dir}/{ticker}_{date_str}.json"
-    
-    # 1. Try Cache Hit
+
+    # 1. Try Cache Hit — validate before trusting
     if os.path.exists(cache_file):
         try:
             with open(cache_file, "r") as f:
                 data = json.load(f)
-            logger.log(f"   🧊 Loaded Context from Cache ({ticker})")
-            return data
-        except Exception:
-            logger.log(f"   ⚠️ Cache Corrupt for {ticker}, re-computing...")
 
-    # 2. Cache Miss -> Compute
+            if _is_valid_context(data):
+                logger.log(f"   🧊 Loaded Context from Cache ({ticker})")
+                return data
+            else:
+                # Cache exists but contains a stale empty/error result → discard it
+                logger.log(
+                    f"   ⚠️ Cache for {ticker} is stale or has no data "
+                    f"(status={data.get('status')}, "
+                    f"data_points={data.get('meta', {}).get('data_points', 'N/A')}). "
+                    f"Re-computing..."
+                )
+                try:
+                    os.remove(cache_file)
+                except OSError:
+                    pass  # Best-effort removal; will be overwritten below anyway
+
+        except (json.JSONDecodeError, OSError):
+            logger.log(f"   ⚠️ Cache corrupt for {ticker}, re-computing...")
+            try:
+                os.remove(cache_file)
+            except OSError:
+                pass
+
+    # 2. Cache Miss (or invalidated) -> Compute
     # Fetch Data (High Cost)
     df = get_session_bars_from_db(client, ticker, date_str, f"{date_str} 23:59:59", logger)
     ref_stats = get_previous_session_stats(client, ticker, date_str, logger)
-    
+
     # Compute Context (CPU Cost)
     context_card = analyze_market_context(df, ref_stats, ticker)
-    
-    # 3. Save to Cache (Freeze)
-    try:
-        with open(cache_file, "w") as f:
-            json.dump(context_card, f, indent=2)
-    except Exception as e:
-        logger.log(f"   ⚠️ Failed to write cache: {e}")
+
+    # 3. Save to Cache (Freeze) — ONLY when we have real data
+    if _is_valid_context(context_card):
+        try:
+            with open(cache_file, "w") as f:
+                # Use a custom encoder so numpy scalars (int64, float64) emitted
+                # by pandas aggregations don't break JSON serialization.
+                json.dump(context_card, f, indent=2, default=_numpy_json_default)
+        except (OSError, TypeError, ValueError) as e:
+            logger.log(f"   ⚠️ Failed to write cache for {ticker}: {e}")
+    else:
+        logger.log(
+            f"   ⚠️ Skipping cache write for {ticker}: "
+            f"computed context has no data (DB may not be populated for {date_str})."
+        )
 
     return context_card
