@@ -4,6 +4,7 @@ import sys
 import argparse
 import time
 import json
+import concurrent.futures
 from datetime import date
 import requests
 
@@ -149,8 +150,7 @@ def run_update_company(selected_date: date, model_name: str, tickers: list[str],
     if not market_news:
         logger.warning(f"⚠️ No market news found for {selected_date}. Continuing without macro context.")
 
-    success_count = 0
-    for ticker in tickers:
+    def process_ticker(ticker):
         logger.log(f"Processing {ticker}...")
         prev_card, hist_notes, prev_date = get_company_card_and_notes(ticker, selected_date)
         
@@ -171,13 +171,20 @@ def run_update_company(selected_date: date, model_name: str, tickers: list[str],
         
         if new_card:
             if upsert_company_card(selected_date, ticker, ticker_summary, new_card):
-                success_count += 1
+                return True
             else:
                 logger.error(f"❌ Failed to save {ticker} card to DB")
+                return False
         else:
             # Note: call_gemini_api already tracks failures internally via TRACKER.
             # Only log a non-API error here if the card update failed for non-API reasons.
             logger.error(f"❌ AI update failed for {ticker}")
+            return False
+
+    success_count = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(tickers), 20)) as executor:
+        results = list(executor.map(process_ticker, tickers))
+        success_count = sum(1 for r in results if r)
     
     logger.log(f"✅ Company Card updates complete. Success: {success_count}/{len(tickers)}")
     return success_count > 0
