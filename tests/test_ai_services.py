@@ -13,6 +13,7 @@ import pytest
 import os
 import json
 import copy
+import requests
 from datetime import date
 from unittest.mock import patch, MagicMock, PropertyMock
 
@@ -523,3 +524,157 @@ class TestCallGeminiAPI:
         result = call_gemini_api("prompt", "system", logger, "gemini-3-flash-free", max_retries=3)
         
         assert result == "recovered"
+
+
+# ==========================================
+# TEST: Timeout & Error Handling in call_gemini_api
+# ==========================================
+
+class TestTimeoutHandling:
+    """
+    Tests that ReadTimeout is treated as a REAL failure (is_info_error=False),
+    not an info error. When a request times out, Google has already counted
+    the tokens — the key MUST go to cooldown.
+    """
+
+    @patch('modules.ai.ai_services.TRACKER')
+    @patch('modules.ai.ai_services.KEY_MANAGER')
+    @patch('requests.post')
+    def test_read_timeout_triggers_real_failure(self, mock_post, mock_km, mock_tracker):
+        """ReadTimeout must call report_failure with is_info_error=False."""
+        from modules.ai.ai_services import call_gemini_api
+
+        mock_km.estimate_tokens.return_value = 500
+        mock_km.get_key.return_value = ("key1", "abc123", 0.0, "gemini-3-flash-preview")
+        mock_post.side_effect = requests.exceptions.ReadTimeout("Connection timed out")
+
+        logger = AppLogger("test")
+        result = call_gemini_api("prompt", "system", logger, "gemini-3-flash-free", max_retries=1)
+
+        assert result is None
+        # The critical assertion: is_info_error must be False (key needs cooldown)
+        mock_km.report_failure.assert_called_with("abc123", is_info_error=False)
+
+    @patch('modules.ai.ai_services.TRACKER')
+    @patch('modules.ai.ai_services.KEY_MANAGER')
+    @patch('requests.post')
+    def test_read_timeout_does_not_return_key_to_pool(self, mock_post, mock_km, mock_tracker):
+        """After timeout, key must NOT be immediately available (must be on cooldown)."""
+        from modules.ai.ai_services import call_gemini_api
+
+        mock_km.estimate_tokens.return_value = 500
+        mock_km.get_key.return_value = ("key1", "abc123", 0.0, "model")
+        mock_post.side_effect = requests.exceptions.ReadTimeout()
+
+        logger = AppLogger("test")
+        call_gemini_api("prompt", "system", logger, "gemini-3-flash-free", max_retries=1)
+
+        # report_usage should NOT be called (key didn't succeed)
+        mock_km.report_usage.assert_not_called()
+        # report_failure MUST be called (not info error)
+        mock_km.report_failure.assert_called()
+        # Verify it was called with is_info_error=False
+        args, kwargs = mock_km.report_failure.call_args
+        assert kwargs.get('is_info_error', args[1] if len(args) > 1 else None) is False
+
+    @patch('modules.ai.ai_services.TRACKER')
+    @patch('modules.ai.ai_services.KEY_MANAGER')
+    @patch('requests.post')
+    def test_generic_exception_is_info_error(self, mock_post, mock_km, mock_tracker):
+        """Generic exceptions (not timeout) should be info errors — key returns to pool."""
+        from modules.ai.ai_services import call_gemini_api
+
+        mock_km.estimate_tokens.return_value = 500
+        mock_km.get_key.return_value = ("key1", "abc123", 0.0, "model")
+        mock_post.side_effect = ConnectionError("DNS failed")
+
+        logger = AppLogger("test")
+        call_gemini_api("prompt", "system", logger, "gemini-3-flash-free", max_retries=1)
+
+        mock_km.report_failure.assert_called_with("abc123", is_info_error=True)
+
+    @patch('modules.ai.ai_services.TRACKER')
+    @patch('modules.ai.ai_services.KEY_MANAGER')
+    @patch('requests.post')
+    def test_400_invalid_key_triggers_fatal(self, mock_post, mock_km, mock_tracker):
+        """400 with API_KEY_INVALID should call report_fatal_error (permanent retirement)."""
+        from modules.ai.ai_services import call_gemini_api
+
+        mock_km.estimate_tokens.return_value = 500
+        mock_km.get_key.return_value = ("key1", "abc123", 0.0, "model")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        mock_response.text = '{"error": {"message": "API_KEY_INVALID"}}'
+        mock_post.return_value = mock_response
+
+        logger = AppLogger("test")
+        call_gemini_api("prompt", "system", logger, "gemini-3-flash-free", max_retries=1)
+
+        mock_km.report_fatal_error.assert_called_once_with("abc123")
+
+    @patch('modules.ai.ai_services.TRACKER')
+    @patch('modules.ai.ai_services.KEY_MANAGER')
+    @patch('requests.post')
+    def test_429_triggers_real_failure(self, mock_post, mock_km, mock_tracker):
+        """429 should call report_failure with is_info_error=False."""
+        from modules.ai.ai_services import call_gemini_api
+
+        mock_km.estimate_tokens.return_value = 500
+        mock_km.get_key.return_value = ("key1", "abc123", 0.0, "model")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_response.text = "Resource exhausted"
+        mock_post.return_value = mock_response
+
+        logger = AppLogger("test")
+        call_gemini_api("prompt", "system", logger, "gemini-3-flash-free", max_retries=1)
+
+        mock_km.report_failure.assert_called_with("abc123", is_info_error=False)
+
+    @patch('modules.ai.ai_services.TRACKER')
+    @patch('modules.ai.ai_services.KEY_MANAGER')
+    @patch('requests.post')
+    def test_500_is_info_error(self, mock_post, mock_km, mock_tracker):
+        """500 server errors should be info errors (server's fault, not key's)."""
+        from modules.ai.ai_services import call_gemini_api
+
+        mock_km.estimate_tokens.return_value = 500
+        mock_km.get_key.return_value = ("key1", "abc123", 0.0, "model")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = "Internal Server Error"
+        mock_post.return_value = mock_response
+
+        logger = AppLogger("test")
+        call_gemini_api("prompt", "system", logger, "gemini-3-flash-free", max_retries=1)
+
+        mock_km.report_failure.assert_called_with("abc123", is_info_error=True)
+
+    @patch('modules.ai.ai_services.KEY_MANAGER')
+    @patch('requests.post')
+    def test_http_timeout_is_120_seconds(self, mock_post, mock_km):
+        """HTTP timeout should be 120s to accommodate large token requests."""
+        from modules.ai.ai_services import call_gemini_api
+
+        mock_km.estimate_tokens.return_value = 100
+        mock_km.get_key.return_value = ("key1", "abc123", 0.0, "model")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "candidates": [{"content": {"parts": [{"text": "ok"}]}}],
+            "usageMetadata": {"totalTokenCount": 100}
+        }
+        mock_post.return_value = mock_response
+
+        logger = AppLogger("test")
+        call_gemini_api("prompt", "system", logger, "gemini-3-flash-free")
+
+        # Verify the timeout parameter passed to requests.post
+        call_kwargs = mock_post.call_args
+        assert call_kwargs.kwargs.get('timeout') == 120 or \
+               (call_kwargs[1].get('timeout') == 120 if len(call_kwargs) > 1 else False), \
+            f"HTTP timeout should be 120s, got {call_kwargs}"

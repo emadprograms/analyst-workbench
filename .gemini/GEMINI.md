@@ -265,3 +265,75 @@ This section records resolved bugs and structural changes for traceability. Newe
 #### Test Suite (`tests/test_fixes.py`)
 *   58 tests across 9 classes covering all 5 bugs, the `_safe_parse_ai_json` helper, `_is_valid_context`, `_fetch_latest_run_url`, deep-copy isolation, and read-only field protection.
 *   All 182 tests in the full suite pass (`DISABLE_INFISICAL=1 .venv/bin/python -m pytest tests/ -q`).
+
+### 2026-02-28 — KeyManager Rate Limit Crisis: Root Cause Fix & Test Hardening
+
+The KeyManager was silently broken in multiple places, causing massive 429 rate-limit cascades
+(46 429s, 17 timeouts, only 5/25 successes in a single run). The test suite (229 tests) was
+passing because it never validated the critical invariants that were violated.
+
+#### Root Cause Analysis (5 bugs found by comparing against old working code)
+
+1. **Progressive cooldown REMOVED** (`key_manager.py: report_failure`): Escalating penalties
+   (`{1: 10, 2: 60, 3: 300, 4: 3600}`) were replaced with a flat 60s penalty and no strike
+   tracking. Bad keys got recycled every 60s regardless of how many times they failed.
+
+2. **Strikes check COMMENTED OUT** (`key_manager.py: _check_key_limits`): The two lines that
+   blocked keys with `strikes >= MAX_STRIKES` for 24h were commented out with `# row = ...`.
+   Bad keys cycled forever.
+
+3. **Token estimation formula changed** (`key_manager.py: estimate_tokens`): Formula was
+   changed from `len(text) // 4 + 1` to `int(len(text) / 2.5) + 1`, causing token estimates
+   to be ~60% higher than actual. This skewed TPM pre-checks.
+
+4. **RPD limits wrong** (`key_manager.py: MODELS_CONFIG`): Free tier `rpd` was set to `10000`
+   instead of Google's actual limit of `20`. Keys could theoretically make 10,000 requests/day
+   before the rate limiter kicked in, making RPD enforcement useless.
+
+5. **Timeout handling broken** (`ai_services.py`): `ReadTimeout` exceptions fell into the
+   generic `except Exception` handler with `is_info_error=True`, returning the key to the pool
+   immediately with no cooldown and no token recording — despite Google having already counted
+   those tokens.
+
+#### Fixes Applied
+
+| File | Change | Detail |
+|------|--------|--------|
+| `key_manager.py` | Restored progressive cooldown | `strikes = key_failure_strikes.get(key, 0) + 1; penalty = COOLDOWN_PERIODS.get(strikes, 60)` with DB persistence |
+| `key_manager.py` | Uncommented strikes check | `if row['strikes'] >= MAX_STRIKES: return 86400.0` — blocks bad keys for 24h |
+| `key_manager.py` | Restored token estimation | `len(text) // 4 + 1` (integer division) |
+| `key_manager.py` | Fixed free tier RPD | `'rpd': 10000` → `'rpd': 20` for all free-tier models |
+| `key_manager.py` | Added missing model | `gemini-2.5-flash-lite-free` with `rpm=10, tpm=250000, rpd=20` |
+| `ai_services.py` | Separate ReadTimeout handler | Explicit `except requests.exceptions.ReadTimeout` with `is_info_error=False` (key gets cooldown) |
+| `ai_services.py` | Increased HTTP timeout | `timeout=60` → `timeout=120` for large ~175K token requests |
+
+#### Test Suite Hardening (36 new tests)
+
+The existing 229 tests passed with the broken code because they never asserted on the
+invariants that were violated. Added 36 targeted tests that would immediately fail if
+any of these bugs were reintroduced:
+
+**`tests/test_key_manager.py` (29 new tests):**
+*   `TestModelsConfig` (7 tests): Validates free-tier RPD=20, TPM=250000, flash-lite model
+    exists, all configs have required fields, COOLDOWN_PERIODS escalate, MAX_STRIKES is
+    reasonable.
+*   `TestProgressiveCooldown` (8 tests): Validates each strike level maps to correct penalty
+    (10s/60s/300s/3600s), strikes persist across calls, info errors don't increment strikes,
+    failures write strike count to DB.
+*   `TestStrikesBlocking` (4 tests): Validates `_check_key_limits` returns 86400 at
+    MAX_STRIKES, above MAX_STRIKES, and FATAL_STRIKE_COUNT; allows keys below threshold.
+*   `TestRPDEnforcement` (3 tests): Validates RPD exceeded blocks key, under-limit allows,
+    resets on new day.
+*   `TestTokenEstimationFormula` (5 tests): Validates exact `//4` formula, integer division,
+    and detects if the `/2.5` overestimation bug returns.
+*   `TestTPMPreCheck` (2 tests): Validates TPM budget enforcement blocks/allows correctly.
+
+**`tests/test_ai_services.py` (7 new tests):**
+*   `TestTimeoutHandling`: ReadTimeout triggers `report_failure(is_info_error=False)`, generic
+    exceptions use `is_info_error=True`, 400 API_KEY_INVALID triggers `report_fatal_error`,
+    429 triggers real failure, 500 is info error, HTTP timeout is 120s.
+
+#### Validation Results
+*   **Tests**: 265 passed (229 original + 36 new), 0 failed.
+*   **Production run** (update-company, 2026-02-17): **0 rate-limit 429s** (down from 46),
+    3 timeouts (keys properly cooldown'd), 1 expired key retired, 1/1 ticker succeeded.

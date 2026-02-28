@@ -3,11 +3,15 @@ Comprehensive tests for the KeyManager (modules/core/key_manager.py).
 
 Tests cover:
 - Key rotation and tier filtering
-- Rate limit checking
+- Rate limit checking (RPM, TPM, RPD)
 - Report usage (no double-append bug fix)
-- Report failure and cooldown
-- Token estimation
+- Report failure: progressive cooldown with escalating strikes
+- Token estimation: exact //4 formula
+- MODELS_CONFIG: RPD limits, required models
+- Strikes-based key blocking (_check_key_limits returns 86400)
+- Dead keys / fatal error retirement
 - Edge cases: no keys, unknown config, exhausted keys
+- Thread safety under concurrent access
 """
 import pytest
 import os
@@ -462,3 +466,411 @@ class TestThreadSafety:
             t.join()
 
         assert not errors, f"Threads raised errors: {errors}"
+
+
+# ==========================================
+# TEST: MODELS_CONFIG Correctness
+# ==========================================
+
+class TestModelsConfig:
+    """
+    These tests enforce the MODELS_CONFIG values match Google's actual API limits.
+    Without these, wrong RPD or missing models silently break rate limiting.
+    """
+
+    def test_free_tier_rpd_is_20(self):
+        """Google's free tier allows 20 RPD. If this is wrong, keys get exhausted immediately."""
+        for config_key, config in KeyManager.MODELS_CONFIG.items():
+            if config['tier'] == 'free':
+                assert config['limits']['rpd'] == 20, \
+                    f"MODELS_CONFIG['{config_key}'] has rpd={config['limits']['rpd']}, expected 20"
+
+    def test_free_tier_tpm_is_250000(self):
+        """Free tier TPM should be 250,000."""
+        for config_key, config in KeyManager.MODELS_CONFIG.items():
+            if config['tier'] == 'free':
+                assert config['limits']['tpm'] == 250000, \
+                    f"MODELS_CONFIG['{config_key}'] has tpm={config['limits']['tpm']}, expected 250000"
+
+    def test_flash_lite_model_exists(self):
+        """gemini-2.5-flash-lite-free must exist — it's actively used for lighter requests."""
+        assert 'gemini-2.5-flash-lite-free' in KeyManager.MODELS_CONFIG, \
+            "Missing 'gemini-2.5-flash-lite-free' from MODELS_CONFIG"
+
+    def test_all_free_models_have_required_limits(self):
+        """Every model config must have rpm, tpm, and rpd."""
+        for config_key, config in KeyManager.MODELS_CONFIG.items():
+            limits = config.get('limits', {})
+            assert 'rpm' in limits, f"MODELS_CONFIG['{config_key}'] missing 'rpm'"
+            assert 'tpm' in limits, f"MODELS_CONFIG['{config_key}'] missing 'tpm'"
+            assert 'rpd' in limits, f"MODELS_CONFIG['{config_key}'] missing 'rpd'"
+
+    def test_all_configs_have_model_id_and_tier(self):
+        """Every config entry must have model_id and tier fields."""
+        for config_key, config in KeyManager.MODELS_CONFIG.items():
+            assert 'model_id' in config, f"MODELS_CONFIG['{config_key}'] missing 'model_id'"
+            assert 'tier' in config, f"MODELS_CONFIG['{config_key}'] missing 'tier'"
+            assert config['tier'] in ('free', 'paid'), \
+                f"MODELS_CONFIG['{config_key}'] has invalid tier='{config['tier']}'"
+
+    def test_cooldown_periods_are_escalating(self):
+        """COOLDOWN_PERIODS must escalate: strike 1 < strike 2 < strike 3 < strike 4."""
+        cp = KeyManager.COOLDOWN_PERIODS
+        assert cp[1] < cp[2] < cp[3] < cp[4], \
+            f"COOLDOWN_PERIODS should escalate but got {cp}"
+
+    def test_max_strikes_reasonable(self):
+        """MAX_STRIKES must be positive and reasonable (not 0 or absurdly high)."""
+        assert 2 <= KeyManager.MAX_STRIKES <= 10, \
+            f"MAX_STRIKES={KeyManager.MAX_STRIKES} should be between 2 and 10"
+
+
+# ==========================================
+# TEST: Progressive Cooldown (report_failure)
+# ==========================================
+
+class TestProgressiveCooldown:
+    """
+    Tests that report_failure applies escalating penalties.
+    The old broken code used a flat 60s for every failure — these tests
+    would have caught that immediately.
+    """
+
+    def test_first_strike_uses_shortest_cooldown(self):
+        """First failure should use COOLDOWN_PERIODS[1] (10s), not a flat 60s."""
+        km = _create_test_km()
+        km.key_failure_strikes["fk1_value"] = 0
+        km.db_client.execute.return_value = None
+
+        before = time.time()
+        km.report_failure("fk1_value", is_info_error=False)
+
+        expected_penalty = KeyManager.COOLDOWN_PERIODS[1]  # 10s
+        cooldown_end = km.cooldown_keys["fk1_value"]
+        actual_penalty = cooldown_end - before
+
+        assert abs(actual_penalty - expected_penalty) < 2.0, \
+            f"First strike penalty should be ~{expected_penalty}s, got {actual_penalty:.1f}s"
+
+    def test_second_strike_escalates(self):
+        """Second consecutive failure should use COOLDOWN_PERIODS[2] (60s)."""
+        km = _create_test_km()
+        km.key_failure_strikes["fk1_value"] = 0
+        km.db_client.execute.return_value = None
+
+        km.report_failure("fk1_value", is_info_error=False)  # Strike 1
+        before = time.time()
+        km.report_failure("fk1_value", is_info_error=False)  # Strike 2
+
+        expected_penalty = KeyManager.COOLDOWN_PERIODS[2]  # 60s
+        cooldown_end = km.cooldown_keys["fk1_value"]
+        actual_penalty = cooldown_end - before
+
+        assert abs(actual_penalty - expected_penalty) < 2.0, \
+            f"Second strike penalty should be ~{expected_penalty}s, got {actual_penalty:.1f}s"
+
+    def test_third_strike_escalates_further(self):
+        """Third consecutive failure should use COOLDOWN_PERIODS[3] (300s)."""
+        km = _create_test_km()
+        km.key_failure_strikes["fk1_value"] = 0
+        km.db_client.execute.return_value = None
+
+        for _ in range(2):
+            km.report_failure("fk1_value", is_info_error=False)
+        
+        before = time.time()
+        km.report_failure("fk1_value", is_info_error=False)  # Strike 3
+
+        expected_penalty = KeyManager.COOLDOWN_PERIODS[3]  # 300s
+        cooldown_end = km.cooldown_keys["fk1_value"]
+        actual_penalty = cooldown_end - before
+
+        assert abs(actual_penalty - expected_penalty) < 2.0, \
+            f"Third strike penalty should be ~{expected_penalty}s, got {actual_penalty:.1f}s"
+
+    def test_fourth_strike_maximum_cooldown(self):
+        """Fourth consecutive failure should use COOLDOWN_PERIODS[4] (3600s)."""
+        km = _create_test_km()
+        km.key_failure_strikes["fk1_value"] = 0
+        km.db_client.execute.return_value = None
+
+        for _ in range(3):
+            km.report_failure("fk1_value", is_info_error=False)
+        
+        before = time.time()
+        km.report_failure("fk1_value", is_info_error=False)  # Strike 4
+
+        expected_penalty = KeyManager.COOLDOWN_PERIODS[4]  # 3600s
+        cooldown_end = km.cooldown_keys["fk1_value"]
+        actual_penalty = cooldown_end - before
+
+        assert abs(actual_penalty - expected_penalty) < 2.0, \
+            f"Fourth strike penalty should be ~{expected_penalty}s, got {actual_penalty:.1f}s"
+
+    def test_beyond_max_strikes_uses_default(self):
+        """Strikes beyond COOLDOWN_PERIODS keys should fall back to 60s default."""
+        km = _create_test_km()
+        km.key_failure_strikes["fk1_value"] = 10  # Way past defined periods
+        km.db_client.execute.return_value = None
+
+        before = time.time()
+        km.report_failure("fk1_value", is_info_error=False)
+
+        cooldown_end = km.cooldown_keys["fk1_value"]
+        actual_penalty = cooldown_end - before
+
+        # .get(11, 60) → 60s fallback
+        assert abs(actual_penalty - 60) < 2.0, \
+            f"Beyond-max strike should fall back to 60s, got {actual_penalty:.1f}s"
+
+    def test_strike_count_persists_across_calls(self):
+        """key_failure_strikes must accumulate, not reset."""
+        km = _create_test_km()
+        km.key_failure_strikes["fk1_value"] = 0
+        km.db_client.execute.return_value = None
+
+        km.report_failure("fk1_value", is_info_error=False)
+        assert km.key_failure_strikes["fk1_value"] == 1
+
+        km.report_failure("fk1_value", is_info_error=False)
+        assert km.key_failure_strikes["fk1_value"] == 2
+
+        km.report_failure("fk1_value", is_info_error=False)
+        assert km.key_failure_strikes["fk1_value"] == 3
+
+    def test_info_error_does_not_increment_strikes(self):
+        """Info errors (is_info_error=True) should NOT change strike count."""
+        km = _create_test_km()
+        km.key_failure_strikes["fk1_value"] = 0
+
+        km.report_failure("fk1_value", is_info_error=True)
+        assert km.key_failure_strikes["fk1_value"] == 0
+
+    def test_failure_writes_strikes_to_db(self):
+        """report_failure should write updated strike count to the database."""
+        km = _create_test_km()
+        km.key_failure_strikes["fk1_value"] = 0
+        km.db_client.execute.return_value = None
+
+        km.report_failure("fk1_value", is_info_error=False)
+
+        km.db_client.execute.assert_called_once()
+        call_args = km.db_client.execute.call_args
+        sql = call_args[0][0]
+        params = call_args[0][1]
+
+        assert "strikes" in sql.lower()
+        assert params[0] == 1  # strike count
+
+
+# ==========================================
+# TEST: Strikes-Based Key Blocking
+# ==========================================
+
+class TestStrikesBlocking:
+    """
+    Tests that _check_key_limits blocks keys with >= MAX_STRIKES.
+    The old broken code had this check COMMENTED OUT, which
+    meant bad keys continued cycling forever.
+    """
+
+    def test_max_strikes_blocks_key_for_24h(self):
+        """Key with strikes >= MAX_STRIKES should return 86400 (24 hours)."""
+        km = _create_test_km()
+        mock_rs = MagicMock()
+        mock_rs.columns = ['rpm_requests', 'rpm_window_start', 'tpm_tokens',
+                           'strikes', 'rpd_requests', 'last_used_day']
+        # strikes = MAX_STRIKES (5)
+        mock_rs.rows = [(0, time.time() - 120, 0, KeyManager.MAX_STRIKES, 0, '2026-02-23')]
+        km.db_client.execute.return_value = mock_rs
+
+        wait = km._check_key_limits("fk1_value", "gemini-3-flash-preview",
+                                     rpm_limit=5, tpm_limit=250000, rpd_limit=20)
+        assert wait == 86400.0, f"Key at MAX_STRIKES should be blocked 24h, got wait={wait}"
+
+    def test_above_max_strikes_blocks_key(self):
+        """Key with strikes > MAX_STRIKES should also be blocked."""
+        km = _create_test_km()
+        mock_rs = MagicMock()
+        mock_rs.columns = ['rpm_requests', 'rpm_window_start', 'tpm_tokens',
+                           'strikes', 'rpd_requests', 'last_used_day']
+        mock_rs.rows = [(0, time.time() - 120, 0, KeyManager.MAX_STRIKES + 5, 0, '2026-02-23')]
+        km.db_client.execute.return_value = mock_rs
+
+        wait = km._check_key_limits("fk1_value", "gemini-3-flash-preview",
+                                     rpm_limit=5, tpm_limit=250000, rpd_limit=20)
+        assert wait == 86400.0
+
+    def test_below_max_strikes_allows_key(self):
+        """Key with strikes < MAX_STRIKES should not be blocked by strikes check."""
+        km = _create_test_km()
+        mock_rs = MagicMock()
+        mock_rs.columns = ['rpm_requests', 'rpm_window_start', 'tpm_tokens',
+                           'strikes', 'rpd_requests', 'last_used_day']
+        # strikes = MAX_STRIKES - 1, expired window, low counts
+        mock_rs.rows = [(0, time.time() - 120, 0, KeyManager.MAX_STRIKES - 1, 0, '2026-02-23')]
+        km.db_client.execute.return_value = mock_rs
+
+        wait = km._check_key_limits("fk1_value", "gemini-3-flash-preview",
+                                     rpm_limit=5, tpm_limit=250000, rpd_limit=20)
+        assert wait == 0.0, f"Key below MAX_STRIKES should be allowed, got wait={wait}"
+
+    def test_fatal_strikes_blocks_key(self):
+        """Key with FATAL_STRIKE_COUNT (999) should be blocked for 24h."""
+        km = _create_test_km()
+        mock_rs = MagicMock()
+        mock_rs.columns = ['rpm_requests', 'rpm_window_start', 'tpm_tokens',
+                           'strikes', 'rpd_requests', 'last_used_day']
+        mock_rs.rows = [(0, 0, 0, KeyManager.FATAL_STRIKE_COUNT, 0, '2026-02-23')]
+        km.db_client.execute.return_value = mock_rs
+
+        wait = km._check_key_limits("fk1_value", "gemini-3-flash-preview",
+                                     rpm_limit=5, tpm_limit=250000, rpd_limit=20)
+        assert wait == 86400.0
+
+
+# ==========================================
+# TEST: RPD (Requests Per Day) Enforcement
+# ==========================================
+
+class TestRPDEnforcement:
+    """
+    Tests that _check_key_limits correctly enforces RPD limits.
+    With the old broken RPD=10000, keys could make thousands of
+    requests per day before being rate-limited.
+    """
+
+    def test_rpd_exceeded_blocks_key(self):
+        """Key that has used all 20 daily requests should be blocked."""
+        km = _create_test_km()
+        mock_rs = MagicMock()
+        mock_rs.columns = ['rpm_requests', 'rpm_window_start', 'tpm_tokens',
+                           'strikes', 'rpd_requests', 'last_used_day']
+        today_str = time.strftime('%Y-%m-%d', time.gmtime())
+        # 20 requests today (the actual Google limit)
+        mock_rs.rows = [(0, time.time() - 120, 0, 0, 20, today_str)]
+        km.db_client.execute.return_value = mock_rs
+
+        wait = km._check_key_limits("fk1_value", "gemini-3-flash-preview",
+                                     rpm_limit=5, tpm_limit=250000, rpd_limit=20)
+        assert wait > 0, f"RPD exceeded (20/20) should block key, got wait={wait}"
+        assert wait == 3600.0, f"RPD exceeded should return 3600s wait, got {wait}"
+
+    def test_rpd_not_exceeded_allows_key(self):
+        """Key with 19/20 daily requests should still be allowed."""
+        km = _create_test_km()
+        mock_rs = MagicMock()
+        mock_rs.columns = ['rpm_requests', 'rpm_window_start', 'tpm_tokens',
+                           'strikes', 'rpd_requests', 'last_used_day']
+        today_str = time.strftime('%Y-%m-%d', time.gmtime())
+        # 19 requests today, expired RPM window
+        mock_rs.rows = [(0, time.time() - 120, 0, 0, 19, today_str)]
+        km.db_client.execute.return_value = mock_rs
+
+        wait = km._check_key_limits("fk1_value", "gemini-3-flash-preview",
+                                     rpm_limit=5, tpm_limit=250000, rpd_limit=20)
+        assert wait == 0.0, f"19/20 RPD should allow key, got wait={wait}"
+
+    def test_rpd_resets_on_new_day(self):
+        """RPD count from yesterday should not block today's usage."""
+        km = _create_test_km()
+        mock_rs = MagicMock()
+        mock_rs.columns = ['rpm_requests', 'rpm_window_start', 'tpm_tokens',
+                           'strikes', 'rpd_requests', 'last_used_day']
+        # 100 requests but from yesterday
+        mock_rs.rows = [(0, time.time() - 120, 0, 0, 100, '1999-01-01')]
+        km.db_client.execute.return_value = mock_rs
+
+        wait = km._check_key_limits("fk1_value", "gemini-3-flash-preview",
+                                     rpm_limit=5, tpm_limit=250000, rpd_limit=20)
+        assert wait == 0.0, f"Yesterday's RPD should not block today, got wait={wait}"
+
+
+# ==========================================
+# TEST: Token Estimation Formula
+# ==========================================
+
+class TestTokenEstimationFormula:
+    """
+    Tests the exact token estimation formula: len(text) // 4 + 1.
+    The broken code used len(text) / 2.5 which overestimated tokens
+    and caused incorrect TPM pre-checks.
+    """
+
+    def test_exact_formula_short_text(self):
+        """'hello' (5 chars) should estimate to 5//4+1 = 2 tokens."""
+        result = KeyManager.estimate_tokens("hello")
+        assert result == 5 // 4 + 1, f"Expected {5//4+1}, got {result}"
+
+    def test_exact_formula_medium_text(self):
+        """100-char text should estimate to 100//4+1 = 26 tokens."""
+        text = "x" * 100
+        result = KeyManager.estimate_tokens(text)
+        assert result == 100 // 4 + 1, f"Expected {100//4+1}, got {result}"
+
+    def test_exact_formula_large_text(self):
+        """1000-char text should estimate to 1000//4+1 = 251 tokens."""
+        text = "a" * 1000
+        result = KeyManager.estimate_tokens(text)
+        assert result == 1000 // 4 + 1, f"Expected {1000//4+1}, got {result}"
+
+    def test_formula_uses_integer_division(self):
+        """Must use integer division (//4), not float division (/4 or /2.5)."""
+        text = "abc"  # 3 chars
+        result = KeyManager.estimate_tokens(text)
+        # //4 → 0 + 1 = 1
+        # /2.5 → 1.2 → int(1.2) + 1 = 2 (WRONG)
+        assert result == 1, f"3 chars should be 3//4+1=1, got {result} (possible /2.5 formula?)"
+
+    def test_formula_not_overestimating(self):
+        """The //4 formula should produce SMALLER estimates than /2.5."""
+        text = "x" * 500
+        result = KeyManager.estimate_tokens(text)
+        wrong_result = int(500 / 2.5) + 1  # 201 (the broken formula)
+        correct_result = 500 // 4 + 1       # 126
+
+        assert result == correct_result, \
+            f"Got {result}. If {result} == {wrong_result}, the /2.5 bug is back!"
+
+
+# ==========================================
+# TEST: TPM Pre-Check Integration
+# ==========================================
+
+class TestTPMPreCheck:
+    """
+    Tests that _check_key_limits properly blocks requests that would
+    exceed the minute's token budget.
+    """
+
+    def test_tpm_exceeded_blocks_request(self):
+        """Request that would push tokens past TPM limit should be blocked."""
+        km = _create_test_km()
+        mock_rs = MagicMock()
+        mock_rs.columns = ['rpm_requests', 'rpm_window_start', 'tpm_tokens',
+                           'strikes', 'rpd_requests', 'last_used_day']
+        # Already used 200,000 tokens this minute (limit 250,000)
+        # New request is 100,000 tokens → 300,000 > 250,000 → block
+        mock_rs.rows = [(1, time.time() - 10, 200000, 0, 5, '2026-02-23')]
+        km.db_client.execute.return_value = mock_rs
+
+        wait = km._check_key_limits("fk1_value", "gemini-3-flash-preview",
+                                     rpm_limit=5, tpm_limit=250000, rpd_limit=20,
+                                     estimated_tokens=100000)
+        assert wait > 0, f"Should block when TPM would be exceeded, got wait={wait}"
+
+    def test_tpm_within_budget_allows_request(self):
+        """Request that fits within remaining TPM budget should pass."""
+        km = _create_test_km()
+        mock_rs = MagicMock()
+        mock_rs.columns = ['rpm_requests', 'rpm_window_start', 'tpm_tokens',
+                           'strikes', 'rpd_requests', 'last_used_day']
+        # 100,000 used + 100,000 new = 200,000 < 250,000 → allow
+        mock_rs.rows = [(1, time.time() - 10, 100000, 0, 5, '2026-02-23')]
+        km.db_client.execute.return_value = mock_rs
+
+        wait = km._check_key_limits("fk1_value", "gemini-3-flash-preview",
+                                     rpm_limit=5, tpm_limit=250000, rpd_limit=20,
+                                     estimated_tokens=100000)
+        assert wait == 0.0
+

@@ -149,7 +149,7 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
                 
             headers = {'Content-Type': 'application/json'}
             
-            response = requests.post(gemini_url, headers=headers, data=json.dumps(payload), timeout=60)
+            response = requests.post(gemini_url, headers=headers, data=json.dumps(payload), timeout=120)
             
             # 3. REPORT: Pass internal model_id for correct counter increment
             if response.status_code == 200:
@@ -197,6 +197,12 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
                 else:
                     KEY_MANAGER.report_failure(current_api_key, is_info_error=True)
 
+        except requests.exceptions.ReadTimeout:
+            logger.log(f"💥 Timeout: Request timed out for '{key_name}'. Key goes to cooldown.")
+            if current_api_key:
+                # Timeout means Google likely received & counted the tokens.
+                # Treat as a real failure so the key gets a cooldown period.
+                KEY_MANAGER.report_failure(current_api_key, is_info_error=False)
         except Exception as e:
             logger.log(f"💥 Exception: {str(e)}")
             if current_api_key:

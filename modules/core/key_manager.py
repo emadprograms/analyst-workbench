@@ -94,13 +94,19 @@ class KeyManager:
              'model_id': 'gemini-3-flash-preview',
              'tier': 'free',
              'display': 'Gemini 3 Flash (Free)',
-             'limits': {'rpm': 5, 'tpm': 250000, 'rpd': 10000}
+             'limits': {'rpm': 5, 'tpm': 250000, 'rpd': 20}
         },
         'gemini-2.5-flash-free': {
              'model_id': 'gemini-2.5-flash',
              'tier': 'free',
              'display': 'Gemini 2.5 Flash (Free)',
-             'limits': {'rpm': 5, 'tpm': 250000, 'rpd': 10000} 
+             'limits': {'rpm': 5, 'tpm': 250000, 'rpd': 20} 
+        },
+        'gemini-2.5-flash-lite-free': {
+             'model_id': 'gemini-2.5-flash-lite',
+             'tier': 'free',
+             'display': 'Gemini 2.5 Flash Lite (Free)',
+             'limits': {'rpm': 10, 'tpm': 250000, 'rpd': 20}
         }
     }
 
@@ -222,7 +228,7 @@ class KeyManager:
         Use this BEFORE calling get_key to ensure the request fits in the chosen bucket.
         """
         if not text: return 0
-        return int(len(text) / 2.5) + 1
+        return len(text) // 4 + 1
 
     def get_key(self, config_id: str, estimated_tokens: int = 0) -> tuple[str | None, str | None, float, str | None]:
         """
@@ -326,10 +332,8 @@ class KeyManager:
             )
             if not rs.rows: return 0.0
             
-            # row = self._row_to_dict(rs.columns, rs.rows[0])
-            # if row['strikes'] >= self.MAX_STRIKES: return 86400.0
-            
             row = self._row_to_dict(rs.columns, rs.rows[0])
+            if row['strikes'] >= self.MAX_STRIKES: return 86400.0
             
             now = time.time()
             today_str = time.strftime('%Y-%m-%d', time.gmtime(now))
@@ -486,18 +490,18 @@ class KeyManager:
                 self.available_keys.append(key)
                 return
                 
-            # V8 FIX: No more strikes. Just a temporary cooldown/penalty.
-            # We treat every 429 as a "wait 60 seconds" event for this specific key.
-            penalty = 60 
+            # Progressive cooldown based on strike count (restored from original V8)
+            strikes = self.key_failure_strikes.get(key, 0) + 1
+            self.key_failure_strikes[key] = strikes
+            penalty = self.COOLDOWN_PERIODS.get(strikes, 60)
             
             self.cooldown_keys[key] = time.time() + penalty
             
             try:
                 key_hash = self.key_to_hash[key]
-                # We no longer track 'strikes' in the DB to avoid permanent bans
                 self.db_client.execute(
-                    "UPDATE gemini_key_status SET release_time = ? WHERE key_hash = ?", 
-                    [time.time() + penalty, key_hash]
+                    "UPDATE gemini_key_status SET strikes = ?, release_time = ? WHERE key_hash = ?", 
+                    [strikes, time.time() + penalty, key_hash]
                 )
             except: pass
 
