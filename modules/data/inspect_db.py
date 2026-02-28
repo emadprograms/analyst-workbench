@@ -1,6 +1,9 @@
 import libsql_client
 from datetime import date
-from modules.core.config import TURSO_DB_URL, TURSO_AUTH_TOKEN, TURSO_PRICE_DB_URL, TURSO_PRICE_AUTH_TOKEN
+from modules.core.config import (
+    TURSO_DB_URL, TURSO_AUTH_TOKEN, TURSO_PRICE_DB_URL, TURSO_PRICE_AUTH_TOKEN,
+    ALL_TICKERS
+)
 from modules.ai.ai_services import TRACKER
 
 def inspect(target_date: date, logger=None):
@@ -32,11 +35,16 @@ def inspect(target_date: date, logger=None):
         
         # 1. Check News (aw_daily_news)
         try:
-            rs = client.execute("SELECT COUNT(*) FROM aw_daily_news WHERE target_date = ?", [date_str])
-            count = rs.rows[0][0]
-            status = "✅ PRESENT" if count > 0 else "❌ MISSING"
-            log_msg(f"Market News: {status}")
-            TRACKER.set_result("market_news", status)
+            rs = client.execute("SELECT news_text FROM aw_daily_news WHERE target_date = ?", [date_str])
+            if rs.rows:
+                news_text = rs.rows[0][0] or ""
+                row_count = len(rs.rows)
+                char_count = sum(len(row[0] or "") for row in rs.rows)
+                log_msg(f"Market News: ✅ PRESENT — {row_count} row(s), {char_count:,} chars")
+                TRACKER.set_result("market_news", f"✅ {row_count} row(s), {char_count:,} chars")
+            else:
+                log_msg("Market News: ❌ MISSING")
+                TRACKER.set_result("market_news", "❌ MISSING")
         except Exception as e:
             log_msg(f"Error checking news: {e}")
 
@@ -53,15 +61,23 @@ def inspect(target_date: date, logger=None):
         # 3. Check Updated Tickers (aw_company_cards)
         try:
             rs = client.execute("SELECT ticker FROM aw_company_cards WHERE date = ? ORDER BY ticker ASC", [date_str])
-            tickers = [row[0] for row in rs.rows]
-            if tickers:
-                log_msg(f"Updated Tickers ({len(tickers)}): {', '.join(tickers)}")
-                TRACKER.set_result("updated_tickers", f"{len(tickers)} found")
-                # Also add to details for execution log
-                TRACKER.metrics.details.append(f"📦 Tickers: {', '.join(tickers)}")
+            updated_tickers = sorted([row[0] for row in rs.rows])
+            expected_tickers = sorted(ALL_TICKERS)
+            missing_tickers = sorted(set(expected_tickers) - set(updated_tickers))
+
+            if updated_tickers:
+                log_msg(f"Updated Tickers ({len(updated_tickers)}/{len(expected_tickers)}): {', '.join(updated_tickers)}")
+                TRACKER.set_result("updated_tickers", f"{len(updated_tickers)}/{len(expected_tickers)}")
+                TRACKER.metrics.details.append(f"📦 Tickers: {', '.join(updated_tickers)}")
             else:
-                log_msg("Updated Tickers: ❌ NONE FOUND")
-                TRACKER.set_result("updated_tickers", "❌ None")
+                log_msg(f"Updated Tickers: ❌ NONE (0/{len(expected_tickers)})")
+                TRACKER.set_result("updated_tickers", f"❌ 0/{len(expected_tickers)}")
+
+            if missing_tickers:
+                log_msg(f"⚠️  Missing Tickers ({len(missing_tickers)}): {', '.join(missing_tickers)}")
+                TRACKER.metrics.details.append(f"⚠️ Missing: {', '.join(missing_tickers)}")
+            else:
+                log_msg("✅ All tickers updated — none missing.")
         except Exception as e:
             log_msg(f"Error checking updated tickers: {e}")
 
