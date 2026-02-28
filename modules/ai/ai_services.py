@@ -625,7 +625,7 @@ def update_company_card(
 
         logger.log(f"--- Success: AI update for {ticker} complete. ---")
         final_json = json.dumps(final_card, indent=4)
-        TRACKER.register_artifact(f"{ticker}_CARD", final_json)
+        # TRACKER.register_artifact(f"{ticker}_CARD", final_json)  # Skipped: Don't send company JSONs to Discord
 
         # --- QUALITY GATE: Validate output quality ---
         try:
@@ -845,7 +845,7 @@ def update_economy_card(
 
         logger.log("--- Success: Economy Card generation complete! ---")
         final_json = json.dumps(final_card, indent=4)
-        TRACKER.register_artifact("ECONOMY_CARD", final_json)
+        # TRACKER.register_artifact("ECONOMY_CARD", final_json)  # Skipped: Don't send economy JSONs to Discord
 
         # --- QUALITY GATE: Validate output quality ---
         try:
