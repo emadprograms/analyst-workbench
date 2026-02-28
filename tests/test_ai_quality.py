@@ -189,7 +189,38 @@ SAMPLE_BAD_COMPANY_CARD_DUMP = {
                 "renewed tariff concerns creating a significant positive divergence signal. "
                 "The macro headwinds included a hawkish Fed statement and deteriorating consumer "
                 "sentiment data which pushed SPY and QQQ lower by over 1% yet TSLA managed to "
-                "close up 2.3% on the day demonstrating exceptional relative strength."
+                "close up 2.3% on the day demonstrating exceptional relative strength. "
+                "The intraday microstructure revealed a three-phase auction process beginning with "
+                "an aggressive pre-market gap that tested the $272 level before pulling back to $265 "
+                "where Committed Buyers stepped in with conviction as evidenced by the delta footprint "
+                "showing sustained positive cumulative delta throughout the first 90 minutes of RTH. "
+                "The second phase saw a methodical grind higher through the $270-$275 resistance band "
+                "with each pullback finding support at progressively higher levels creating a textbook "
+                "staircase pattern that signals institutional accumulation rather than speculative chasing. "
+                "The third phase was the post-lunch continuation where the Value Area expanded upward "
+                "with the POC migrating from $268 to $272 confirming genuine acceptance at these levels. "
+                "Cross-asset correlation analysis shows TSLA decoupling from both QQQ and XLY suggesting "
+                "company-specific catalysts are overriding the macro narrative. The options flow data "
+                "confirms this thesis with significant call buying at the $280 and $300 strikes for "
+                "March expiration indicating institutional positioning for continued upside. Treasury "
+                "yields rose 8bps on the day with the 10Y crossing 4.50% which typically pressures "
+                "growth names but TSLA shrugged off this headwind entirely. The VIX remained elevated "
+                "at 18.5 suggesting the broader market is still nervous but TSLA implied volatility "
+                "actually contracted by 2 points indicating increased confidence among options traders. "
+                "Sector rotation analysis shows money flowing out of defensive sectors XLU and XLP "
+                "into discretionary names with TSLA capturing a disproportionate share of the flow. "
+                "The daily VWAP anchored from the February low shows price trading consistently above "
+                "this level for the fifth consecutive session confirming the intermediate uptrend. "
+                "Market internals broadly supported risk-on positioning with the advance-decline line "
+                "positive despite the headline index weakness and new highs outpacing new lows by "
+                "a 3:1 ratio on the NASDAQ. The fundamental backdrop remains supportive with the "
+                "recent earnings beat and forward guidance raise still being digested by analysts. "
+                "The weekly chart structure shows a completed inverse head and shoulders pattern with "
+                "the neckline at $268 now confirmed by this week's close above that level on expanding "
+                "volume suggesting a measured move target of approximately $295 which aligns with the "
+                "prior distribution zone from early January. "
+                "Furthermore the dark pool print data shows large block trades executing above VWAP "
+                "throughout the session confirming institutional accumulation at these elevated levels."
             )}
         ],
         "volumeMomentum": "High"  # Too short
@@ -518,23 +549,23 @@ class TestEdgeCases:
         report = validate_company_card("null", ticker="NULL")
         assert not report.passed
 
-    def test_todays_action_exactly_2500_chars(self):
-        """2500 chars should be the boundary — exactly 2500 should pass."""
+    def test_todays_action_exactly_5000_chars(self):
+        """5000 chars should be the boundary — exactly 5000 should pass."""
         card = copy.deepcopy(SAMPLE_GOOD_COMPANY_CARD)
-        action_2500 = "2026-02-23: Breakout (Stable). " + "x" * (2500 - len("2026-02-23: Breakout (Stable). "))
-        card["technicalStructure"]["keyActionLog"][-1]["action"] = action_2500
+        action_5000 = "2026-02-23: Breakout (Stable). " + "x" * (5000 - len("2026-02-23: Breakout (Stable). "))
+        card["technicalStructure"]["keyActionLog"][-1]["action"] = action_5000
         report = validate_company_card(card, ticker="AAPL")
         length_issues = [i for i in report.issues if i.rule == "ACTION_TOO_LONG"]
-        assert len(length_issues) == 0, "Exactly 2500 chars should not trigger ACTION_TOO_LONG."
+        assert len(length_issues) == 0, "Exactly 5000 chars should not trigger ACTION_TOO_LONG."
 
-    def test_todays_action_2501_chars_fails(self):
-        """2501 chars should fail."""
+    def test_todays_action_5001_chars_fails(self):
+        """5001 chars should fail."""
         card = copy.deepcopy(SAMPLE_GOOD_COMPANY_CARD)
-        action_2501 = "2026-02-23: Breakout (Stable). " + "x" * (2501 - len("2026-02-23: Breakout (Stable). "))
-        card["technicalStructure"]["keyActionLog"][-1]["action"] = action_2501
+        action_5001 = "2026-02-23: Breakout (Stable). " + "x" * (5001 - len("2026-02-23: Breakout (Stable). "))
+        card["technicalStructure"]["keyActionLog"][-1]["action"] = action_5001
         report = validate_company_card(card, ticker="AAPL")
         length_issues = [i for i in report.issues if i.rule == "ACTION_TOO_LONG"]
-        assert len(length_issues) > 0, "2501 chars should trigger ACTION_TOO_LONG."
+        assert len(length_issues) > 0, "5001 chars should trigger ACTION_TOO_LONG."
 
     def test_economy_card_json_string(self):
         """Economy validator should accept JSON string."""
