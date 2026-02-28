@@ -25,6 +25,7 @@ from modules.core.logger import AppLogger
 from modules.data.db_utils import get_db_connection
 from modules.analysis.impact_engine import get_or_compute_context
 from modules.core.tracker import ExecutionTracker
+from modules.ai.quality_validators import validate_company_card, validate_economy_card
 
 # --- GLOBAL TRACKER ---
 TRACKER = ExecutionTracker()
@@ -595,6 +596,23 @@ def update_company_card(
         logger.log(f"--- Success: AI update for {ticker} complete. ---")
         final_json = json.dumps(final_card, indent=4)
         TRACKER.register_artifact(f"{ticker}_CARD", final_json)
+
+        # --- QUALITY GATE: Validate output quality ---
+        try:
+            qr = validate_company_card(final_card, ticker=ticker, previous_card=previous_overview_card_dict)
+            if not qr.passed:
+                logger.warning(f"⚠️ QUALITY FAIL ({ticker}): {qr.critical_count} critical, {qr.warning_count} warnings")
+                for issue in qr.issues:
+                    if issue.severity == 'critical':
+                        logger.warning(f"   🔴 [{issue.rule}] {issue.field}: {issue.message}")
+                TRACKER.log_error(ticker, f"Quality: {qr.critical_count} critical issues")
+            elif qr.warning_count > 0:
+                logger.log(f"   📊 Quality: PASS with {qr.warning_count} warnings for {ticker}")
+            else:
+                logger.log(f"   📊 Quality: PERFECT for {ticker}")
+        except Exception as qe:
+            logger.warning(f"   ⚠️ Quality validator error: {qe}")
+
         return final_json # Return the full, new card
 
     except json.JSONDecodeError as e:
@@ -785,6 +803,23 @@ def update_economy_card(
         logger.log("--- Success: Economy Card generation complete! ---")
         final_json = json.dumps(final_card, indent=4)
         TRACKER.register_artifact("ECONOMY_CARD", final_json)
+
+        # --- QUALITY GATE: Validate output quality ---
+        try:
+            qr = validate_economy_card(final_card)
+            if not qr.passed:
+                logger.warning(f"⚠️ QUALITY FAIL (ECONOMY): {qr.critical_count} critical, {qr.warning_count} warnings")
+                for issue in qr.issues:
+                    if issue.severity == 'critical':
+                        logger.warning(f"   🔴 [{issue.rule}] {issue.field}: {issue.message}")
+                TRACKER.log_error("ECONOMY", f"Quality: {qr.critical_count} critical issues")
+            elif qr.warning_count > 0:
+                logger.log(f"   📊 Quality: PASS with {qr.warning_count} warnings for ECONOMY")
+            else:
+                logger.log(f"   📊 Quality: PERFECT for ECONOMY")
+        except Exception as qe:
+            logger.warning(f"   ⚠️ Quality validator error: {qe}")
+
         return final_json
         
     except json.JSONDecodeError as e:
