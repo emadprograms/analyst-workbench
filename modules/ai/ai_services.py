@@ -410,7 +410,7 @@ def update_company_card(
 
     **8. `keyActionLog` / `todaysAction` (STRICT FORMAT — MAX 3 SENTENCES):**
         * This is a **concise daily log entry**, NOT a card summary. It must capture ONLY the day's story arc in 2-3 sentences.
-        * **CRITICAL CONSTRAINT:** The `todaysAction` field must be **under 800 characters**. If your output exceeds this, you have failed the task. Do NOT repeat information from other fields. Do NOT include price levels, S/R zones, plan details, screener data, volume stats, or any content that belongs in other card fields.
+        * **CRITICAL CONSTRAINT:** The `todaysAction` field must be **under 1200 characters**. If your output exceeds this, you have failed the task. Do NOT repeat information from other fields. Do NOT include price levels, S/R zones, plan details, screener data, volume stats, or any content that belongs in other card fields.
         * **Required Format:** `"{trade_date_str}: [Pattern Label] ([Market State]). [1-2 sentences describing the 3-Act session arc using 4-Participant language: who acted, what they did at which key level, and the outcome]."`
         * **GOOD Example:** `"2026-02-13: Accumulation (Stable). Following yesterday's capitulation, the market opened with a gap down but immediately found Committed Buyers defending the major $255 structural POC. Despite a softer broad market, buyers established a series of higher lows throughout RTH, migrating value lower but holding the $255 floor. A high-volume stabilization in post-market confirms seller exhaustion and a tactical stalemate at support."`
         * **BAD Example (DO NOT DO THIS):** Repeating the entire card's analysis, including all support/resistance levels, plan details, screener briefing content, volume profile numbers, catalyst text, or any content from other fields. If your todaysAction reads like a paragraph that could replace the entire card, it is WRONG.
@@ -495,7 +495,7 @@ def update_company_card(
         "trigger": "Specific price action validating this plan.",
         "invalidation": "Price action proving this plan WRONG."
       }},
-      "todaysAction": "STRICT: Max 3-4 sentences, under 800 chars. Format: 'DATE: Pattern (State). [Brief 3-Act narrative of who acted at which key level and the outcome].'. Do NOT repeat content from other fields."
+      "todaysAction": "STRICT: Max 4-5 sentences, under 1200 chars. Format: 'DATE: Pattern (State). [Brief 3-Act narrative of who acted at which key level and the outcome].'. Do NOT repeat content from other fields."
     }}
     """
     
@@ -703,7 +703,7 @@ def update_economy_card(
         "You are an expert Macro Strategist. Your objective is to synthesize raw market news "
         "(The 'Why') with quantitative ETF price action (The 'How') to update the global Economy Card. "
         "Complete the required JSON schema accurately and comprehensively. "
-        "CRITICAL RULE for 'todaysAction': This field is a CONCISE daily log entry (max 3-4 sentences, under 800 characters). "
+        "CRITICAL RULE for 'todaysAction': This field is a CONCISE daily log entry (max 4-5 sentences, under 1200 characters). "
         "Format: 'DATE: [Macro Theme]. [Brief narrative of what drove markets today and the outcome].'. "
         "Do NOT dump the entire card analysis into todaysAction. It must be a short summary suitable for a daily log, not a replacement for the full card."
     )
