@@ -221,6 +221,12 @@ class KeyManager:
 
         random.shuffle(self.available_keys)
 
+    def get_tier_key_count(self, tier: str) -> int:
+        """Returns the number of keys available for the given tier ('free' or 'paid')."""
+        return sum(1 for k in self.name_to_key.values()
+                   if self.key_metadata.get(k, {}).get('tier', 'free') == tier
+                   and k not in self.dead_keys)
+
     @staticmethod
     def estimate_tokens(text: str) -> int:
         """

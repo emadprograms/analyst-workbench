@@ -168,6 +168,21 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-02-28 — todaysAction Prompt Hardening + ALL Ticker Fix + Adaptive Workers
+
+#### todaysAction Degeneration Fix (`modules/ai/ai_services.py`, `modules/ai/quality_validators.py`)
+*   **Root cause**: The model entered a repetition/degeneration loop, producing thousands of "End. End. End. JSON ready. End of process." tokens in the `todaysAction` field. The old limit of 5000 chars was too permissive and the prompt lacked explicit anti-repetition instructions.
+*   **Fix (Prompt)**: Rewrote the `todaysAction` instruction in both company and economy card prompts. New hard limit: **500 characters, exactly 2-3 sentences**. Added explicit anti-degeneration rules: "Do NOT add meta-commentary like 'End of record', 'Analysis complete', 'JSON ready'", "Do NOT loop or repeat yourself. If you find yourself writing the same idea twice, STOP."
+*   **Fix (Validator)**: `_check_todays_action_quality` limit reduced from 5000 to 500 chars. Added new `ACTION_DEGENERATION` critical rule that detects 3+ occurrences of sign-off phrases like "End.", "JSON ready", "End of process", "Analysis complete".
+
+#### "ALL" Ticker Bug (`main.py`)
+*   **Root cause**: Passing `--tickers all` from the GitHub Actions workflow or CLI was treated literally — the ticker "ALL" (Allstate Corp NYSE symbol) was created as a company card entry. There was no special-case handling for "all" meaning "all stock tickers."
+*   **Fix**: `main.py` CLI now checks if `raw_tickers == ["ALL"]` and expands it to the full stock ticker list from `get_all_tickers_from_db()` (excluding ETFs). Mixed inputs like `AAPL,ALL,MSFT` are NOT expanded.
+
+#### Adaptive max_workers (`main.py`, `modules/core/key_manager.py`)
+*   **Root cause**: `ThreadPoolExecutor(max_workers=min(len(tickers), 5))` was hardcoded to 5. With only 1 paid key, 4 out of 5 threads would immediately fail because the key was checked out by thread #1.
+*   **Fix**: Added `KeyManager.get_tier_key_count(tier)` method that counts non-dead keys for a given tier. `run_update_company()` now uses `max_workers = max(1, min(key_count, 5))`, ensuring single-key scenarios run sequentially while multi-key setups still benefit from parallelism.
+
 ### 2026-02-28 — Key Manager Checkout/Checkin Fix + Quality Tuning + Inspect Improvements
 
 #### Key Manager — Checkout/Checkin Pattern (`modules/core/key_manager.py`)

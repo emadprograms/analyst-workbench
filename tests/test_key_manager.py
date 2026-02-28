@@ -874,3 +874,31 @@ class TestTPMPreCheck:
                                      estimated_tokens=100000)
         assert wait == 0.0
 
+
+# ==========================================
+# TEST: get_tier_key_count
+# ==========================================
+
+class TestGetTierKeyCount:
+    """Tests for the get_tier_key_count method used by adaptive max_workers."""
+
+    def test_counts_free_keys(self):
+        km = _create_test_km()
+        assert km.get_tier_key_count('free') == 2
+
+    def test_counts_paid_keys(self):
+        km = _create_test_km()
+        assert km.get_tier_key_count('paid') == 1
+
+    def test_excludes_dead_keys(self):
+        km = _create_test_km()
+        km.dead_keys.add("fk1_value")
+        assert km.get_tier_key_count('free') == 1
+
+    def test_zero_when_no_keys_of_tier(self):
+        km = _create_test_km()
+        # Remove the paid key
+        del km.name_to_key["paid_key_1"]
+        del km.key_metadata["pk1_value"]
+        assert km.get_tier_key_count('paid') == 0
+

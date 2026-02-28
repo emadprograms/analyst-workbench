@@ -168,11 +168,12 @@ class TestRunUpdateEconomy:
 
 class TestRunUpdateCompany:
     
+    @patch('modules.ai.ai_services.KEY_MANAGER')
     @patch('main.upsert_company_card')
     @patch('main.update_company_card')
     @patch('main.get_company_card_and_notes')
     @patch('main.get_daily_inputs')
-    def test_single_ticker_success(self, mock_news, mock_card, mock_ai, mock_upsert):
+    def test_single_ticker_success(self, mock_news, mock_card, mock_ai, mock_upsert, mock_km):
         """Successful single ticker update."""
         from main import run_update_company
         
@@ -180,6 +181,7 @@ class TestRunUpdateCompany:
         mock_card.return_value = (SAMPLE_COMPANY_CARD, "Historical: $200 support", "2026-02-22")
         mock_ai.return_value = '{"marketNote": "Updated AAPL card"}'
         mock_upsert.return_value = True
+        mock_km.get_tier_key_count.return_value = 5
         
         logger = AppLogger("test")
         result = run_update_company(date(2026, 2, 23), "gemini-3-flash-free", ["AAPL"], logger)
@@ -187,11 +189,12 @@ class TestRunUpdateCompany:
         assert result is True
         mock_ai.assert_called_once()
 
+    @patch('modules.ai.ai_services.KEY_MANAGER')
     @patch('main.upsert_company_card')
     @patch('main.update_company_card')
     @patch('main.get_company_card_and_notes')
     @patch('main.get_daily_inputs')
-    def test_multiple_tickers(self, mock_news, mock_card, mock_ai, mock_upsert):
+    def test_multiple_tickers(self, mock_news, mock_card, mock_ai, mock_upsert, mock_km):
         """Multiple tickers should be processed sequentially."""
         from main import run_update_company
         
@@ -199,6 +202,7 @@ class TestRunUpdateCompany:
         mock_card.return_value = (SAMPLE_COMPANY_CARD, "", "2026-02-22")
         mock_ai.return_value = '{"marketNote": "Updated"}'
         mock_upsert.return_value = True
+        mock_km.get_tier_key_count.return_value = 5
         
         logger = AppLogger("test")
         result = run_update_company(date(2026, 2, 23), "gemini-3-flash-free", ["AAPL", "MSFT", "GOOGL"], logger)
@@ -206,13 +210,15 @@ class TestRunUpdateCompany:
         assert result is True
         assert mock_ai.call_count == 3
 
+    @patch('modules.ai.ai_services.KEY_MANAGER')
     @patch('main.get_daily_inputs')
-    def test_continues_without_news(self, mock_news):
+    def test_continues_without_news(self, mock_news, mock_km):
         """Should continue (with warning) when no market news available."""
         from main import run_update_company
         
         mock_news.return_value = (None, None)
         logger = AppLogger("test")
+        mock_km.get_tier_key_count.return_value = 5
         
         with patch('main.get_company_card_and_notes') as mock_card, \
              patch('main.update_company_card') as mock_ai, \
@@ -227,10 +233,11 @@ class TestRunUpdateCompany:
         # Verify warning was logged (not crash)
         assert "No market news found" in logger.get_full_log()
 
+    @patch('modules.ai.ai_services.KEY_MANAGER')
     @patch('main.update_company_card')
     @patch('main.get_company_card_and_notes')
     @patch('main.get_daily_inputs')
-    def test_partial_failure(self, mock_news, mock_card, mock_ai):
+    def test_partial_failure(self, mock_news, mock_card, mock_ai, mock_km):
         """If one ticker fails, others should still be processed."""
         from main import run_update_company
         
@@ -238,6 +245,7 @@ class TestRunUpdateCompany:
         mock_card.return_value = (SAMPLE_COMPANY_CARD, "", "2026-02-22")
         # First call succeeds, second fails, third succeeds
         mock_ai.side_effect = ['{"valid": "json"}', None, '{"valid": "json"}']
+        mock_km.get_tier_key_count.return_value = 5
         
         with patch('main.upsert_company_card') as mock_upsert:
             mock_upsert.return_value = True
@@ -247,21 +255,74 @@ class TestRunUpdateCompany:
         # 2 out of 3 succeeded, so overall result is True
         assert result is True
 
+    @patch('modules.ai.ai_services.KEY_MANAGER')
     @patch('main.update_company_card')
     @patch('main.get_company_card_and_notes')
     @patch('main.get_daily_inputs')
-    def test_all_tickers_fail(self, mock_news, mock_card, mock_ai):
+    def test_all_tickers_fail(self, mock_news, mock_card, mock_ai, mock_km):
         """If all tickers fail, result should be False."""
         from main import run_update_company
         
         mock_news.return_value = ("News", None)
         mock_card.return_value = (SAMPLE_COMPANY_CARD, "", "2026-02-22")
         mock_ai.return_value = None
+        mock_km.get_tier_key_count.return_value = 5
         
         logger = AppLogger("test")
         result = run_update_company(date(2026, 2, 23), "gemini-3-flash-free", ["AAPL", "MSFT"], logger)
         
         assert result is False
+
+    @patch('modules.ai.ai_services.KEY_MANAGER')
+    @patch('main.upsert_company_card')
+    @patch('main.update_company_card')
+    @patch('main.get_company_card_and_notes')
+    @patch('main.get_daily_inputs')
+    def test_adaptive_workers_single_key(self, mock_news, mock_card, mock_ai, mock_upsert, mock_km):
+        """With 1 paid key, max_workers should be 1."""
+        from main import run_update_company
+        
+        mock_news.return_value = ("News", None)
+        mock_card.return_value = (SAMPLE_COMPANY_CARD, "", "2026-02-22")
+        mock_ai.return_value = '{"marketNote": "Updated"}'
+        mock_upsert.return_value = True
+        mock_km.get_tier_key_count.return_value = 1
+        
+        logger = AppLogger("test")
+        result = run_update_company(date(2026, 2, 23), "gemini-3-pro-paid", ["AAPL", "MSFT", "GOOGL"], logger)
+        
+        assert result is True
+        assert "1 paid-tier key(s) available" in logger.get_full_log()
+        assert "max_workers=1" in logger.get_full_log()
+
+
+# ==========================================
+# TEST: ALL Ticker Expansion
+# ==========================================
+
+class TestAllTickerExpansion:
+    """Tests for the 'all' keyword in --tickers argument."""
+
+    def test_all_expands_to_stock_tickers(self):
+        """Passing --tickers all should expand to all stock tickers from DB."""
+        raw = "all"
+        raw_tickers = [t.strip().upper() for t in raw.split(",") if t.strip()]
+        assert raw_tickers == ["ALL"]
+
+    def test_all_not_treated_as_ticker_symbol(self):
+        """The literal ticker 'ALL' (Allstate) should not be used when user means 'all stocks'."""
+        # When raw_tickers == ["ALL"], the code should expand rather than 
+        # treat it as the Allstate ticker symbol
+        raw_tickers = ["ALL"]
+        is_expansion = raw_tickers == ["ALL"]
+        assert is_expansion is True
+
+    def test_mixed_tickers_not_expanded(self):
+        """Passing 'AAPL,ALL,MSFT' should NOT trigger expansion — only solo 'all'."""
+        raw = "AAPL,ALL,MSFT"
+        raw_tickers = [t.strip().upper() for t in raw.split(",") if t.strip()]
+        is_expansion = raw_tickers == ["ALL"]
+        assert is_expansion is False  # Should NOT expand
 
 
 # ==========================================

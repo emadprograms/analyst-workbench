@@ -549,29 +549,46 @@ class TestEdgeCases:
         report = validate_company_card("null", ticker="NULL")
         assert not report.passed
 
-    def test_todays_action_exactly_5000_chars(self):
-        """5000 chars should be the boundary — exactly 5000 should pass."""
+    def test_todays_action_exactly_500_chars(self):
+        """500 chars should be the boundary — exactly 500 should pass."""
         card = copy.deepcopy(SAMPLE_GOOD_COMPANY_CARD)
-        action_5000 = "2026-02-23: Breakout (Stable). " + "x" * (5000 - len("2026-02-23: Breakout (Stable). "))
-        card["technicalStructure"]["keyActionLog"][-1]["action"] = action_5000
+        action_500 = "2026-02-23: Breakout (Stable). " + "x" * (500 - len("2026-02-23: Breakout (Stable). "))
+        card["technicalStructure"]["keyActionLog"][-1]["action"] = action_500
         report = validate_company_card(card, ticker="AAPL")
         length_issues = [i for i in report.issues if i.rule == "ACTION_TOO_LONG"]
-        assert len(length_issues) == 0, "Exactly 5000 chars should not trigger ACTION_TOO_LONG."
+        assert len(length_issues) == 0, "Exactly 500 chars should not trigger ACTION_TOO_LONG."
 
-    def test_todays_action_5001_chars_fails(self):
-        """5001 chars should fail."""
+    def test_todays_action_501_chars_fails(self):
+        """501 chars should fail."""
         card = copy.deepcopy(SAMPLE_GOOD_COMPANY_CARD)
-        action_5001 = "2026-02-23: Breakout (Stable). " + "x" * (5001 - len("2026-02-23: Breakout (Stable). "))
-        card["technicalStructure"]["keyActionLog"][-1]["action"] = action_5001
+        action_501 = "2026-02-23: Breakout (Stable). " + "x" * (501 - len("2026-02-23: Breakout (Stable). "))
+        card["technicalStructure"]["keyActionLog"][-1]["action"] = action_501
         report = validate_company_card(card, ticker="AAPL")
         length_issues = [i for i in report.issues if i.rule == "ACTION_TOO_LONG"]
-        assert len(length_issues) > 0, "5001 chars should trigger ACTION_TOO_LONG."
+        assert len(length_issues) > 0, "501 chars should trigger ACTION_TOO_LONG."
 
     def test_economy_card_json_string(self):
         """Economy validator should accept JSON string."""
         json_str = json.dumps(SAMPLE_GOOD_ECONOMY_CARD)
         report = validate_economy_card(json_str)
         assert report.passed, f"Good economy card (JSON string) should pass.\n{report.details()}"
+
+    def test_degeneration_detection_triggers(self):
+        """todaysAction with 3+ degeneration phrases should be flagged."""
+        card = copy.deepcopy(SAMPLE_GOOD_COMPANY_CARD)
+        card["technicalStructure"]["keyActionLog"][-1]["action"] = (
+            "2026-02-23: Chop. End. End of process. JSON ready."
+        )
+        report = validate_company_card(card, ticker="AAPL")
+        degen_issues = [i for i in report.issues if i.rule == "ACTION_DEGENERATION"]
+        assert len(degen_issues) > 0, "Should detect degeneration loop."
+
+    def test_degeneration_not_triggered_on_clean_action(self):
+        """A clean todaysAction should NOT trigger degeneration detection."""
+        card = copy.deepcopy(SAMPLE_GOOD_COMPANY_CARD)
+        report = validate_company_card(card, ticker="AAPL")
+        degen_issues = [i for i in report.issues if i.rule == "ACTION_DEGENERATION"]
+        assert len(degen_issues) == 0, "Clean action should not trigger degeneration."
 
 
 # ==========================================

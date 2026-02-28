@@ -181,8 +181,19 @@ def run_update_company(selected_date: date, model_name: str, tickers: list[str],
             logger.error(f"❌ AI update failed for {ticker}")
             return False
 
+    # Determine max_workers based on available keys for this model's tier
+    from modules.ai.ai_services import KEY_MANAGER
+    from modules.core.key_manager import KeyManager
+    
+    max_concurrent = 5  # default cap
+    if KEY_MANAGER:
+        tier = KeyManager.MODELS_CONFIG.get(model_name, {}).get('tier', 'free')
+        key_count = KEY_MANAGER.get_tier_key_count(tier)
+        max_concurrent = max(1, min(key_count, 5))
+        logger.log(f"🔑 {key_count} {tier}-tier key(s) available → max_workers={max_concurrent}")
+
     success_count = 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(tickers), 5)) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(tickers), max_concurrent)) as executor:
         results = list(executor.map(process_ticker, tickers))
         success_count = sum(1 for r in results if r)
     
@@ -253,7 +264,15 @@ def main():
                 logger.error("🛑 Action 'update-company' requires --tickers.")
                 exit_code = 1
                 return
-            ticker_list = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
+            raw_tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
+            # Expand "ALL" keyword to all stock tickers from DB or config
+            if raw_tickers == ["ALL"]:
+                db_tickers = get_all_tickers_from_db()
+                etf_set = set(ETF_TICKERS)
+                ticker_list = [t for t in db_tickers if t not in etf_set] or STOCK_TICKERS
+                logger.log(f"📋 Expanded 'all' to {len(ticker_list)} stock tickers: {', '.join(ticker_list)}")
+            else:
+                ticker_list = raw_tickers
             if not run_update_company(target_date, args.model, ticker_list, logger):
                 exit_code = 1
         elif args.action == "input-news":

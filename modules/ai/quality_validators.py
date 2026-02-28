@@ -242,10 +242,11 @@ def _check_todays_action_quality(card: dict, report: QualityReport, card_type: s
     Validates the todaysAction / keyActionLog entries.
     Rules:
       - todaysAction must exist (in the latest keyActionLog entry)
-      - Must be under 5000 characters
+      - Must be under 500 characters
       - Must contain a date stamp
       - Must NOT contain screener_briefing content (S_Levels, R_Levels, Setup_Bias)
       - Must NOT contain structured field names (majorSupport, volumeMomentum, etc.)
+      - Must NOT contain degeneration patterns ("End.", "End of process", repeated text)
     """
     if card_type == "company":
         log = card.get("technicalStructure", {}).get("keyActionLog", [])
@@ -292,13 +293,28 @@ def _check_todays_action_quality(card: dict, report: QualityReport, card_type: s
         ))
 
     # LENGTH CHECK
-    if len(action_text) > 5000:
+    if len(action_text) > 500:
         report.issues.append(QualityIssue(
             rule="ACTION_TOO_LONG",
             severity="critical",
             field="keyActionLog[-1].action",
-            message=f"todaysAction is {len(action_text)} chars (limit: 5000). "
+            message=f"todaysAction is {len(action_text)} chars (limit: 500). "
                     f"Preview: '{action_text[:100]}...'"
+        ))
+
+    # DEGENERATION/REPETITION DETECTION
+    degen_phrases = ["End.", "End of process", "End of thinking", "End of thought",
+                     "JSON follows", "JSON ready", "JSON below", "Analysis complete",
+                     "Task finished", "No comments", "Valid JSON", "Final output",
+                     "End of record", "End of analysis"]
+    degen_count = sum(action_text.lower().count(p.lower()) for p in degen_phrases)
+    if degen_count >= 3:
+        report.issues.append(QualityIssue(
+            rule="ACTION_DEGENERATION",
+            severity="critical",
+            field="keyActionLog[-1].action",
+            message=f"todaysAction contains {degen_count} degeneration/sign-off phrases "
+                    f"(e.g. 'End.', 'JSON ready'). The model entered a repetition loop."
         ))
 
     # CARD-DUMP DETECTION: Check for structured content that belongs in other fields
