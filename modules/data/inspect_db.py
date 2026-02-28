@@ -2,7 +2,6 @@ import libsql_client
 from datetime import date
 from modules.core.config import (
     TURSO_DB_URL, TURSO_AUTH_TOKEN, TURSO_PRICE_DB_URL, TURSO_PRICE_AUTH_TOKEN,
-    ALL_TICKERS
 )
 from modules.ai.ai_services import TRACKER
 
@@ -60,9 +59,12 @@ def inspect(target_date: date, logger=None):
 
         # 3. Check Updated Tickers (aw_company_cards)
         try:
+            # Get expected tickers from aw_ticker_notes (stocks only, not ETFs)
+            rs_expected = client.execute("SELECT DISTINCT ticker FROM aw_ticker_notes ORDER BY ticker ASC")
+            expected_tickers = sorted([row[0] for row in rs_expected.rows])
+
             rs = client.execute("SELECT ticker FROM aw_company_cards WHERE date = ? ORDER BY ticker ASC", [date_str])
             updated_tickers = sorted([row[0] for row in rs.rows])
-            expected_tickers = sorted(ALL_TICKERS)
             missing_tickers = sorted(set(expected_tickers) - set(updated_tickers))
 
             if updated_tickers:
