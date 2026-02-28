@@ -166,7 +166,10 @@ SAMPLE_BAD_COMPANY_CARD_DUMP = {
                 "shows Committed Buyers in control with Accumulation pattern. Volume was "
                 "2x average confirming the volumeMomentum thesis. The fundamentalContext "
                 "valuation at 85x P/E remains elevated but justified by growth. "
-                "Peer performance shows outperformance vs XLY sector."
+                "Peer performance shows outperformance vs XLY sector. "
+                "The technicalStructure pattern shows a multi-day ascending channel formation "
+                "with the volumeProfile POC migrating higher toward $270 confirming sustained "
+                "institutional buying pressure and a developing acceptance above the prior balance area."
             )}
         ],
         "volumeMomentum": "High"  # Too short
@@ -495,24 +498,24 @@ class TestEdgeCases:
         report = validate_company_card("null", ticker="NULL")
         assert not report.passed
 
-    def test_todays_action_exactly_500_chars(self):
-        """500 chars should be the boundary — exactly 500 should pass."""
+    def test_todays_action_exactly_800_chars(self):
+        """800 chars should be the boundary — exactly 800 should pass."""
         card = copy.deepcopy(SAMPLE_GOOD_COMPANY_CARD)
-        # Create a 500-char action (under limit)
-        action_500 = "2026-02-23: Breakout (Stable). " + "x" * (500 - len("2026-02-23: Breakout (Stable). "))
-        card["technicalStructure"]["keyActionLog"][-1]["action"] = action_500
+        # Create an 800-char action (at limit)
+        action_800 = "2026-02-23: Breakout (Stable). " + "x" * (800 - len("2026-02-23: Breakout (Stable). "))
+        card["technicalStructure"]["keyActionLog"][-1]["action"] = action_800
         report = validate_company_card(card, ticker="AAPL")
         length_issues = [i for i in report.issues if i.rule == "ACTION_TOO_LONG"]
-        assert len(length_issues) == 0, "Exactly 500 chars should not trigger ACTION_TOO_LONG."
+        assert len(length_issues) == 0, "Exactly 800 chars should not trigger ACTION_TOO_LONG."
 
-    def test_todays_action_501_chars_fails(self):
-        """501 chars should fail."""
+    def test_todays_action_801_chars_fails(self):
+        """801 chars should fail."""
         card = copy.deepcopy(SAMPLE_GOOD_COMPANY_CARD)
-        action_501 = "2026-02-23: Breakout (Stable). " + "x" * (501 - len("2026-02-23: Breakout (Stable). "))
-        card["technicalStructure"]["keyActionLog"][-1]["action"] = action_501
+        action_801 = "2026-02-23: Breakout (Stable). " + "x" * (801 - len("2026-02-23: Breakout (Stable). "))
+        card["technicalStructure"]["keyActionLog"][-1]["action"] = action_801
         report = validate_company_card(card, ticker="AAPL")
         length_issues = [i for i in report.issues if i.rule == "ACTION_TOO_LONG"]
-        assert len(length_issues) > 0, "501 chars should trigger ACTION_TOO_LONG."
+        assert len(length_issues) > 0, "801 chars should trigger ACTION_TOO_LONG."
 
     def test_economy_card_json_string(self):
         """Economy validator should accept JSON string."""
