@@ -6,7 +6,7 @@ codebase.  Each of the four sections below is explicitly labelled with the bug
 it exercises so that a failing test immediately points to the relevant fix.
 
 Bug 1 — Cache Staleness in ``get_or_compute_context``
-Bug 2 — Immutability Violation in ``update_company_card`` / ``update_economy_card``
+Bug 2 — keyActionLog same-date overwrite in ``update_company_card`` / ``update_economy_card``
 Bug 3 — JSON Parsing Vulnerability (silent data loss via missing markdown strip)
 Bug 4 — Post-Dispatch Error Reporting in Discord-to-GitHub orchestration
 
@@ -442,15 +442,16 @@ class TestCacheStaleness:
 
 
 # ===========================================================================
-# BUG 2 — Immutability Violation
+# BUG 2 — keyActionLog Same-Date Overwrite
 # ===========================================================================
 
-class TestKeyActionLogImmutability:
+class TestKeyActionLogOverwrite:
     """
-    Tests that confirm the keyActionLog is immutable once written (Bug 2).
+    Tests that confirm the keyActionLog same-date overwrite behaviour (Bug 2 revised).
 
-    A log entry for a given date should be written exactly once.  Any attempt
-    to re-run the card builder for the same date must NOT overwrite the entry.
+    Re-running the card builder for the same date should overwrite the previous
+    entry with the latest AI output. Entries for different dates are appended
+    and never touched by subsequent runs.
     """
 
     _CTX = {"meta": {"ticker": "AAPL", "data_points": 1}, "sessions": {}}

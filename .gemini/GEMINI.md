@@ -81,8 +81,8 @@ The AI explicitly hunts for **Disconnects**:
 
 1.  **Do NOT edit `get_or_compute_context`** casually. It protects the database bill.
 2.  **Prompt Engineering**: All prompts live in `modules/ai_services.py`. If you change the logic there, update this document.
-3.  **Data Integrity**: Users cannot manually edit the `todaysAction` log. It is an immutable record of the AI's daily analysis.
-4.  **`keyActionLog` is append-only (IMMUTABLE)**. Both `update_company_card` and `update_economy_card` must **never** overwrite an existing log entry for a given date. If an entry already exists for `trade_date_str`, log a warning and preserve the original. If you find an `else` branch that mutates an existing entry, it is a bug.
+3.  **Data Integrity**: Users cannot manually edit the `todaysAction` log. It is a system-managed record of the AI's daily analysis.
+4.  **`keyActionLog` overwrites on same-date re-run**. Both `update_company_card` and `update_economy_card` use a find-or-append strategy: if an entry already exists for `trade_date_str`, it is **overwritten** with the latest AI output so the user always sees fresh analysis. Entries for other dates are never touched. This is intentional — re-running a card for the same date should replace stale data, not duplicate it.
 5.  **AI JSON parsing must use `_safe_parse_ai_json`**. Never call `json.loads` directly on a raw Gemini response. The helper tries three strategies (direct parse → last fenced block → bare braces) and returns `None` on total failure, which the caller must handle with a clean exception rather than silent data loss.
 6.  **`fundamentalContext.valuation` is user-managed and read-only**. After every AI update to a company card, the previous card's `valuation` value must be restored. The AI is not permitted to overwrite it with placeholder text.
 7.  **`dispatch_github_action` returns a 3-tuple `(bool, str, str | None)`**. All call sites must unpack all three values. The third element is the direct Actions run URL (or `None`); callers should fall back to `ACTIONS_URL` when it is `None`.
@@ -246,9 +246,9 @@ This section records resolved bugs and structural changes for traceability. Newe
 *   **Root cause**: `get_or_compute_context` wrote any result (including `{"status": "No Data"}`) to disk and then blindly served it forever on every subsequent call.
 *   **Fix**: Added `_is_valid_context()` gate on both cache reads and writes. Stale / corrupt files are removed from disk before re-computing. Added `_numpy_json_default()` encoder to handle numpy scalar types from pandas aggregations.
 
-#### Bug 2 — `keyActionLog` Immutability Violation (`modules/ai/ai_services.py`)
-*   **Root cause**: Both `update_company_card` and `update_economy_card` had an `else` branch that iterated the log and overwrote the existing entry for the same date, violating the append-only rule in Section 4.
-*   **Fix**: The `else` branch now logs `⚠️ IMMUTABILITY: ... Preserving original entry` and does nothing.
+#### Bug 2 (Revised) — `keyActionLog` Same-Date Overwrite (`modules/ai/ai_services.py`)
+*   **Original fix**: The `else` branch was made immutable — it logged a warning and preserved the original entry.
+*   **Revised behaviour (2026-02-28)**: Immutability was intentionally reverted. Re-running a card for the same `trade_date_str` now **overwrites** the existing entry's `action` field with the latest AI output. Entries for other dates remain untouched. The `else` branch logs `🔄 OVERWRITING: ...` for traceability. This ensures users always see the freshest analysis when they re-run.
 
 #### Bug 3 — JSON Parsing Vulnerability (`modules/ai/ai_services.py`)
 *   **Root cause**: `update_economy_card` had no markdown stripping at all; `update_company_card` used a lazy regex that could grab an incomplete JSON object from earlier in the prompt string.
