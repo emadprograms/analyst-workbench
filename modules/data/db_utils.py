@@ -14,16 +14,15 @@ import logging
 import libsql_client
 from libsql_client import LibsqlError, create_client_sync
 
-# --- Setup Logger ---
-logger = logging.getLogger("analyst_workbench")
-
 def get_db_connection():
     """
     Helper function to create a database connection to Turso.
+    This now uses the create_client_sync for Streamlit compatibility
+    and forces an HTTPS connection.
     """
     try:
         if not TURSO_DB_URL:
-            logger.error("TURSO_DB_URL is not set.")
+            logging.error("TURSO_DB_URL is not set.")
             return None
 
         # --- FIX: Force HTTPS connection ---
@@ -33,10 +32,12 @@ def get_db_connection():
             "url": http_url,
             "auth_token": TURSO_AUTH_TOKEN
         }
+        # --- FIX: Use create_client_sync ---
+        # This is the synchronous client required
         client = create_client_sync(**config)
         return client
     except Exception as e:
-        logger.error(f"Failed to create Turso client: {e}")
+        logging.error(f"Failed to create Turso client: {e}")
         return None
 
 def get_price_db_connection():
@@ -45,7 +46,7 @@ def get_price_db_connection():
     """
     try:
         if not TURSO_PRICE_DB_URL:
-            logger.error("TURSO_PRICE_DB_URL is not set.")
+            logging.error("TURSO_PRICE_DB_URL is not set.")
             return None
 
         # --- FIX: Force HTTPS connection ---
@@ -58,21 +59,20 @@ def get_price_db_connection():
         client = create_client_sync(**config)
         return client
     except Exception as e:
-        logger.error(f"Failed to create Turso Price client: {e}")
+        logging.error(f"Failed to create Turso Price client: {e}")
         return None
 
 # --- Daily Inputs ---
 
 def upsert_daily_inputs(selected_date: date, market_news: str) -> bool:
-    """Saves or updates the daily inputs for a specific date (Force Overwrite)."""
+    """Saves or updates the daily inputs for a specific date."""
     conn = None
     try:
         conn = get_db_connection()
         if not conn:
-            logger.error("Database connection failed for UPSERT.")
+            logging.error("Database connection failed.")
             return False
 
-        logger.log(20, f"Updating 'aw_daily_news' for {selected_date} ({len(market_news)} chars)...")
         # The Turso client auto-commits; no 'commit()' needed
         conn.execute(
             """
@@ -83,13 +83,9 @@ def upsert_daily_inputs(selected_date: date, market_news: str) -> bool:
             """,
             (selected_date.isoformat(), market_news)
         )
-        logger.log(20, f"✅ UPSERT Successful for {selected_date}")
         return True
     except LibsqlError as e:
-        logger.error(f"Error in upsert_daily_inputs for {selected_date}: {e}")
-        return False
-    except Exception as e:
-        logger.error(f"Unexpected error in upsert_daily_inputs: {e}")
+        logging.error(f"Error in upsert_daily_inputs: {e}")
         return False
     finally:
         if conn:
@@ -317,6 +313,56 @@ def get_company_card_and_notes(ticker: str, selected_date: date = None) -> tuple
         
     return card_json, historical_notes, card_date
 
+
+def update_ticker_notes(ticker: str, notes: str) -> bool:
+    """Updates the historical level notes for a ticker in aw_ticker_notes."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return False
+        conn.execute(
+            """
+            INSERT INTO aw_ticker_notes (ticker, historical_level_notes) VALUES (?, ?)
+            ON CONFLICT(ticker) DO UPDATE SET historical_level_notes = excluded.historical_level_notes
+            """,
+            (ticker, notes)
+        )
+        conn.commit()
+        return True
+    except LibsqlError as e:
+        logging.error(f"Error in update_ticker_notes: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_ticker_stats() -> list[dict]:
+    """Gets a list of all tracked tickers with their last card update date."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return []
+        rs = conn.execute(
+            """
+            SELECT s.ticker, MAX(c.date) as last_card_date
+            FROM aw_stocks s
+            LEFT JOIN aw_company_cards c ON s.ticker = c.ticker
+            GROUP BY s.ticker
+            ORDER BY s.ticker
+            """
+        )
+        return [{"ticker": row["ticker"], "last_card_date": row["last_card_date"]} for row in rs.rows]
+    except LibsqlError as e:
+        logging.error(f"Error in get_ticker_stats: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
 def get_all_archive_dates() -> list[str]:
     """Gets all unique dates from the economy cards table, most recent first."""
     conn = None
@@ -488,52 +534,6 @@ def upsert_data_archive(selected_date: date, ticker: str, raw_text_summary: str)
     except LibsqlError as e:
         logging.error(f"Error in upsert_data_archive: {e}")
         return False
-    finally:
-        if conn:
-            conn.close()
-
-def update_ticker_notes(ticker: str, notes: str) -> bool:
-    """Updates the historical level notes for a specific ticker."""
-    conn = None
-    try:
-        conn = get_db_connection()
-        if not conn:
-            return False
-        conn.execute(
-            "INSERT INTO aw_ticker_notes (ticker, historical_level_notes) VALUES (?, ?) "
-            "ON CONFLICT(ticker) DO UPDATE SET historical_level_notes = excluded.historical_level_notes",
-            (ticker.upper(), notes)
-        )
-        return True
-    except Exception as e:
-        logging.error(f"Error updating ticker notes: {e}")
-        return False
-    finally:
-        if conn:
-            conn.close()
-
-def get_ticker_stats() -> list[dict]:
-    """Gets all tickers from aw_ticker_notes and their latest card date from aw_company_cards."""
-    conn = None
-    try:
-        conn = get_db_connection()
-        if not conn:
-            return []
-        
-        # SQL to get ticker and its latest card date
-        # LEFT JOIN to include tickers that don't have cards yet
-        query = """
-            SELECT n.ticker, MAX(c.date) as last_card_date
-            FROM aw_ticker_notes n
-            LEFT JOIN aw_company_cards c ON n.ticker = c.ticker
-            GROUP BY n.ticker
-            ORDER BY n.ticker ASC
-        """
-        rs = conn.execute(query)
-        return [dict(row) for row in rs.rows]
-    except Exception as e:
-        logging.error(f"Error in get_ticker_stats: {e}")
-        return []
     finally:
         if conn:
             conn.close()

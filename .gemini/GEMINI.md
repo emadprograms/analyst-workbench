@@ -12,14 +12,16 @@ The **Analyst Workbench** is a Streamlit-based Python application designed to ac
 
 *   **Database (Turso/SQLite)**:
     *   `market_data`: Stores raw OHLCV price bars. (Sources: Yahoo Finance)
-    *   `company_cards`: Stores the JSON output of the AI analysis (The "living memory" of the stock).
-    *   `economy_cards`: Stores the JSON output of the Global Macro analysis.
-    *   `daily_inputs`: Stores the daily raw news/macro context provided by the user.
+    *   `aw_company_cards`: Stores the JSON output of the AI analysis (The "living memory" of the stock).
+    *   `aw_economy_cards`: Stores the JSON output of the Global Macro analysis.
+    *   `aw_daily_inputs`: Stores the daily raw news/macro context provided by the user.
+    *   `aw_ticker_notes`: Stores per-ticker historical level notes (user-managed).
+    *   `aw_stocks`: The active stock watch list.
 
 *   **Computation Layer (Python)**:
-    *   `modules/impact_engine.py`: The quantitative heart. Slice price action into 3 sessions (Pre, RTH, Post), detects "Impact Levels" (Support/Resistance), tracks "Value Migration" (30min blocks), and calculates **Volume Profiles** (POC, VAH, VAL) and Key Volume Events.
-    *   `modules/ai_services.py`: The logic layer. Constructs the massive "Masterclass" prompts, manages API keys (`KeyManager`), and parses the AI's JSON response.
-    *   `app.py`: The frontend. Handles UI, user inputs, and triggers the batch update loops.
+    *   `modules/analysis/impact_engine.py`: The quantitative heart. Slices price action into 3 sessions (Pre, RTH, Post), detects "Impact Levels" (Support/Resistance), tracks "Value Migration" (30min blocks), and calculates **Volume Profiles** (POC, VAH, VAL) and Key Volume Events. Also provides `get_latest_price_details` for market-data validation.
+    *   `modules/ai/ai_services.py`: The logic layer. Constructs the massive "Masterclass" prompts, manages API keys (`KeyManager`), and parses the AI's JSON response.
+    *   `main.py`: The CLI entry point. Handles argument parsing, pipeline orchestration (`run_update_economy`, `run_update_company`, `run_pipeline`), and Discord webhook reporting.
     *   **Discord Bot (`discord_bot/bot.py`)**: The Command & Control layer.
         *   **Orchestration**: Dispatches heavy compute tasks (Card Building) to GitHub Actions to maintain a serverless architecture and keep Railway costs near zero.
         *   **Local Ingestion**: Directly handles `!inputnews` to save news context to the database without GitHub Actions. Supports manual text entry, file attachments (.txt, .log), and URL fetching (with auto-conversion of Pastebin links to raw format).
@@ -165,6 +167,30 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 ## 8. Engineering Log
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
+
+### 2026-02-28 — `main.py` Architecture Overhaul + Missing DB Functions
+
+#### `main.py` — Full Rewrite
+*   **Dead import removed**: `from modules.data.data_processing import generate_analysis_text` referenced a deleted module (`data_processing.py`). Removed; ETF evidence is now computed internally by `update_economy_card` via the Impact Engine.
+*   **New import**: `from modules.analysis.impact_engine import get_latest_price_details` — used for SPY market-data validation before economy card updates.
+*   **`run_update_economy` now returns `bool`**: Returns `True` on successful save, `False` on any failure (missing news, missing market data, AI failure, DB save failure). Added SPY price validation gate to prevent economy updates when market data is absent.
+*   **`run_update_company` extracted**: New standalone function `run_update_company(date, model, tickers, logger) -> bool` handles company card updates for a list of tickers. Returns `True` if any ticker succeeded, `False` if all failed.
+*   **`send_webhook_report` promoted to module-level**: Previously a nested closure inside `main()`. Now a proper top-level function with signature `(webhook_url, target_date, action_type, model_name, logger=None)`. Sends dashboard embed first, then log/artifact files in a second request. Skips file uploads for `inspect` and `input-news` actions.
+*   **`target_date` safety**: Initialised to `None` before the try block; webhook send is guarded with `target_date is not None`.
+*   **`update-company` CLI action added**: New `--action update-company` option for standalone company card updates.
+
+#### `modules/data/db_utils.py` — Missing Functions Added
+*   **`update_ticker_notes(ticker, notes) -> bool`**: Upserts historical level notes into `aw_ticker_notes`. Required by `discord_bot/bot.py` for the `!editnotes` command.
+*   **`get_ticker_stats() -> list[dict]`**: Returns all tracked tickers with their last company card update date. Required by `discord_bot/bot.py` for the `!listcards` command.
+
+#### `discord_bot/__init__.py` — Created
+*   Added empty `__init__.py` to make `discord_bot` a proper Python package. Required for test imports using `import discord_bot.bot`.
+
+#### `modules/core/config.py` — Minor Cleanup
+*   Replaced module-level `logger` variable with direct `logging.*` calls to avoid shadowing issues.
+
+#### Test Suite
+*   All 182 tests pass (`python3 -m pytest tests/`).
 
 ### 2026-02-26 — `inputnews` Command Hardening (discord_bot/bot.py)
 *   **URL regex path truncation**: `r'https?://(?:[-\w.]|...)'` excluded `/` from its character class, so every URL was captured up to the first slash (domain only). This broke Pastebin raw-URL rewriting and any path-based URL. Fixed to `r'https?://[^\s<>"\']+'`.
