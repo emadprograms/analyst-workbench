@@ -80,13 +80,14 @@ def send_webhook_report(webhook_url, target_date, action, model, logger=None):
 from modules.core.config import ALL_TICKERS, STOCK_TICKERS, ETF_TICKERS, AVAILABLE_MODELS, DISCORD_WEBHOOK_URL
 from modules.core.logger import AppLogger
 from modules.data.db_utils import (
-    get_daily_inputs, 
-    upsert_daily_inputs, 
-    get_economy_card, 
+    get_daily_inputs,
+    upsert_daily_inputs,
+    get_economy_card,
     upsert_economy_card,
     get_company_card_and_notes,
     upsert_company_card,
-    get_all_tickers_from_db
+    get_all_tickers_from_db,
+    get_archived_economy_card
 )
 from modules.ai.ai_services import update_economy_card, update_company_card
 from modules.analysis.impact_engine import get_latest_price_details
@@ -144,20 +145,26 @@ def run_update_economy(selected_date: date, model_name: str, logger: AppLogger) 
 
 def run_update_company(selected_date: date, model_name: str, tickers: list[str], logger: AppLogger) -> bool:
     logger.log(f"🧠 Updating Company Cards for {len(tickers)} tickers on {selected_date}...")
-    
+
     # 1. Get Market News for context
     market_news, _ = get_daily_inputs(selected_date)
     if not market_news:
         logger.warning(f"⚠️ No market news found for {selected_date}. Continuing without macro context.")
 
+    # 2. Get Economy Card for context
+    economy_card_json, _ = get_archived_economy_card(selected_date)
+    if not economy_card_json:
+        logger.error(f"❌ No Economy Card found for {selected_date}. Please run economy card update first. Pipeline Halted.")
+        return False
+
     def process_ticker(ticker):
         logger.log(f"Processing {ticker}...")
         prev_card, hist_notes, prev_date = get_company_card_and_notes(ticker, selected_date)
-        
+
         # Generate ticker summary (Evidence)
         # Note: In the future, this might be more sophisticated
-        ticker_summary = f"CLI Update for {ticker} on {selected_date}" 
-        
+        ticker_summary = f"CLI Update for {ticker} on {selected_date}"
+
         new_card = update_company_card(
             ticker=ticker,
             previous_card_json=prev_card,
@@ -166,9 +173,9 @@ def run_update_company(selected_date: date, model_name: str, tickers: list[str],
             new_eod_date=selected_date,
             model_name=model_name,
             market_context_summary=market_news,
+            economy_card_json=economy_card_json,
             logger=logger
-        )
-        
+        )        
         if new_card:
             if upsert_company_card(selected_date, ticker, ticker_summary, new_card):
                 return True

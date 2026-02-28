@@ -149,7 +149,7 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
                 
             headers = {'Content-Type': 'application/json'}
             
-            response = requests.post(gemini_url, headers=headers, data=json.dumps(payload), timeout=300)
+            response = requests.post(gemini_url, headers=headers, data=json.dumps(payload), timeout=600)
             
             # 3. REPORT: Pass internal model_id for correct counter increment
             if response.status_code == 200:
@@ -231,7 +231,6 @@ def update_company_card(
     new_eod_date: date, 
     model_name:str,
     market_context_summary: str, 
-    economy_card_json: str = None,
     logger: AppLogger = None
 ):
     """
@@ -297,6 +296,36 @@ def update_company_card(
 
     # --- FINAL Main 'Masterclass' Prompt ---
     prompt = f"""
+    [Raw Market Context for Today]
+    (This contains RAW, unstructured news headlines and snippets from various sources. You must synthesize the macro "Headwind" or "Tailwind" yourself from this data. It also contains company-specific news.)
+    <market_context>
+    {market_context_summary or "No raw market news was provided."}
+    </market_context>
+
+    [Historical Notes for {ticker}]
+    (CRITICAL STATIC CONTEXT: These are the MAJOR structural levels. LEVELS ARE PARAMOUNT.)
+    <historical_notes ticker="{ticker}">
+    {historical_notes or "No historical notes provided."}
+    </historical_notes>
+    
+    [Previous Card (Read-Only)]
+    (This is established structure, plans, and `keyActionLog` so far. Read this for the 3-5 day context AND to find the previous 'recentCatalyst' and 'fundamentalContext' data.) 
+    <previous_card>
+    {json.dumps(previous_overview_card_dict, indent=2)}
+    </previous_card>
+
+    [Log of Recent Key Actions (Read-Only)]
+    (This is the day-by-day story so far. Use this for context.)
+    <recent_key_actions>
+    {json.dumps(recent_log_entries, indent=2)}
+    </recent_key_actions>
+
+    [Today's New Price Action Summary (IMPACT CONTEXT CARD)]
+    (Use this structured 'Value Migration Log' and 'Impact Levels' to determine the 'Nature' of the session.)
+    <today_price_action_summary>
+    {impact_context_json}
+    </today_price_action_summary>
+
     [Your Task for {trade_date_str}]
     Your task is to populate the JSON template below. You MUST use the following trading model to generate your analysis.
 
@@ -397,6 +426,7 @@ def update_company_card(
         * **ANTI-DEGENERATION RULE:** Do NOT add meta-commentary or sign-off text like "End of record", "Analysis complete", "JSON ready", "End.", "Task finished", or ANY closing phrase after your final analytical sentence. Do NOT loop or repeat yourself. If you find yourself writing the same idea twice, STOP. The entry ends after your last analytical sentence — period.
         * **Required Format:** `"{trade_date_str}: [Pattern Label] ([Market State]). [1-2 sentences describing the 3-Act session arc using 4-Participant language: who acted, what they did at which key level, and the outcome]."`
         * **GOOD Example:** `"2026-02-13: Accumulation (Stable). Following yesterday's capitulation, the market opened with a gap down but immediately found Committed Buyers defending the major $255 structural POC. Despite a softer broad market, buyers established a series of higher lows throughout RTH, migrating value lower but holding the $255 floor. A high-volume stabilization in post-market confirms seller exhaustion and a tactical stalemate at support."`
+        * **BAD Example (DO NOT DO THIS):** Repeating the entire card's analysis, including all support/resistance levels, plan details, screener briefing content, volume profile numbers, catalyst text, or any content from other fields. If your todaysAction reads like a paragraph that could replace the entire card, it is WRONG. Also BAD: Ending with "End.", "Analysis complete.", "JSON ready.", or any sign-off text.
         * Write this field LAST, after all other analysis is complete. Distill, do not duplicate.
     **9. `openingTradePlan` & `alternativePlan`:** Update these for TOMORROW.
 
@@ -463,7 +493,6 @@ def update_company_card(
         "emotionalTone": "Your **Pattern + Proof of Reasoning** (e.g., 'Accumulation (Stable) - Reasoning: (1. Observation) Price formed a higher low. (2. Inference) This is not a vacuum, it proves buyers are competing. (3. Conclusion) This signals seller exhaustion...').",
         "newsReaction": "Your **Headwind/Tailwind Analysis** (e.g., 'Showed extreme relative strength by holding support *despite* the bearish macro context...')."
       }},
-      "todaysAction": "STRICT: Max 3 sentences, under 5000 chars. Format: 'DATE: Pattern (State). [Brief 3-Act narrative of who acted at which key level and the outcome].'. Do NOT repeat content from other fields. Do NOT add sign-off text like 'End.', 'Analysis complete.', 'JSON ready.' — STOP after your last analytical sentence.",
       "openingTradePlan": {{
         "planName": "Your new primary plan for the *next* open (e.g., 'Long from $266.25 Support').",
         "knownParticipant": "Who is confirmed at the level, per your model? (e.g., 'Committed Buyers at $266').",
@@ -478,49 +507,10 @@ def update_company_card(
         "expectedParticipant": "Who acts if trigger hits?",
         "trigger": "Specific price action validating this plan.",
         "invalidation": "Price action proving this plan WRONG."
-      }}
+      }},
+      "todaysAction": "STRICT: Max 3 sentences, under 5000 chars. Format: 'DATE: Pattern (State). [Brief 3-Act narrative of who acted at which key level and the outcome].'. Do NOT repeat content from other fields. Do NOT add sign-off text like 'End.', 'Analysis complete.', 'JSON ready.' — STOP after your last analytical sentence."
     }}
-    
-    --- START OF DATA ---
-
-    [Today's Global Economy Card]
-    (This is the macro context synthesized from indices, sectors, and the above news. Use it to judge the broader macro headwind/tailwind before analyzing the individual stock.)
-    <macro_economy_card>
-    {economy_card_json or "No economy card available."}
-    </macro_economy_card>
-
-    [Raw Market Context for Today]
-    (This contains RAW, unstructured news headlines and snippets from various sources. You must synthesize the macro "Headwind" or "Tailwind" yourself from this data. It also contains company-specific news.)
-    <market_context>
-    {market_context_summary or "No raw market news was provided."}
-    </market_context>
-
-    [Historical Notes for {ticker}]
-    (CRITICAL STATIC CONTEXT: These are the MAJOR structural levels. LEVELS ARE PARAMOUNT.)
-    <historical_notes ticker="{ticker}">
-    {historical_notes or "No historical notes provided."}
-    </historical_notes>
-    
-    [Previous Card (Read-Only)]
-    (This is established structure, plans, and `keyActionLog` so far. Read this for the 3-5 day context AND to find the previous 'recentCatalyst' and 'fundamentalContext' data.) 
-    <previous_card>
-    {json.dumps(previous_overview_card_dict, indent=2)}
-    </previous_card>
-
-    [Log of Recent Key Actions (Read-Only)]
-    (This is the day-by-day story so far. Use this for context.)
-    <recent_key_actions>
-    {json.dumps(recent_log_entries, indent=2)}
-    </recent_key_actions>
-
-    [Today's New Price Action Summary (IMPACT CONTEXT CARD)]
-    (Use this structured 'Value Migration Log' and 'Impact Levels' to determine the 'Nature' of the session.)
-    <today_price_action_summary>
-    {impact_context_json}
-    </today_price_action_summary>
-    
-    --- END OF DATA ---
-    Begin your JSON output now.    """
+    """
     
     logger.log(f"3. Calling EOD AI Analyst for {ticker}...");
     
@@ -535,9 +525,9 @@ def update_company_card(
             "technicalStructure": {"type": "OBJECT", "properties": {"majorSupport": {"type": "STRING"}, "majorResistance": {"type": "STRING"}, "pattern": {"type": "STRING"}, "volumeMomentum": {"type": "STRING"}}},
             "fundamentalContext": {"type": "OBJECT", "properties": {"valuation": {"type": "STRING"}, "analystSentiment": {"type": "STRING"}, "insiderActivity": {"type": "STRING"}, "peerPerformance": {"type": "STRING"}}},
             "behavioralSentiment": {"type": "OBJECT", "properties": {"buyerVsSeller": {"type": "STRING"}, "emotionalTone": {"type": "STRING"}, "newsReaction": {"type": "STRING"}}},
-            "todaysAction": {"type": "STRING"},
             "openingTradePlan": {"type": "OBJECT", "properties": {"planName": {"type": "STRING"}, "knownParticipant": {"type": "STRING"}, "expectedParticipant": {"type": "STRING"}, "trigger": {"type": "STRING"}, "invalidation": {"type": "STRING"}}},
-            "alternativePlan": {"type": "OBJECT", "properties": {"planName": {"type": "STRING"}, "scenario": {"type": "STRING"}, "knownParticipant": {"type": "STRING"}, "expectedParticipant": {"type": "STRING"}, "trigger": {"type": "STRING"}, "invalidation": {"type": "STRING"}}}
+            "alternativePlan": {"type": "OBJECT", "properties": {"planName": {"type": "STRING"}, "scenario": {"type": "STRING"}, "knownParticipant": {"type": "STRING"}, "expectedParticipant": {"type": "STRING"}, "trigger": {"type": "STRING"}, "invalidation": {"type": "STRING"}}},
+            "todaysAction": {"type": "STRING"}
         }
     }
     
@@ -732,11 +722,6 @@ def update_economy_card(
     )
 
     prompt = f"""
-    Your task is to synthesize the raw market news with quantitative ETF price action to update the global Economy Card.
-    Follow the exact JSON schema provided in the system prompt.
-    
-    --- START OF DATA ---
-    
     [Previous Day's Economy Card (Read-Only)]
     (This is the established macro context. You must read this first.)
     <previous_economy_card>
@@ -760,9 +745,7 @@ def update_economy_card(
     <key_etf_summaries>
     {combined_etf_evidence}
     </key_etf_summaries>
-    
-    --- END OF DATA ---
-    Begin your JSON output now.    """
+    """
 
     logger.log("3. Calling Macro Strategist AI...")
     
