@@ -1,5 +1,6 @@
 import logging
 import sys
+import threading
 
 class AppLogger:
     """
@@ -13,6 +14,7 @@ class AppLogger:
         
         # Captured logs for Discord reporting
         self.logs = []
+        self._lock = threading.Lock()
         
         # Clear any existing handlers to avoid duplicates
         if self.logger.handlers:
@@ -39,17 +41,20 @@ class AppLogger:
     def log(self, message: str):
         """Logs an info message and captures it."""
         self.logger.info(message)
-        self.logs.append(f"INFO: {message}")
+        with self._lock:
+            self.logs.append(f"INFO: {message}")
 
     def error(self, message: str):
         """Logs an error message and captures it."""
         self.logger.error(message)
-        self.logs.append(f"ERROR: {message}")
+        with self._lock:
+            self.logs.append(f"ERROR: {message}")
 
     def warning(self, message: str):
         """Logs a warning message and captures it."""
         self.logger.warning(message)
-        self.logs.append(f"WARNING: {message}")
+        with self._lock:
+            self.logs.append(f"WARNING: {message}")
 
     # Alias for compatibility (stdlib uses both warn/warning)
     warn = warning
@@ -57,11 +62,13 @@ class AppLogger:
     def log_code(self, code: str, language: str = 'text'):
         """Logs a code block and captures it."""
         self.logger.info(f"--- {language.upper()} BLOCK ---")
-        self.logs.append(f"--- {language.upper()} BLOCK ---")
-        for line in code.splitlines():
-            self.logger.info(line)
-            self.logs.append(line)
+        with self._lock:
+            self.logs.append(f"--- {language.upper()} BLOCK ---")
+            for line in code.splitlines():
+                self.logger.info(line)
+                self.logs.append(line)
 
     def get_full_log(self) -> str:
         """Returns the full history of captured logs as a single string."""
-        return "\n".join(self.logs)
+        with self._lock:
+            return "\n".join(self.logs)

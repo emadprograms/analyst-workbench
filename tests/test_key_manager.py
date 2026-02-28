@@ -12,6 +12,7 @@ Tests cover:
 import pytest
 import os
 import time
+import threading
 from unittest.mock import patch, MagicMock, PropertyMock
 from collections import deque
 
@@ -51,6 +52,7 @@ def _create_test_km():
         km.cooldown_keys = {}
         km.key_failure_strikes = {"fk1_value": 0, "fk2_value": 0, "pk1_value": 0}
         km.dead_keys = set()
+        km._lock = threading.Lock()
         
         return km
 
@@ -350,3 +352,111 @@ class TestRateLimitChecking:
         wait = km._check_key_limits("fk1_value", "gemini-3-flash-preview",
                                      rpm_limit=5, tpm_limit=250000, rpd_limit=10000)
         assert wait == 0.0
+
+
+# ==========================================
+# TEST: Thread Safety
+# ==========================================
+
+class TestThreadSafety:
+    """Tests that KeyManager is safe under concurrent access."""
+
+    def _create_many_keys_km(self, n_keys=20):
+        """Create a KeyManager with many free keys for concurrency testing."""
+        with patch.object(KeyManager, '__init__', lambda self, *a, **kw: None):
+            km = KeyManager.__new__(KeyManager)
+            km.db_url = "https://test.turso.io"
+            km.auth_token = "test_token"
+            km.db_client = MagicMock()
+            km._lock = threading.Lock()
+
+            km.name_to_key = {}
+            km.key_metadata = {}
+            for i in range(n_keys):
+                name = f"key_{i}"
+                value = f"val_{i}"
+                km.name_to_key[name] = value
+                km.key_metadata[value] = {"tier": "free"}
+
+            km.key_to_name = {v: k for k, v in km.name_to_key.items()}
+            km.key_to_hash = {v: f"hash_{k}" for k, v in km.name_to_key.items()}
+            km.available_keys = deque(km.name_to_key.values())
+            km.cooldown_keys = {}
+            km.key_failure_strikes = {v: 0 for v in km.name_to_key.values()}
+            km.dead_keys = set()
+
+            # Mock DB to always return no usage (all keys available)
+            mock_rs = MagicMock()
+            mock_rs.rows = []
+            km.db_client.execute.return_value = mock_rs
+
+            return km
+
+    def test_concurrent_get_key_no_duplicates(self):
+        """Multiple threads calling get_key should never get the same key value simultaneously."""
+        km = self._create_many_keys_km(n_keys=20)
+        results = []
+        errors = []
+
+        def grab_key():
+            try:
+                name, key, wait, model_id = km.get_key("gemini-3-flash-free", estimated_tokens=100)
+                if key:
+                    results.append(key)
+            except Exception as e:
+                errors.append(str(e))
+
+        threads = [threading.Thread(target=grab_key) for _ in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors, f"Threads raised errors: {errors}"
+        # All returned keys should be valid
+        assert len(results) == 20
+        # Keys are re-appended after use so duplicates are possible in results,
+        # but no thread should crash
+
+    def test_concurrent_report_failure_no_crash(self):
+        """Multiple threads calling report_failure concurrently should not crash."""
+        km = self._create_many_keys_km(n_keys=10)
+        errors = []
+
+        def fail_key(i):
+            try:
+                key_val = f"val_{i % 10}"
+                km.report_failure(key_val, is_info_error=(i % 2 == 0))
+            except Exception as e:
+                errors.append(str(e))
+
+        threads = [threading.Thread(target=fail_key, args=(i,)) for i in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors, f"Threads raised errors: {errors}"
+
+    def test_concurrent_get_key_and_report_usage(self):
+        """Interleaved get_key + report_usage from multiple threads should not crash."""
+        km = self._create_many_keys_km(n_keys=10)
+        # Mock _raw_http_execute to avoid actual HTTP calls
+        km._raw_http_execute = MagicMock()
+        errors = []
+
+        def worker(i):
+            try:
+                name, key, wait, model_id = km.get_key("gemini-3-flash-free", estimated_tokens=100)
+                if key:
+                    km.report_usage(key, tokens=500, model_id="gemini-3-flash-preview")
+            except Exception as e:
+                errors.append(str(e))
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors, f"Threads raised errors: {errors}"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import time
+import threading
 from collections import deque
 import logging
 import random
@@ -117,6 +118,7 @@ class KeyManager:
 
         self.db_url = db_url.replace("libsql://", "https://") 
         self.auth_token = auth_token
+        self._lock = threading.Lock()
         
         try:
             self.db_client = libsql_client.create_client_sync(url=self.db_url, auth_token=auth_token)
@@ -237,77 +239,78 @@ class KeyManager:
             - wait_time > 0.0: COMPACITY REACHED. Seconds to wait for next minute window.
             - model_id: The internal string Google expects (e.g. 'gemini-3-pro-preview').
         """
-        self._reclaim_keys()
+        with self._lock:
+            self._reclaim_keys()
         
-        config = self.MODELS_CONFIG.get(config_id)
-        if not config:
-            log.warning(f"Unknown config_id '{config_id}', using safe defaults.")
-            rpm_limit = 5; tpm_limit = 32000; rpd_limit = 10000; required_tier = 'free'
-            target_model_id = 'unknown'
-        else:
-            rpm_limit = config['limits']['rpm']
-            tpm_limit = config['limits']['tpm']
-            rpd_limit = config['limits'].get('rpd', 10000)
-            required_tier = config.get('tier') 
-            target_model_id = config.get('model_id')
-            if required_tier not in ['paid', 'free']: required_tier = 'free' 
+            config = self.MODELS_CONFIG.get(config_id)
+            if not config:
+                log.warning(f"Unknown config_id '{config_id}', using safe defaults.")
+                rpm_limit = 5; tpm_limit = 32000; rpd_limit = 10000; required_tier = 'free'
+                target_model_id = 'unknown'
+            else:
+                rpm_limit = config['limits']['rpm']
+                tpm_limit = config['limits']['tpm']
+                rpd_limit = config['limits'].get('rpd', 10000)
+                required_tier = config.get('tier') 
+                target_model_id = config.get('model_id')
+                if required_tier not in ['paid', 'free']: required_tier = 'free' 
 
-        # NEW: FATAL CHECK (Request > Model Limit)
-        if estimated_tokens > tpm_limit:
-            # Special signal: -1.0 means "Impossible"
-            return None, None, -1.0, target_model_id
-        
-        rotation = deque()
-        best_wait = float('inf')
-        
-        checked_count = 0
-        limit_checked_count = len(self.available_keys) 
-        
-        while self.available_keys and checked_count < limit_checked_count:
-            key_val = self.available_keys.popleft()
-            checked_count += 1
+            # NEW: FATAL CHECK (Request > Model Limit)
+            if estimated_tokens > tpm_limit:
+                # Special signal: -1.0 means "Impossible"
+                return None, None, -1.0, target_model_id
             
-            # 1. STRICT TIER 
-            key_tier = self.key_metadata[key_val].get('tier', 'free')
-            if required_tier == 'paid' and key_tier != 'paid':
-                rotation.append(key_val)
-                continue
-            if required_tier == 'free' and key_tier != 'free':
-                rotation.append(key_val)
-                continue
+            rotation = deque()
+            best_wait = float('inf')
             
-            # 2. HEALTH
-            if key_val in self.dead_keys:
-                rotation.append(key_val)
-                continue
-
-            # NEW: Respect the Cooldown Penalty Box
-            if key_val in self.cooldown_keys:
-                release_time = self.cooldown_keys[key_val]
-                if time.time() < release_time:
-                    # Key is still in penalty box
-                    wait_for_this_key = release_time - time.time()
-                    best_wait = min(best_wait, wait_for_this_key)
+            checked_count = 0
+            limit_checked_count = len(self.available_keys) 
+            
+            while self.available_keys and checked_count < limit_checked_count:
+                key_val = self.available_keys.popleft()
+                checked_count += 1
+                
+                # 1. STRICT TIER 
+                key_tier = self.key_metadata[key_val].get('tier', 'free')
+                if required_tier == 'paid' and key_tier != 'paid':
                     rotation.append(key_val)
                     continue
-                else:
-                    # Time served. Release it.
-                    del self.cooldown_keys[key_val]
+                if required_tier == 'free' and key_tier != 'free':
+                    rotation.append(key_val)
+                    continue
                 
-            # 3. LIMITS (V8: Model Specific)
-            wait = self._check_key_limits(key_val, target_model_id, rpm_limit, tpm_limit, rpd_limit, estimated_tokens)
+                # 2. HEALTH
+                if key_val in self.dead_keys:
+                    rotation.append(key_val)
+                    continue
+
+                # NEW: Respect the Cooldown Penalty Box
+                if key_val in self.cooldown_keys:
+                    release_time = self.cooldown_keys[key_val]
+                    if time.time() < release_time:
+                        # Key is still in penalty box
+                        wait_for_this_key = release_time - time.time()
+                        best_wait = min(best_wait, wait_for_this_key)
+                        rotation.append(key_val)
+                        continue
+                    else:
+                        # Time served. Release it.
+                        del self.cooldown_keys[key_val]
+                    
+                # 3. LIMITS (V8: Model Specific)
+                wait = self._check_key_limits(key_val, target_model_id, rpm_limit, tpm_limit, rpd_limit, estimated_tokens)
+                
+                if wait == 0:
+                    self.available_keys.extendleft(reversed(rotation)) 
+                    self.available_keys.append(key_val) 
+                    return self.key_to_name[key_val], key_val, 0.0, target_model_id
+                
+                best_wait = min(best_wait, wait)
+                rotation.append(key_val)
             
-            if wait == 0:
-                self.available_keys.extendleft(reversed(rotation)) 
-                self.available_keys.append(key_val) 
-                return self.key_to_name[key_val], key_val, 0.0, target_model_id
-            
-            best_wait = min(best_wait, wait)
-            rotation.append(key_val)
-            
-        self.available_keys.extend(rotation)
-        if best_wait == float('inf'): return None, None, 0.0, target_model_id
-        return None, None, best_wait, target_model_id
+            self.available_keys.extend(rotation)
+            if best_wait == float('inf'): return None, None, 0.0, target_model_id
+            return None, None, best_wait, target_model_id
 
     def _check_key_limits(self, key_val: str, model_id: str, rpm_limit: int, tpm_limit: int, rpd_limit: int, estimated_tokens: int = 0) -> float:
         """Returns seconds to wait. 0.0 if ready. Uses V8 model_usage table."""
@@ -415,86 +418,89 @@ class KeyManager:
         now = time.time()
         today_str = time.strftime('%Y-%m-%d', time.gmtime(now))
         
-        try:
-            # 1. Get current state from MODEL usage table
-            rs = self.db_client.execute(
-                "SELECT rpm_requests, rpm_window_start, tpm_tokens, rpd_requests, last_used_day FROM gemini_model_usage WHERE key_hash = ? AND model_id = ?", 
-                [key_hash, model_id]
-            )
-            
-            if rs.rows:
-                # UPDATE
-                row = self._row_to_dict(rs.columns, rs.rows[0])
-                current_start = row['rpm_window_start']
-                current_count = row['rpm_requests']
-                current_tokens = row['tpm_tokens']
-                
-                # Update Minutes
-                if now - current_start >= 60:
-                    new_count = 1
-                    new_start = now
-                    new_tokens = tokens
-                else:
-                    new_count = current_count + 1
-                    new_start = current_start
-                    new_tokens = current_tokens + tokens
-                
-                # Update Days
-                last_day = row.get('last_used_day', '')
-                current_rpd = row.get('rpd_requests', 0)
-                
-                if last_day != today_str:
-                    new_rpd = 1
-                else:
-                    new_rpd = current_rpd + 1
-                
-                # USE RAW REQUEST
-                self._raw_http_execute(
-                    """UPDATE gemini_model_usage SET 
-                       rpm_requests = ?, rpm_window_start = ?, tpm_tokens = ?, 
-                       rpd_requests = ?, last_used_day = ?,
-                       strikes = 0 
-                       WHERE key_hash = ? AND model_id = ?""",
-                    [new_count, new_start, new_tokens, new_rpd, today_str, key_hash, model_id]
-                )
-            else:
-                # INSERT
-                self._raw_http_execute(
-                    """INSERT INTO gemini_model_usage 
-                       (key_hash, model_id, rpm_requests, rpm_window_start, tpm_tokens, 
-                        rpd_requests, last_used_day, strikes) 
-                       VALUES (?, ?, 1, ?, ?, 1, ?, 0)""",
-                    [key_hash, model_id, now, tokens, today_str]
+        with self._lock:
+            try:
+                # 1. Get current state from MODEL usage table
+                rs = self.db_client.execute(
+                    "SELECT rpm_requests, rpm_window_start, tpm_tokens, rpd_requests, last_used_day FROM gemini_model_usage WHERE key_hash = ? AND model_id = ?", 
+                    [key_hash, model_id]
                 )
                 
-            # NOTE: Key is already re-added by get_key() on success path.
-            # Do NOT append again here to avoid duplicates in available_keys.
-        except Exception as e:
-            import traceback
-            log.error(f"Report Usage Failed: {e}\n{traceback.format_exc()}")
+                if rs.rows:
+                    # UPDATE
+                    row = self._row_to_dict(rs.columns, rs.rows[0])
+                    current_start = row['rpm_window_start']
+                    current_count = row['rpm_requests']
+                    current_tokens = row['tpm_tokens']
+                    
+                    # Update Minutes
+                    if now - current_start >= 60:
+                        new_count = 1
+                        new_start = now
+                        new_tokens = tokens
+                    else:
+                        new_count = current_count + 1
+                        new_start = current_start
+                        new_tokens = current_tokens + tokens
+                    
+                    # Update Days
+                    last_day = row.get('last_used_day', '')
+                    current_rpd = row.get('rpd_requests', 0)
+                    
+                    if last_day != today_str:
+                        new_rpd = 1
+                    else:
+                        new_rpd = current_rpd + 1
+                    
+                    # USE RAW REQUEST
+                    self._raw_http_execute(
+                        """UPDATE gemini_model_usage SET 
+                           rpm_requests = ?, rpm_window_start = ?, tpm_tokens = ?, 
+                           rpd_requests = ?, last_used_day = ?,
+                           strikes = 0 
+                           WHERE key_hash = ? AND model_id = ?""",
+                        [new_count, new_start, new_tokens, new_rpd, today_str, key_hash, model_id]
+                    )
+                else:
+                    # INSERT
+                    self._raw_http_execute(
+                        """INSERT INTO gemini_model_usage 
+                           (key_hash, model_id, rpm_requests, rpm_window_start, tpm_tokens, 
+                            rpd_requests, last_used_day, strikes) 
+                           VALUES (?, ?, 1, ?, ?, 1, ?, 0)""",
+                        [key_hash, model_id, now, tokens, today_str]
+                    )
+                    
+                # NOTE: Key is already re-added by get_key() on success path.
+                # Do NOT append again here to avoid duplicates in available_keys.
+            except Exception as e:
+                import traceback
+                log.error(f"Report Usage Failed: {e}\n{traceback.format_exc()}")
 
     def report_failure(self, key: str, is_info_error=False):
-        if is_info_error:
-            self.available_keys.append(key)
-            return
+        with self._lock:
+            if is_info_error:
+                self.available_keys.append(key)
+                return
+                
+            # V8 FIX: No more strikes. Just a temporary cooldown/penalty.
+            # We treat every 429 as a "wait 60 seconds" event for this specific key.
+            penalty = 60 
             
-        # V8 FIX: No more strikes. Just a temporary cooldown/penalty.
-        # We treat every 429 as a "wait 60 seconds" event for this specific key.
-        penalty = 60 
-        
-        self.cooldown_keys[key] = time.time() + penalty
-        
-        try:
-            key_hash = self.key_to_hash[key]
-            # We no longer track 'strikes' in the DB to avoid permanent bans
-            self.db_client.execute(
-                "UPDATE gemini_key_status SET release_time = ? WHERE key_hash = ?", 
-                [time.time() + penalty, key_hash]
-            )
-        except: pass
+            self.cooldown_keys[key] = time.time() + penalty
+            
+            try:
+                key_hash = self.key_to_hash[key]
+                # We no longer track 'strikes' in the DB to avoid permanent bans
+                self.db_client.execute(
+                    "UPDATE gemini_key_status SET release_time = ? WHERE key_hash = ?", 
+                    [time.time() + penalty, key_hash]
+                )
+            except: pass
 
     def report_fatal_error(self, key: str):
-        self.dead_keys.add(key)
-        try:
-            self.db_client.execute("UPDATE gemini_key_status SET strikes = 999 WHERE key_hash = ?", [self.key_to_hash[key]])
-        except: pass
+        with self._lock:
+            self.dead_keys.add(key)
+            try:
+                self.db_client.execute("UPDATE gemini_key_status SET strikes = 999 WHERE key_hash = ?", [self.key_to_hash[key]])
+            except: pass

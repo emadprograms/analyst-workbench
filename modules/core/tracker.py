@@ -1,4 +1,5 @@
 import time
+import threading
 from dataclasses import dataclass, field
 from typing import List, Dict
 
@@ -23,6 +24,7 @@ class ExecutionTracker:
         self.metrics = ExecutionMetrics()
         self.action_type = "Unknown"
         self.custom_results = {}
+        self._lock = threading.Lock()
 
     def start(self, action_type: str = "Unknown"):
         self.action_type = action_type
@@ -38,31 +40,35 @@ class ExecutionTracker:
 
     def set_result(self, key: str, value: str):
         """Sets a custom result field to be displayed on the dashboard."""
-        self.custom_results[key] = value
+        with self._lock:
+            self.custom_results[key] = value
 
     def log_call(self, tokens: int, success: bool, model: str, ticker: str = None, error: str = None):
-        self.metrics.total_calls += 1
-        self.metrics.total_tokens += tokens
-        if success:
-            self.metrics.success_count += 1
-            if ticker:
-                self.metrics.details.append(f"✅ {ticker}: Success ({model}, {tokens} tokens)")
-        else:
-            self.metrics.failure_count += 1
-            err_msg = error or "Unknown Error"
-            self.metrics.errors.append(f"❌ {ticker or 'Global'}: {err_msg}")
-            if ticker:
-                self.metrics.details.append(f"❌ {ticker}: Failed ({model})")
+        with self._lock:
+            self.metrics.total_calls += 1
+            self.metrics.total_tokens += tokens
+            if success:
+                self.metrics.success_count += 1
+                if ticker:
+                    self.metrics.details.append(f"✅ {ticker}: Success ({model}, {tokens} tokens)")
+            else:
+                self.metrics.failure_count += 1
+                err_msg = error or "Unknown Error"
+                self.metrics.errors.append(f"❌ {ticker or 'Global'}: {err_msg}")
+                if ticker:
+                    self.metrics.details.append(f"❌ {ticker}: Failed ({model})")
 
     def log_error(self, ticker: str, error: str):
         """Logs a non-API failure (e.g., missing data) without incrementing API call count."""
-        self.metrics.failure_count += 1
-        self.metrics.errors.append(f"❌ {ticker}: {error}")
-        self.metrics.details.append(f"❌ {ticker}: {error}")
+        with self._lock:
+            self.metrics.failure_count += 1
+            self.metrics.errors.append(f"❌ {ticker}: {error}")
+            self.metrics.details.append(f"❌ {ticker}: {error}")
 
     def register_artifact(self, name: str, content: str):
         """Registers a generated card (JSON) to be attached to the report."""
-        self.metrics.artifacts[name] = content
+        with self._lock:
+            self.metrics.artifacts[name] = content
 
     def finish(self):
         self.metrics.end_time = time.time()
