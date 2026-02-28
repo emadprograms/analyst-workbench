@@ -168,6 +168,24 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-02-28 — Prompt Structural Overhaul & Context Integration
+
+#### Prompt Restructuring ("Lost in the Middle" Fix) (`modules/ai/ai_services.py`)
+*   **Root cause**: The AI was fed thousands of tokens of raw JSON data first, and given its execution instructions last, leading to attention fatigue and rule-breaking (hallucinating price levels, ignoring character limits).
+*   **Fix**: Flipped the prompt structure. The AI now reads the "Masterclass" rules, analytical framework, and exact JSON output schema **first**. It is then instructed to apply those rules to the `--- START OF DATA ---` block appended at the very end.
+
+#### `todaysAction` Degeneration Fix v2 (`modules/ai/ai_services.py`)
+*   **Root cause**: Placing `todaysAction` at the very end of the JSON schema caused the Gemini Flash model to "fall off a cliff," resulting in infinite text loops, raw JSON bleeding into the string, and parroting prompt instructions back to the user.
+*   **Fix**: Moved the `todaysAction` field up into the middle of the JSON schema (before `openingTradePlan`). Replaced negative constraints ("Do NOT say X") with strict positive constraints. Deleted the counterproductive `BAD Example` block from the instructions.
+
+#### Economy Card Context Integration (`main.py`, `modules/ai/ai_services.py`)
+*   **Root cause**: The Company Card AI was completely blind to the macro environment. It had to guess the market sentiment solely from raw news snippets, making its `newsReaction` (Relative Strength/Weakness) analysis highly inaccurate.
+*   **Fix**: `main.py` now fetches the `economy_card_json` for the target date and passes it to `update_company_card`. This card is injected at the very top of the `--- START OF DATA ---` block, anchoring the AI's macro view before it analyzes the individual stock.
+*   **Safety**: Added a hard halt in `main.py`: if a Company Card update is requested but no Economy Card exists for that date, the pipeline immediately aborts to prevent generating "blind" cards.
+
+#### Terminal Quality Output (`modules/ai/ai_services.py`)
+*   **Change**: Modified the quality gate logging. Instead of just printing "PASS with 2 warnings", the pipeline now prints the exact warning messages (e.g., `[PARTICIPANT_MISSING] expectedParticipant: Expected 4-Participant Model terminology...`) directly to the terminal for immediate developer visibility.
+
 ### 2026-02-28 — todaysAction Prompt Hardening + ALL Ticker Fix + Adaptive Workers
 
 #### todaysAction Degeneration Fix (`modules/ai/ai_services.py`, `modules/ai/quality_validators.py`)

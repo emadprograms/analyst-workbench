@@ -636,6 +636,9 @@ def update_company_card(
                         logger.warning(f"   🔴 [{issue.rule}] {issue.field}: {issue.message}")
             elif qr.warning_count > 0:
                 logger.log(f"   📊 Quality: PASS with {qr.warning_count} warnings for {ticker}")
+                for issue in qr.issues:
+                    if issue.severity == 'warning':
+                        logger.warning(f"   🟡 [{issue.rule}] {issue.field}: {issue.message}")
             else:
                 logger.log(f"   📊 Quality: PERFECT for {ticker}")
         except Exception as qe:
@@ -853,6 +856,9 @@ def update_economy_card(
                         logger.warning(f"   🔴 [{issue.rule}] {issue.field}: {issue.message}")
             elif qr.warning_count > 0:
                 logger.log(f"   📊 Quality: PASS with {qr.warning_count} warnings for ECONOMY")
+                for issue in qr.issues:
+                    if issue.severity == 'warning':
+                        logger.warning(f"   🟡 [{issue.rule}] {issue.field}: {issue.message}")
             else:
                 logger.log(f"   📊 Quality: PERFECT for ECONOMY")
         except Exception as qe:
