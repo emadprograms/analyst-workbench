@@ -677,8 +677,8 @@ class TestDashboardLayout:
         assert len(ticker_fields) == 1
         assert "2/3" in ticker_fields[0]["value"]
 
-    def test_api_requests_includes_retries(self):
-        """API Requests field should show total HTTP calls including retries."""
+    def test_api_calls_shows_succeeded_vs_attempts(self):
+        """API Calls field should show succeeded vs total attempts."""
         tracker = _make_mock_tracker()
         tracker.action_type = "Company_Card_Update"
         # Simulate: AAPL had 3 retries before succeeding
@@ -693,9 +693,10 @@ class TestDashboardLayout:
         api_fields = [f for f in fields if "API" in f.get("name", "")]
         assert len(api_fields) == 1
         api_text = api_fields[0]["value"]
-        # Total should be 4 (1 final + 3 retries)
-        assert "4" in api_text
-        assert "retries" in api_text.lower() or "3 retries" in api_text
+        # Should show: 1 succeeded, 4 attempts, 3 retries
+        assert "1" in api_text and "succeeded" in api_text
+        assert "4" in api_text and "attempts" in api_text
+        assert "3 retries" in api_text
 
     def test_failed_ticker_shows_retry_count(self):
         """Failed tickers should show how many retries happened."""
@@ -711,6 +712,38 @@ class TestDashboardLayout:
         failed_fields = [f for f in fields if "Failed" in f.get("name", "")]
         assert len(failed_fields) == 1
         assert "2 retries" in failed_fields[0]["value"]
+
+    def test_heavy_retry_scenario_19_of_46(self):
+        """Real-world: 19 succeeded out of 46 total attempts = keys are failing hard."""
+        tracker = _make_mock_tracker()
+        tracker.action_type = "Company_Card_Update"
+        
+        # 19 tickers, each succeeded eventually. 27 retries total across them.
+        for i, ticker in enumerate(["AAPL", "MSFT", "GOOGL", "AMZN", "META", 
+                                     "NVDA", "TSLA", "ADBE", "CRM", "ORCL",
+                                     "INTC", "AMD", "QCOM", "AVGO", "TXN",
+                                     "AMAT", "LRCX", "KLAC", "MRVL"]):
+            # Some tickers had retries
+            if i < 10:
+                tracker.log_retry("model", ticker=ticker, reason="429")
+                tracker.log_retry("model", ticker=ticker, reason="429")
+            if i < 7:
+                tracker.log_retry("model", ticker=ticker, reason="500")
+            tracker.log_call(1000 + i, True, "model", ticker=ticker)
+        
+        tracker.finish()
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        fields = embeds[0]["fields"]
+        
+        api_fields = [f for f in fields if "API" in f.get("name", "")]
+        assert len(api_fields) == 1
+        api_text = api_fields[0]["value"]
+        
+        # 19 succeeded
+        assert "19" in api_text and "succeeded" in api_text
+        # 27 retries -> 19 + 27 = 46 attempts
+        assert "46" in api_text and "attempts" in api_text
+        assert "27 retries" in api_text
 
     def test_mixed_dashboard_all_sections(self):
         """Full scenario: successes, quality issues, failures, retries."""

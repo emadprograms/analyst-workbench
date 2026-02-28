@@ -502,20 +502,20 @@ class TestKeyActionLogImmutability:
         assert len(entries) == 1
         assert entries[0]["action"] == "First entry"
 
-    def test_company_card_second_run_same_date_does_not_overwrite(self):
+    def test_company_card_second_run_same_date_overwrites(self):
         """
-        BUG 2 REGRESSION: Running the card builder twice for the same date
-        must NOT replace the original log entry with the newer text.
+        Re-running the card builder for the same date should overwrite
+        the previous entry with the latest data (no stale entries).
         """
         base = DEFAULT_COMPANY_OVERVIEW_JSON.replace("TICKER", "AAPL")
         card1 = self._run_company_card(base, "2026-02-23", "ORIGINAL entry")
-        card2 = self._run_company_card(card1, "2026-02-23", "OVERWRITE attempt")
+        card2 = self._run_company_card(card1, "2026-02-23", "UPDATED entry")
 
         log = json.loads(card2)["technicalStructure"]["keyActionLog"]
         entries = [e for e in log if e["date"] == "2026-02-23"]
         assert len(entries) == 1, "Duplicate date entries found in log."
-        assert entries[0]["action"] == "ORIGINAL entry", (
-            f"BUG 2 REGRESSION: Entry was overwritten with '{entries[0]['action']}'"
+        assert entries[0]["action"] == "UPDATED entry", (
+            f"Re-run should overwrite, but got '{entries[0]['action']}'"
         )
 
     def test_company_card_different_dates_both_appended(self):
@@ -550,16 +550,16 @@ class TestKeyActionLogImmutability:
         assert len(entries) == 1
         assert entries[0]["action"] == "Economy day 1"
 
-    def test_economy_card_second_run_same_date_does_not_overwrite(self):
-        """BUG 2 REGRESSION: Same as company card, applied to economy card."""
+    def test_economy_card_second_run_same_date_overwrites(self):
+        """Re-running economy card for same date should overwrite previous entry."""
         card1 = self._run_economy_card(DEFAULT_ECONOMY_CARD_JSON, "2026-02-23", "ORIGINAL economy")
-        card2 = self._run_economy_card(card1, "2026-02-23", "OVERWRITE economy attempt")
+        card2 = self._run_economy_card(card1, "2026-02-23", "UPDATED economy")
 
         log = json.loads(card2)["keyActionLog"]
         entries = [e for e in log if e["date"] == "2026-02-23"]
         assert len(entries) == 1, "Duplicate date entries found in economy log."
-        assert entries[0]["action"] == "ORIGINAL economy", (
-            f"BUG 2 REGRESSION: Economy entry was overwritten with '{entries[0]['action']}'"
+        assert entries[0]["action"] == "UPDATED economy", (
+            f"Re-run should overwrite, but got '{entries[0]['action']}'"
         )
 
     def test_economy_card_different_dates_both_appended(self):

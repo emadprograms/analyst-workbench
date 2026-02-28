@@ -592,20 +592,19 @@ def update_company_card(
         if 'keyAction' in final_card['technicalStructure']:
             del final_card['technicalStructure']['keyAction']
 
-        # Prevent duplicate entries if re-running
-        if not any(entry.get('date') == trade_date_str for entry in final_card['technicalStructure']['keyActionLog']):
+        # Overwrite if re-running for the same day, otherwise append
+        existing_entry_index = next((i for i, entry in enumerate(final_card['technicalStructure']['keyActionLog']) if entry.get('date') == trade_date_str), None)
+        if existing_entry_index is None:
             final_card['technicalStructure']['keyActionLog'].append({
                 "date": trade_date_str,
                 "action": new_action
             })
         else:
             logger.log(
-                f"   ⚠️ IMMUTABILITY: Log entry for {trade_date_str} already exists in "
-                f"{ticker} card.  Preserving original entry — not overwriting."
+                f"   🔄 OVERWRITING: Log entry for {trade_date_str} already exists in "
+                f"{ticker} card. Overwriting with latest run data."
             )
-            # Do NOT overwrite.  The keyActionLog is an immutable daily record per GEMINI.md:
-            # "Users cannot manually edit the todaysAction log.
-            #  It is an immutable record of the AI's daily analysis."
+            final_card['technicalStructure']['keyActionLog'][existing_entry_index]['action'] = new_action
 
         # 5. --- FIX: REMOVED the lines that reset the trade plans ---
         # final_card['openingTradePlan'] = ...
@@ -806,17 +805,19 @@ def update_economy_card(
         if 'marketKeyAction' in final_card:
             del final_card['marketKeyAction']
 
-        if not any(entry.get('date') == trade_date_str for entry in final_card['keyActionLog']):
+        # Overwrite if re-running for the same day, otherwise append
+        existing_entry_index = next((i for i, entry in enumerate(final_card['keyActionLog']) if entry.get('date') == trade_date_str), None)
+        if existing_entry_index is None:
             final_card['keyActionLog'].append({
                 "date": trade_date_str,
                 "action": new_action
             })
         else:
             logger.log(
-                f"   ⚠️ IMMUTABILITY: Log entry for {trade_date_str} already exists in "
-                f"economy card.  Preserving original entry — not overwriting."
+                f"   🔄 OVERWRITING: Log entry for {trade_date_str} already exists in "
+                f"economy card. Overwriting with latest run data."
             )
-            # Do NOT overwrite.  The keyActionLog is an immutable daily record.
+            final_card['keyActionLog'][existing_entry_index]['action'] = new_action
 
         logger.log("--- Success: Economy Card generation complete! ---")
         final_json = json.dumps(final_card, indent=4)

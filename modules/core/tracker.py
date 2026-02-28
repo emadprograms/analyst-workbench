@@ -189,11 +189,18 @@ class ExecutionTracker:
                 "inline": True
             })
         
-        # API calls: show total HTTP requests = final calls + retries
-        api_detail = f"**{total_http}** total"
-        if summary['retry_count'] > 0:
-            api_detail += f"\n({summary['total_calls']} calls + {summary['retry_count']} retries)"
-        embed["fields"].append({"name": "🔄 API Requests", "value": api_detail, "inline": True})
+        # API Calls: succeeded vs total attempts (calls + retries)
+        succeeded = self.metrics.success_count
+        total_attempts = summary['total_calls'] + summary['retry_count']
+        
+        if total_attempts > 0:
+            call_detail = f"**{succeeded}** succeeded\n**{total_attempts}** attempts"
+            if summary['retry_count'] > 0:
+                call_detail += f"\n🔁 {summary['retry_count']} retries"
+        else:
+            call_detail = "**0** attempts"
+        
+        embed["fields"].append({"name": "🔄 API Calls", "value": call_detail, "inline": True})
         embed["fields"].append({"name": "🪙 Tokens", "value": f"**{summary['total_tokens']:,}**", "inline": True})
         embed["fields"].append({"name": "⏱️ Duration", "value": f"**{summary['duration']}**", "inline": True})
         

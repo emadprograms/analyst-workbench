@@ -62,9 +62,9 @@ def test_cache_staleness_logic(mock_open, mock_exists, mock_stats, mock_bars):
     mock_bars.assert_not_called()
     mock_stats.assert_not_called()
 
-# --- 3. Immutability Violation (Overwrite) Test ---
-def test_todays_action_overwrite_violation():
-    """Confirms that the system overwrites previous entries for the same date (Violating GEMINI.md)."""
+# --- 3. Same-Date Overwrite Test ---
+def test_todays_action_same_date_overwrites():
+    """Re-running for the same date should overwrite the previous entry with latest data."""
     ticker = "AAPL"
     today = date(2024, 1, 1)
     
@@ -81,7 +81,7 @@ def test_todays_action_overwrite_violation():
         "todaysAction": "Action 1"
     }
     mock_resp2 = mock_resp1.copy()
-    mock_resp2["todaysAction"] = "Action 2 (Overwrite)"
+    mock_resp2["todaysAction"] = "Action 2 (Updated)"
     
     with patch('modules.ai.ai_services.call_gemini_api') as mock_api, \
          patch('modules.ai.ai_services.get_or_compute_context') as mock_context:
@@ -99,12 +99,11 @@ def test_todays_action_overwrite_violation():
         card2_dict = json.loads(card2)
         log = card2_dict['technicalStructure']['keyActionLog']
 
-        # The immutability fix preserves the FIRST entry written for a given date.
-        # A second call with the same trade date must NOT overwrite the original.
+        # Re-running for the same date overwrites the original entry.
         date_entries = [e for e in log if e['date'] == today.isoformat()]
         assert len(date_entries) == 1
-        assert date_entries[0]['action'] == "Action 1", (
-            "Immutability violation: the original keyActionLog entry was overwritten."
+        assert date_entries[0]['action'] == "Action 2 (Updated)", (
+            f"Re-run should overwrite, but got '{date_entries[0]['action']}'"
         )
 
 # --- 4. Discord Orchestration "Fire & Forget" Failure Test ---
