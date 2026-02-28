@@ -168,6 +168,13 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-02-28 — Flash Model Cognitive Overload Fix (Schema vs. Speed)
+
+#### API Guardrails & Schema Removal (`modules/ai/ai_services.py`)
+*   **Root cause**: The introduction of Google's strict `responseSchema` forced the Gemini Flash backend to validate every single token it generated against a complex JSON tree. When combined with a 125,000+ token input (raw news), the model suffered massive cognitive overload. This resulted in severely degraded processing speeds, infinite text loops (`\r\n\r\n...` or repeating strings), and premature connection closures.
+*   **Fix**: Removed `responseSchema` from the `generationConfig`. The model now operates as a fluid text generator (like the original Streamlit version) but relies on `responseMimeType: application/json` to prevent markdown ticks.
+*   **Hardware Guardrails Added**: Injected `"temperature": 0.1` into the payload to force deterministic, robotic outputs, significantly reducing hallucinated trading terminology.
+
 ### 2026-02-28 — Prompt Structural Overhaul & Context Integration
 
 #### Prompt Restructuring ("Lost in the Middle" Fix) (`modules/ai/ai_services.py`)
