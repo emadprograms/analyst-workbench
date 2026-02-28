@@ -401,7 +401,13 @@ def update_company_card(
             * This is your *final synthesis* of the `emotionalTone` and `newsReaction`.
             * (e.g., "Committed Buyers are in firm control. They not only showed a 'Stable Accumulation' pattern at $415 but did so *against* a weak, bearish market, confirming their high conviction.")
 
-    **8. `keyActionLog`:** Write your `todaysAction` log entry *last*, using the language from your `behavioralSentiment` analysis.
+    **8. `keyActionLog` / `todaysAction` (STRICT FORMAT — MAX 3 SENTENCES):**
+        * This is a **concise daily log entry**, NOT a card summary. It must capture ONLY the day's story arc in 2-3 sentences.
+        * **CRITICAL CONSTRAINT:** The `todaysAction` field must be **under 500 characters**. If your output exceeds this, you have failed the task. Do NOT repeat information from other fields. Do NOT include price levels, S/R zones, plan details, screener data, volume stats, or any content that belongs in other card fields.
+        * **Required Format:** `"{trade_date_str}: [Pattern Label] ([Market State]). [1-2 sentences describing the 3-Act session arc using 4-Participant language: who acted, what they did at which key level, and the outcome]."`
+        * **GOOD Example:** `"2026-02-13: Accumulation (Stable). Following yesterday's capitulation, the market opened with a gap down but immediately found Committed Buyers defending the major $255 structural POC. Despite a softer broad market, buyers established a series of higher lows throughout RTH, migrating value lower but holding the $255 floor. A high-volume stabilization in post-market confirms seller exhaustion and a tactical stalemate at support."`
+        * **BAD Example (DO NOT DO THIS):** Repeating the entire card's analysis, including all support/resistance levels, plan details, screener briefing content, volume profile numbers, catalyst text, or any content from other fields. If your todaysAction reads like a paragraph that could replace the entire card, it is WRONG.
+        * Write this field LAST, after all other analysis is complete. Distill, do not duplicate.
     **9. `openingTradePlan` & `alternativePlan`:** Update these for TOMORROW.
 
     **10. `screener_briefing` (The "Data Packet" for Python):**
@@ -482,7 +488,7 @@ def update_company_card(
         "trigger": "Specific price action validating this plan.",
         "invalidation": "Price action proving this plan WRONG."
       }},
-      "todaysAction": "A single, detailed log entry for *only* today's action, *using the language from your Masterclass analysis*."
+      "todaysAction": "STRICT: Max 2-3 sentences, under 500 chars. Format: 'DATE: Pattern (State). [Brief 3-Act narrative of who acted at which key level and the outcome].'. Do NOT repeat content from other fields."
     }}
     """
     
@@ -672,7 +678,10 @@ def update_economy_card(
     system_prompt = (
         "You are an expert Macro Strategist. Your objective is to synthesize raw market news "
         "(The 'Why') with quantitative ETF price action (The 'How') to update the global Economy Card. "
-        "Complete the required JSON schema accurately and comprehensively."
+        "Complete the required JSON schema accurately and comprehensively. "
+        "CRITICAL RULE for 'todaysAction': This field is a CONCISE daily log entry (max 2-3 sentences, under 500 characters). "
+        "Format: 'DATE: [Macro Theme]. [Brief narrative of what drove markets today and the outcome].'. "
+        "Do NOT dump the entire card analysis into todaysAction. It must be a short summary suitable for a daily log, not a replacement for the full card."
     )
 
     prompt = f"""
