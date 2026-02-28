@@ -168,6 +168,49 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-02-28 — Key Manager Checkout/Checkin Fix + Quality Tuning + Inspect Improvements
+
+#### Key Manager — Checkout/Checkin Pattern (`modules/core/key_manager.py`)
+*   **Root cause**: `get_key()` returned the key to the caller AND re-added it to `available_keys` in the same call. With parallel threads (`ThreadPoolExecutor`), multiple threads could check out the same key simultaneously before `report_usage()` recorded the token consumption. This caused cascading 429 errors as all 19 threads burned through all 46 keys in seconds.
+*   **Fix**: `get_key()` no longer re-adds the key to the pool. The key stays "checked out" until explicitly returned via `report_usage()` (success) or `report_failure()` (error). This is a standard checkout/checkin pattern that prevents concurrent use of the same key.
+*   **`report_usage()` now returns key to pool**: After recording token usage in the DB, the key is appended back to `available_keys`. If the DB write fails, the key is still returned to avoid key leaks.
+
+#### Expired Key Retirement (`modules/ai/ai_services.py`)
+*   **Root cause**: When Gemini returned HTTP 400 "API key expired" / "API_KEY_INVALID", the key was reported as `is_info_error=True`, which put it right back in the available pool. The same expired key would be tried over and over, consuming retry attempts.
+*   **Fix**: The 400 handler now detects "API_KEY_INVALID" or "API key expired" in the response body and calls `report_fatal_error(key)` to permanently retire the key for the session. The key goes into `dead_keys` and is never returned to any thread.
+*   **Retirement scope**: Session-only. On the next run, `_refresh_keys_from_db()` reloads all keys from `gemini_api_keys` and resets `dead_keys = set()`. If the key has been renewed in Google Cloud Console, it will work on the next run automatically. No manual un-retirement needed.
+
+#### Concurrency Reduction (`main.py`)
+*   **Change**: `ThreadPoolExecutor(max_workers=min(len(tickers), 20))` reduced to `max_workers=min(len(tickers), 5)`. At most 5 keys are checked out simultaneously, leaving the remaining ~41 keys as backup for retries. This prevents the cascade where all keys enter cooldown at the same time.
+
+#### todaysAction Character Limit Relaxed (`quality_validators.py`, `ai_services.py`)
+*   **Change**: Increased from 500 → 1200 characters. The 500-char limit was cutting off sentences mid-thought. The AI prompt now says "max 4-5 sentences, under 1200 chars" instead of "max 2-3 sentences, under 500 chars".
+*   **Updated in**: Validator threshold, company card prompt constraint, company card JSON template, economy card system prompt, and boundary tests (1200/1201 edge cases).
+
+#### Inspect Command Improvements (`modules/data/inspect_db.py`)
+*   **Missing tickers**: Now queries `aw_ticker_notes` (stocks only, not ETFs) to determine the expected ticker list. Compares against `aw_company_cards` for the target date and explicitly lists missing tickers with count: `⚠️ Missing Tickers (6): ABT, ADBE, ...`. Shows `X/Y` format (e.g., `Updated Tickers (13/19)`).
+*   **Market news detail**: Instead of just "✅ PRESENT", now shows row count and character count: `Market News: ✅ PRESENT — 1 row(s), 12,847 chars`.
+
+### 2026-02-28 — AI Output Quality Validation Framework
+
+#### Quality Validators (`modules/ai/quality_validators.py`) — NEW
+*   **Purpose**: Reusable validator library that checks AI-generated cards against quality rules.
+*   **Architecture**: `QualityReport` / `QualityIssue` dataclasses. Two public entry points: `validate_company_card(card, ticker)` and `validate_economy_card(card)`.
+*   **10+ validator categories**: Schema completeness, placeholder detection, todaysAction length/card-dump detection, confidence format, screener briefing keys, emotionalTone 3-Act structure, 4-Participant terminology, trade plan price levels, content substance, valuation preservation.
+*   **Production integration**: Both `update_company_card()` and `update_economy_card()` in `ai_services.py` run validators after every card generation. Results are logged to AppLogger and TRACKER but never block card return (observability-only).
+
+#### Quality Test Suite (`tests/test_ai_quality.py`) — NEW
+*   44 tests with realistic fixtures (good cards, bad card-dump, bad placeholders, missing fields, edge cases).
+*   Boundary tests for todaysAction character limit (1200/1201 chars).
+
+### 2026-02-28 — Thread Safety for Parallel Execution
+
+#### Thread Safety (`key_manager.py`, `tracker.py`, `logger.py`)
+*   **`KeyManager`**: Added `threading.Lock` protecting `get_key()`, `report_usage()`, `report_failure()`, `report_fatal_error()`.
+*   **`ExecutionTracker`**: Added `threading.Lock` protecting `log_call()`, `log_error()`, `set_result()`, `register_artifact()`.
+*   **`AppLogger`**: Added `threading.Lock` protecting all `self.logs` list operations.
+*   **Tests**: 3 thread-safety tests added to `test_key_manager.py` (concurrent get_key, concurrent report_usage, concurrent report_failure).
+
 ### 2026-02-28 — `main.py` Architecture Overhaul + Missing DB Functions
 
 #### `main.py` — Full Rewrite
