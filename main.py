@@ -196,7 +196,7 @@ def run_update_company(selected_date: date, model_name: str, tickers: list[str],
     if KEY_MANAGER:
         tier = KeyManager.MODELS_CONFIG.get(model_name, {}).get('tier', 'free')
         key_count = KEY_MANAGER.get_tier_key_count(tier)
-        max_concurrent = max(1, min(key_count, 19))
+        max_concurrent = max(1, min(key_count, 5))
         logger.log(f"🔑 {key_count} {tier}-tier key(s) available → max_workers={max_concurrent}")
 
     success_count = 0
