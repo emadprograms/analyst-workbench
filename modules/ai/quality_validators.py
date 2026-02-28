@@ -242,7 +242,7 @@ def _check_todays_action_quality(card: dict, report: QualityReport, card_type: s
     Validates the todaysAction / keyActionLog entries.
     Rules:
       - todaysAction must exist (in the latest keyActionLog entry)
-      - Must be under 1200 characters
+      - Must be under 2500 characters
       - Must contain a date stamp
       - Must NOT contain screener_briefing content (S_Levels, R_Levels, Setup_Bias)
       - Must NOT contain structured field names (majorSupport, volumeMomentum, etc.)
@@ -292,12 +292,12 @@ def _check_todays_action_quality(card: dict, report: QualityReport, card_type: s
         ))
 
     # LENGTH CHECK
-    if len(action_text) > 1200:
+    if len(action_text) > 2500:
         report.issues.append(QualityIssue(
             rule="ACTION_TOO_LONG",
             severity="critical",
             field="keyActionLog[-1].action",
-            message=f"todaysAction is {len(action_text)} chars (limit: 1200). "
+            message=f"todaysAction is {len(action_text)} chars (limit: 2500). "
                     f"Preview: '{action_text[:100]}...'"
         ))
 

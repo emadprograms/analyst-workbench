@@ -173,7 +173,23 @@ SAMPLE_BAD_COMPANY_CARD_DUMP = {
                 "Additionally the interMarketAnalysis confirms a risk-on rotation with bonds selling off "
                 "as capital flows into equities and the dollar weakening supporting the broader thesis "
                 "that Committed Buyers have established firm control of the auction process and Desperate Sellers "
-                "have been fully absorbed at the $250 structural support zone."
+                "have been fully absorbed at the $250 structural support zone. "
+                "Furthermore the pre-market session showed a gap up attempt that RTH validated through "
+                "sustained buying pressure above the $260 level with value migrating higher throughout the "
+                "morning session indicating genuine institutional participation rather than retail FOMO. "
+                "The post-market session held all gains with the close near session highs at $274.50 "
+                "confirming that Committed Sellers were absent at these levels and the auction process "
+                "has shifted decisively in favor of buyers. The volume profile shows a developing POC "
+                "at $268 with VAH at $275 and VAL at $262 creating a well-defined value area that "
+                "should serve as the foundation for tomorrow's price action. Key volume events include "
+                "a massive 3x average volume spike at the $260 reclaim and sustained above-average "
+                "volume throughout the RTH session indicating broad-based institutional commitment to "
+                "this new higher value area. The newsReaction analysis shows extreme relative strength "
+                "as TSLA rallied despite a broader market selloff driven by rising bond yields and "
+                "renewed tariff concerns creating a significant positive divergence signal. "
+                "The macro headwinds included a hawkish Fed statement and deteriorating consumer "
+                "sentiment data which pushed SPY and QQQ lower by over 1% yet TSLA managed to "
+                "close up 2.3% on the day demonstrating exceptional relative strength."
             )}
         ],
         "volumeMomentum": "High"  # Too short
@@ -502,23 +518,23 @@ class TestEdgeCases:
         report = validate_company_card("null", ticker="NULL")
         assert not report.passed
 
-    def test_todays_action_exactly_1200_chars(self):
-        """1200 chars should be the boundary — exactly 1200 should pass."""
+    def test_todays_action_exactly_2500_chars(self):
+        """2500 chars should be the boundary — exactly 2500 should pass."""
         card = copy.deepcopy(SAMPLE_GOOD_COMPANY_CARD)
-        action_1200 = "2026-02-23: Breakout (Stable). " + "x" * (1200 - len("2026-02-23: Breakout (Stable). "))
-        card["technicalStructure"]["keyActionLog"][-1]["action"] = action_1200
+        action_2500 = "2026-02-23: Breakout (Stable). " + "x" * (2500 - len("2026-02-23: Breakout (Stable). "))
+        card["technicalStructure"]["keyActionLog"][-1]["action"] = action_2500
         report = validate_company_card(card, ticker="AAPL")
         length_issues = [i for i in report.issues if i.rule == "ACTION_TOO_LONG"]
-        assert len(length_issues) == 0, "Exactly 1200 chars should not trigger ACTION_TOO_LONG."
+        assert len(length_issues) == 0, "Exactly 2500 chars should not trigger ACTION_TOO_LONG."
 
-    def test_todays_action_1201_chars_fails(self):
-        """1201 chars should fail."""
+    def test_todays_action_2501_chars_fails(self):
+        """2501 chars should fail."""
         card = copy.deepcopy(SAMPLE_GOOD_COMPANY_CARD)
-        action_1201 = "2026-02-23: Breakout (Stable). " + "x" * (1201 - len("2026-02-23: Breakout (Stable). "))
-        card["technicalStructure"]["keyActionLog"][-1]["action"] = action_1201
+        action_2501 = "2026-02-23: Breakout (Stable). " + "x" * (2501 - len("2026-02-23: Breakout (Stable). "))
+        card["technicalStructure"]["keyActionLog"][-1]["action"] = action_2501
         report = validate_company_card(card, ticker="AAPL")
         length_issues = [i for i in report.issues if i.rule == "ACTION_TOO_LONG"]
-        assert len(length_issues) > 0, "1201 chars should trigger ACTION_TOO_LONG."
+        assert len(length_issues) > 0, "2501 chars should trigger ACTION_TOO_LONG."
 
     def test_economy_card_json_string(self):
         """Economy validator should accept JSON string."""
