@@ -172,12 +172,14 @@ class TestRunUpdateCompany:
     @patch('main.upsert_company_card')
     @patch('main.update_company_card')
     @patch('main.get_company_card_and_notes')
+    @patch('main.get_archived_economy_card')
     @patch('main.get_daily_inputs')
-    def test_single_ticker_success(self, mock_news, mock_card, mock_ai, mock_upsert, mock_km):
+    def test_single_ticker_success(self, mock_news, mock_eco_archive, mock_card, mock_ai, mock_upsert, mock_km):
         """Successful single ticker update."""
         from main import run_update_company
         
         mock_news.return_value = ("Market news today", None)
+        mock_eco_archive.return_value = ('{"economyCard": "data"}', None)
         mock_card.return_value = (SAMPLE_COMPANY_CARD, "Historical: $200 support", "2026-02-22")
         mock_ai.return_value = '{"marketNote": "Updated AAPL card"}'
         mock_upsert.return_value = True
@@ -193,12 +195,14 @@ class TestRunUpdateCompany:
     @patch('main.upsert_company_card')
     @patch('main.update_company_card')
     @patch('main.get_company_card_and_notes')
+    @patch('main.get_archived_economy_card')
     @patch('main.get_daily_inputs')
-    def test_multiple_tickers(self, mock_news, mock_card, mock_ai, mock_upsert, mock_km):
+    def test_multiple_tickers(self, mock_news, mock_eco_archive, mock_card, mock_ai, mock_upsert, mock_km):
         """Multiple tickers should be processed sequentially."""
         from main import run_update_company
         
         mock_news.return_value = ("News", None)
+        mock_eco_archive.return_value = ('{"economyCard": "data"}', None)
         mock_card.return_value = (SAMPLE_COMPANY_CARD, "", "2026-02-22")
         mock_ai.return_value = '{"marketNote": "Updated"}'
         mock_upsert.return_value = True
@@ -220,9 +224,11 @@ class TestRunUpdateCompany:
         logger = AppLogger("test")
         mock_km.get_tier_key_count.return_value = 5
         
-        with patch('main.get_company_card_and_notes') as mock_card, \
+        with patch('main.get_archived_economy_card') as mock_eco_archive, \
+             patch('main.get_company_card_and_notes') as mock_card, \
              patch('main.update_company_card') as mock_ai, \
              patch('main.upsert_company_card') as mock_upsert:
+            mock_eco_archive.return_value = ('{"economyCard": "data"}', None)
             mock_card.return_value = (SAMPLE_COMPANY_CARD, "", None)
             mock_ai.return_value = '{"test": "data"}'
             mock_upsert.return_value = True
@@ -236,12 +242,14 @@ class TestRunUpdateCompany:
     @patch('modules.ai.ai_services.KEY_MANAGER')
     @patch('main.update_company_card')
     @patch('main.get_company_card_and_notes')
+    @patch('main.get_archived_economy_card')
     @patch('main.get_daily_inputs')
-    def test_partial_failure(self, mock_news, mock_card, mock_ai, mock_km):
+    def test_partial_failure(self, mock_news, mock_eco_archive, mock_card, mock_ai, mock_km):
         """If one ticker fails, others should still be processed."""
         from main import run_update_company
         
         mock_news.return_value = ("News", None)
+        mock_eco_archive.return_value = ('{"economyCard": "data"}', None)
         mock_card.return_value = (SAMPLE_COMPANY_CARD, "", "2026-02-22")
         # First call succeeds, second fails, third succeeds
         mock_ai.side_effect = ['{"valid": "json"}', None, '{"valid": "json"}']
@@ -277,12 +285,14 @@ class TestRunUpdateCompany:
     @patch('main.upsert_company_card')
     @patch('main.update_company_card')
     @patch('main.get_company_card_and_notes')
+    @patch('main.get_archived_economy_card')
     @patch('main.get_daily_inputs')
-    def test_adaptive_workers_single_key(self, mock_news, mock_card, mock_ai, mock_upsert, mock_km):
+    def test_adaptive_workers_single_key(self, mock_news, mock_eco_archive, mock_card, mock_ai, mock_upsert, mock_km):
         """With 1 paid key, max_workers should be 1."""
         from main import run_update_company
         
         mock_news.return_value = ("News", None)
+        mock_eco_archive.return_value = ('{"economyCard": "data"}', None)
         mock_card.return_value = (SAMPLE_COMPANY_CARD, "", "2026-02-22")
         mock_ai.return_value = '{"marketNote": "Updated"}'
         mock_upsert.return_value = True

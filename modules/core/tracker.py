@@ -20,6 +20,8 @@ class ExecutionMetrics:
     ticker_outcomes: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     # Per-ticker quality reports: ticker -> list of {rule, severity, field, message}
     quality_reports: Dict[str, List[Dict[str, str]]] = field(default_factory=dict)
+    # Per-ticker data-accuracy reports: ticker -> list of {rule, severity, field, message}
+    data_reports: Dict[str, List[Dict[str, str]]] = field(default_factory=dict)
 
 class ExecutionTracker:
     """
@@ -46,6 +48,7 @@ class ExecutionTracker:
         self.metrics.artifacts = {}
         self.metrics.ticker_outcomes = {}
         self.metrics.quality_reports = {}
+        self.metrics.data_reports = {}
         self.custom_results = {}
 
     def set_result(self, key: str, value: str):
@@ -126,6 +129,38 @@ class ExecutionTracker:
                 outcome['quality_warnings'] = quality_report.warning_count
             else:
                 outcome['quality'] = 'perfect'
+            self.metrics.ticker_outcomes[ticker] = outcome
+
+    def log_data_accuracy(self, ticker: str, data_report):
+        """
+        Stores data-accuracy validation results for a ticker.
+        
+        Args:
+            ticker: The ticker symbol (e.g., 'AAPL' or 'ECONOMY')
+            data_report: A DataReport object with .issues, .passed, etc.
+        """
+        with self._lock:
+            issues = []
+            for issue in data_report.issues:
+                issues.append({
+                    'rule': issue.rule,
+                    'severity': issue.severity,
+                    'field': issue.field,
+                    'message': issue.message
+                })
+            self.metrics.data_reports[ticker] = issues
+            
+            # Update ticker outcome with data accuracy status
+            outcome = self.metrics.ticker_outcomes.get(ticker, {})
+            if not data_report.passed:
+                outcome['data_accuracy'] = 'fail'
+                outcome['data_critical'] = data_report.critical_count
+                outcome['data_warnings'] = data_report.warning_count
+            elif data_report.warning_count > 0:
+                outcome['data_accuracy'] = 'warnings'
+                outcome['data_warnings'] = data_report.warning_count
+            else:
+                outcome['data_accuracy'] = 'perfect'
             self.metrics.ticker_outcomes[ticker] = outcome
 
     def register_artifact(self, name: str, content: str):

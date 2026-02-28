@@ -26,6 +26,7 @@ from modules.data.db_utils import get_db_connection
 from modules.analysis.impact_engine import get_or_compute_context
 from modules.core.tracker import ExecutionTracker
 from modules.ai.quality_validators import validate_company_card, validate_economy_card
+from modules.ai.data_validators import validate_company_data, validate_economy_data
 
 # --- GLOBAL TRACKER ---
 TRACKER = ExecutionTracker()
@@ -280,6 +281,7 @@ def update_company_card(
     # --- FINAL Main 'Masterclass' Prompt ---
     # --- IMPACT ENGINE INTEGRATION ---
     impact_context_json = "No Data Available"
+    context_card = None  # Preserved for data validation gate
     
     conn = get_db_connection()
     if conn:
@@ -646,6 +648,30 @@ def update_company_card(
         except Exception as qe:
             logger.warning(f"   ⚠️ Quality validator error: {qe}")
 
+        # --- DATA ACCURACY GATE: Cross-reference AI claims against real market data ---
+        try:
+            dr = validate_company_data(
+                final_card,
+                impact_context=context_card if context_card else {},
+                ticker=ticker,
+                trade_date=trade_date_str,
+            )
+            TRACKER.log_data_accuracy(ticker, dr)
+            if not dr.passed:
+                logger.warning(f"⚠️ DATA ACCURACY FAIL ({ticker}): {dr.critical_count} critical, {dr.warning_count} warnings")
+                for issue in dr.issues:
+                    if issue.severity == 'critical':
+                        logger.warning(f"   🔴 [{issue.rule}] {issue.field}: {issue.message}")
+            elif dr.warning_count > 0:
+                logger.log(f"   📊 Data Accuracy: PASS with {dr.warning_count} warnings for {ticker}")
+                for issue in dr.issues:
+                    if issue.severity == 'warning':
+                        logger.warning(f"   🟡 [{issue.rule}] {issue.field}: {issue.message}")
+            else:
+                logger.log(f"   📊 Data Accuracy: PERFECT for {ticker}")
+        except Exception as de:
+            logger.warning(f"   ⚠️ Data validator error: {de}")
+
         return final_json # Return the full, new card
 
     except json.JSONDecodeError as e:
@@ -865,6 +891,29 @@ def update_economy_card(
                 logger.log(f"   📊 Quality: PERFECT for ECONOMY")
         except Exception as qe:
             logger.warning(f"   ⚠️ Quality validator error: {qe}")
+
+        # --- DATA ACCURACY GATE: Cross-reference AI claims against real market data ---
+        try:
+            dr = validate_economy_data(
+                final_card,
+                etf_contexts=etf_impact_data,
+                trade_date=trade_date_str,
+            )
+            TRACKER.log_data_accuracy("ECONOMY", dr)
+            if not dr.passed:
+                logger.warning(f"⚠️ DATA ACCURACY FAIL (ECONOMY): {dr.critical_count} critical, {dr.warning_count} warnings")
+                for issue in dr.issues:
+                    if issue.severity == 'critical':
+                        logger.warning(f"   🔴 [{issue.rule}] {issue.field}: {issue.message}")
+            elif dr.warning_count > 0:
+                logger.log(f"   📊 Data Accuracy: PASS with {dr.warning_count} warnings for ECONOMY")
+                for issue in dr.issues:
+                    if issue.severity == 'warning':
+                        logger.warning(f"   🟡 [{issue.rule}] {issue.field}: {issue.message}")
+            else:
+                logger.log(f"   📊 Data Accuracy: PERFECT for ECONOMY")
+        except Exception as de:
+            logger.warning(f"   ⚠️ Data validator error: {de}")
 
         return final_json
         

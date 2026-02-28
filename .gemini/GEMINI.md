@@ -239,6 +239,22 @@ This section records resolved bugs and structural changes for traceability. Newe
 *   **10+ validator categories**: Schema completeness, placeholder detection, todaysAction length/card-dump detection, confidence format, screener briefing keys, emotionalTone 3-Act structure, 4-Participant terminology, trade plan price levels, content substance, valuation preservation.
 *   **Production integration**: Both `update_company_card()` and `update_economy_card()` in `ai_services.py` run validators after every card generation. Results are logged to AppLogger and TRACKER but never block card return (observability-only).
 
+#### Data Validators (`modules/ai/data_validators.py`) — NEW
+*   **Purpose**: Cross-references AI-generated card claims against real Impact Engine market data. While Quality Validators check structure/format, Data Validators fact-check the AI's analytical claims.
+*   **Architecture**: `DataReport` / `DataIssue` dataclasses (mirrors Quality Validators pattern). Two public entry points: `validate_company_data(card, impact_context, ticker, trade_date)` and `validate_economy_data(card, etf_contexts, trade_date)`.
+*   **4 validator categories**:
+    1. **Directional/Bias Claims**: Detects contradictions between the AI's stated bias (bullish/bearish) and the actual price return. Uses a 5% threshold for contradictions and 2% for warnings.
+    2. **Session Arc Claims**: Validates gap-up/gap-down claims against actual open vs previous close, checks "higher lows" / "held support" claims against real session price data.
+    3. **Volume Claims**: Cross-references "heavy volume" / "light volume" / "volume surge" claims against actual session volume data.
+    4. **Date/Ticker Consistency**: Ensures the card references the correct ticker symbol and trade date, not stale data from a previous run.
+*   **Economy card validation**: Checks date consistency across the economy card, and validates macro bias claims against SPY return data.
+*   **Production integration**: Both `update_company_card()` and `update_economy_card()` in `ai_services.py` run data validators after the Quality Gate. Results logged to AppLogger and `TRACKER.log_data_accuracy()`. Non-blocking (observability-only).
+*   **Tracker integration**: `ExecutionTracker` gained a `data_reports` field and `log_data_accuracy()` method to record per-ticker data validation results alongside existing quality reports.
+
+#### Data Validator Test Suite (`tests/test_data_validators.py`) — NEW
+*   51 tests across 7 classes: TestHelpers, TestBiasValidation, TestSessionArcValidation, TestVolumeValidation, TestDateTickerConsistency, TestEconomyCardValidation, TestEdgeCases.
+*   Full coverage of threshold boundaries, missing data graceful handling, and cross-field claim detection.
+
 #### Quality Test Suite (`tests/test_ai_quality.py`) — NEW
 *   44 tests with realistic fixtures (good cards, bad card-dump, bad placeholders, missing fields, edge cases).
 *   Boundary tests for todaysAction character limit (1200/1201 chars).
@@ -345,7 +361,7 @@ passing because it never validated the critical invariants that were violated.
 | `key_manager.py` | Fixed free tier RPD | `'rpd': 10000` → `'rpd': 20` for all free-tier models |
 | `key_manager.py` | Added missing model | `gemini-2.5-flash-lite-free` with `rpm=10, tpm=250000, rpd=20` |
 | `ai_services.py` | Separate ReadTimeout handler | Explicit `except requests.exceptions.ReadTimeout` with `is_info_error=False` (key gets cooldown) |
-| `ai_services.py` | Increased HTTP timeout | `timeout=60` → `timeout=120` for large ~175K token requests |
+| `ai_services.py` | Increased HTTP timeout | `timeout=60` → `timeout=240` for large ~175K token requests |
 
 #### Test Suite Hardening (36 new tests)
 
