@@ -420,17 +420,14 @@ def update_company_card(
             * This is your *final synthesis* of the `emotionalTone` and `newsReaction`.
             * (e.g., "Committed Buyers are in firm control. They not only showed a 'Stable Accumulation' pattern at $415 but did so *against* a weak, bearish market, confirming their high conviction.")
 
-    **8. `keyActionLog` / `todaysAction` (STRICT HARD LIMIT — EXACTLY 2-3 SENTENCES, MAX 500 CHARACTERS):**
-        * This is a **one-line daily diary entry**. Nothing more.
-        * **HARD RULES (violating ANY of these = task failure):**
-            1. EXACTLY 2-3 sentences. No more. Stop writing after the third sentence.
-            2. UNDER 500 characters total. Count carefully.
-            3. Do NOT repeat ANY content from other card fields (no price levels, no S/R zones, no plan details, no screener data, no volume stats, no catalyst text).
-            4. Do NOT add meta-commentary like "End of record", "Analysis complete", "JSON ready", "End.", "Task finished", or ANY sign-off text. The entry ends after your last analytical sentence. Period.
-            5. Do NOT loop or repeat yourself. If you find yourself writing the same idea twice, STOP.
-        * **Required Format:** `"{trade_date_str}: [Pattern] ([State]). [1-2 sentence summary of who acted at which level and the outcome]."`
-        * **GOOD Example:** `"2026-02-13: Accumulation (Stable). Committed Buyers defended the $255 POC against a gap down, establishing higher lows through RTH. Post-market stabilization confirms seller exhaustion at support."`
-        * Write this field LAST. Distill the session into a single breath.
+    **8. `keyActionLog` / `todaysAction` (STRICT FORMAT — MAX 3 SENTENCES):**
+        * This is a **concise daily log entry**, NOT a card summary. It must capture ONLY the day's story arc in 2-3 sentences.
+        * **CRITICAL CONSTRAINT:** The `todaysAction` field must be **under 5000 characters**. If your output exceeds this, you have failed the task. Do NOT repeat information from other fields. Do NOT include price levels, S/R zones, plan details, screener data, volume stats, or any content that belongs in other card fields.
+        * **ANTI-DEGENERATION RULE:** Do NOT add meta-commentary or sign-off text like "End of record", "Analysis complete", "JSON ready", "End.", "Task finished", or ANY closing phrase after your final analytical sentence. Do NOT loop or repeat yourself. If you find yourself writing the same idea twice, STOP. The entry ends after your last analytical sentence — period.
+        * **Required Format:** `"{trade_date_str}: [Pattern Label] ([Market State]). [1-2 sentences describing the 3-Act session arc using 4-Participant language: who acted, what they did at which key level, and the outcome]."`
+        * **GOOD Example:** `"2026-02-13: Accumulation (Stable). Following yesterday's capitulation, the market opened with a gap down but immediately found Committed Buyers defending the major $255 structural POC. Despite a softer broad market, buyers established a series of higher lows throughout RTH, migrating value lower but holding the $255 floor. A high-volume stabilization in post-market confirms seller exhaustion and a tactical stalemate at support."`
+        * **BAD Example (DO NOT DO THIS):** Repeating the entire card's analysis, including all support/resistance levels, plan details, screener briefing content, volume profile numbers, catalyst text, or any content from other fields. If your todaysAction reads like a paragraph that could replace the entire card, it is WRONG. Also BAD: Ending with "End.", "Analysis complete.", "JSON ready.", or any sign-off text.
+        * Write this field LAST, after all other analysis is complete. Distill, do not duplicate.
     **9. `openingTradePlan` & `alternativePlan`:** Update these for TOMORROW.
 
     **10. `screener_briefing` (The "Data Packet" for Python):**
@@ -511,7 +508,7 @@ def update_company_card(
         "trigger": "Specific price action validating this plan.",
         "invalidation": "Price action proving this plan WRONG."
       }},
-      "todaysAction": "HARD LIMIT: Exactly 2-3 sentences, under 500 chars. Format: 'DATE: Pattern (State). [1-2 sentence summary].'. Do NOT add sign-off text like 'End.' or 'Analysis complete.' STOP after your last analytical sentence."
+      "todaysAction": "STRICT: Max 3 sentences, under 5000 chars. Format: 'DATE: Pattern (State). [Brief 3-Act narrative of who acted at which key level and the outcome].'. Do NOT repeat content from other fields. Do NOT add sign-off text like 'End.', 'Analysis complete.', 'JSON ready.' — STOP after your last analytical sentence."
     }}
     """
     
@@ -718,10 +715,10 @@ def update_economy_card(
         "You are an expert Macro Strategist. Your objective is to synthesize raw market news "
         "(The 'Why') with quantitative ETF price action (The 'How') to update the global Economy Card. "
         "Complete the required JSON schema accurately and comprehensively. "
-        "HARD LIMIT for 'todaysAction': Exactly 2-3 sentences, UNDER 500 characters. "
-        "Format: 'DATE: [Macro Theme]. [1-2 sentence summary of what drove markets and the outcome].'. "
-        "STOP after your last analytical sentence. Do NOT add ANY sign-off text like 'End.', 'Analysis complete.', 'Task finished.', 'JSON ready.', or repeating yourself. "
-        "If you catch yourself looping or repeating, STOP IMMEDIATELY."
+        "CRITICAL RULE for 'todaysAction': This field is a CONCISE daily log entry (max 3 sentences, under 5000 characters). "
+        "Format: 'DATE: [Macro Theme]. [Brief narrative of what drove markets today and the outcome].'. "
+        "Do NOT dump the entire card analysis into todaysAction. It must be a short summary suitable for a daily log, not a replacement for the full card. "
+        "ANTI-DEGENERATION: Do NOT add sign-off text like 'End.', 'Analysis complete.', 'Task finished.', 'JSON ready.' — STOP after your last analytical sentence. Do NOT loop or repeat yourself."
     )
 
     prompt = f"""
