@@ -149,7 +149,7 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
                 
             headers = {'Content-Type': 'application/json'}
             
-            response = requests.post(gemini_url, headers=headers, data=json.dumps(payload), timeout=120)
+            response = requests.post(gemini_url, headers=headers, data=json.dumps(payload), timeout=420)
             
             # 3. REPORT: Pass internal model_id for correct counter increment
             if response.status_code == 200:
