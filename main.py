@@ -185,11 +185,11 @@ def run_update_company(selected_date: date, model_name: str, tickers: list[str],
     from modules.ai.ai_services import KEY_MANAGER
     from modules.core.key_manager import KeyManager
     
-    max_concurrent = 5  # default cap
+    max_concurrent = 10  # default cap
     if KEY_MANAGER:
         tier = KeyManager.MODELS_CONFIG.get(model_name, {}).get('tier', 'free')
         key_count = KEY_MANAGER.get_tier_key_count(tier)
-        max_concurrent = max(1, min(key_count, 5))
+        max_concurrent = max(1, min(key_count, 10))
         logger.log(f"🔑 {key_count} {tier}-tier key(s) available → max_workers={max_concurrent}")
 
     success_count = 0

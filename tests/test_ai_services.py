@@ -655,8 +655,8 @@ class TestTimeoutHandling:
 
     @patch('modules.ai.ai_services.KEY_MANAGER')
     @patch('requests.post')
-    def test_http_timeout_is_420_seconds(self, mock_post, mock_km):
-        """HTTP timeout should be 420s (7 min) to accommodate large ~150K token requests."""
+    def test_http_timeout_is_600_seconds(self, mock_post, mock_km):
+        """HTTP timeout should be 600s (10 min) to accommodate large ~150K token requests."""
         from modules.ai.ai_services import call_gemini_api
 
         mock_km.estimate_tokens.return_value = 100
@@ -675,6 +675,6 @@ class TestTimeoutHandling:
 
         # Verify the timeout parameter passed to requests.post
         call_kwargs = mock_post.call_args
-        assert call_kwargs.kwargs.get('timeout') == 420 or \
-               (call_kwargs[1].get('timeout') == 420 if len(call_kwargs) > 1 else False), \
-            f"HTTP timeout should be 420s, got {call_kwargs}"
+        assert call_kwargs.kwargs.get('timeout') == 600 or \
+               (call_kwargs[1].get('timeout') == 600 if len(call_kwargs) > 1 else False), \
+            f"HTTP timeout should be 600s, got {call_kwargs}"
