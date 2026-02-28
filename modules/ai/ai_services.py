@@ -140,13 +140,12 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
                 "systemInstruction": {"parts": [{"text": system_prompt}]}
             }
             
-            # --- NEW: Inject schema and hardware guardrails if provided (Structured Outputs) ---
+            # --- NEW: Inject JSON mime type and hardware guardrails (No Schema to prevent Flash model cognitive overload) ---
             if "response_schema" in kwargs:
                 payload["generationConfig"] = {
                     "responseMimeType": "application/json",
-                    "responseSchema": kwargs["response_schema"],
                     "temperature": 0.1,  # Force deterministic, robotic output to prevent hallucinations
-                    "maxOutputTokens": 2500  # Hard stop at 2500 tokens to prevent infinite loops
+                    
                 }
                 
             headers = {'Content-Type': 'application/json'}
