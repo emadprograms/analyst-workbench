@@ -170,11 +170,13 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
                     return result["candidates"][0]["content"]["parts"][0]["text"].strip()
                 except (KeyError, IndexError):
                     logger.log(f"⚠️ Invalid JSON Structure: {result}")
+                    TRACKER.log_retry(model_name, ticker=kwargs.get("tracker_ticker"), reason="Invalid JSON response")
                     KEY_MANAGER.report_failure(current_api_key, is_info_error=True)
                     continue 
 
             elif response.status_code == 429:
                 err_text = response.text
+                TRACKER.log_retry(model_name, ticker=kwargs.get("tracker_ticker"), reason="429 Rate Limit")
                 if "limit: 0" in err_text or "Quota exceeded" in err_text:
                     logger.log(f"⛔ BILLING ISSUE on '{key_name}'. Google says Quota is 0.")
                     logger.log(f"   ACTION: Go to Google Cloud Console -> Billing -> Link a Card to project.")
@@ -185,11 +187,13 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
                     KEY_MANAGER.report_failure(current_api_key, is_info_error=False)
             elif response.status_code >= 500:
                 logger.log(f"☁️ {response.status_code} Server Error. Waiting 10s...")
+                TRACKER.log_retry(model_name, ticker=kwargs.get("tracker_ticker"), reason=f"{response.status_code} Server Error")
                 KEY_MANAGER.report_failure(current_api_key, is_info_error=True)
                 time.sleep(10) # Give the server breathing room
             else:
                 err_text = response.text
                 logger.log(f"⚠️ API Error {response.status_code}: {err_text}")
+                TRACKER.log_retry(model_name, ticker=kwargs.get("tracker_ticker"), reason=f"API Error {response.status_code}")
                 # Permanently retire expired/invalid keys
                 if response.status_code == 400 and ("API_KEY_INVALID" in err_text or "API key expired" in err_text):
                     logger.log(f"   🗑️ Retiring expired key '{key_name}' permanently.")
@@ -199,12 +203,14 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
 
         except requests.exceptions.ReadTimeout:
             logger.log(f"💥 Timeout: Request timed out for '{key_name}'. Key goes to cooldown.")
+            TRACKER.log_retry(model_name, ticker=kwargs.get("tracker_ticker"), reason="ReadTimeout")
             if current_api_key:
                 # Timeout means Google likely received & counted the tokens.
                 # Treat as a real failure so the key gets a cooldown period.
                 KEY_MANAGER.report_failure(current_api_key, is_info_error=False)
         except Exception as e:
             logger.log(f"💥 Exception: {str(e)}")
+            TRACKER.log_retry(model_name, ticker=kwargs.get("tracker_ticker"), reason=str(e))
             if current_api_key:
                 KEY_MANAGER.report_failure(current_api_key, is_info_error=True)
         
@@ -612,12 +618,12 @@ def update_company_card(
         # --- QUALITY GATE: Validate output quality ---
         try:
             qr = validate_company_card(final_card, ticker=ticker, previous_card=previous_overview_card_dict)
+            TRACKER.log_quality(ticker, qr)
             if not qr.passed:
                 logger.warning(f"⚠️ QUALITY FAIL ({ticker}): {qr.critical_count} critical, {qr.warning_count} warnings")
                 for issue in qr.issues:
                     if issue.severity == 'critical':
                         logger.warning(f"   🔴 [{issue.rule}] {issue.field}: {issue.message}")
-                TRACKER.log_error(ticker, f"Quality: {qr.critical_count} critical issues")
             elif qr.warning_count > 0:
                 logger.log(f"   📊 Quality: PASS with {qr.warning_count} warnings for {ticker}")
             else:
@@ -819,12 +825,12 @@ def update_economy_card(
         # --- QUALITY GATE: Validate output quality ---
         try:
             qr = validate_economy_card(final_card)
+            TRACKER.log_quality("ECONOMY", qr)
             if not qr.passed:
                 logger.warning(f"⚠️ QUALITY FAIL (ECONOMY): {qr.critical_count} critical, {qr.warning_count} warnings")
                 for issue in qr.issues:
                     if issue.severity == 'critical':
                         logger.warning(f"   🔴 [{issue.rule}] {issue.field}: {issue.message}")
-                TRACKER.log_error("ECONOMY", f"Quality: {qr.critical_count} critical issues")
             elif qr.warning_count > 0:
                 logger.log(f"   📊 Quality: PASS with {qr.warning_count} warnings for ECONOMY")
             else:

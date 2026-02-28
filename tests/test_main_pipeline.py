@@ -437,6 +437,9 @@ class TestExecutionTracker:
         
         assert tracker.metrics.total_calls == 0
         assert tracker.metrics.total_tokens == 0
+        assert tracker.metrics.retry_count == 0
+        assert tracker.metrics.ticker_outcomes == {}
+        assert tracker.metrics.quality_reports == {}
         assert tracker.action_type == "New_Run"
 
     def test_log_call_success(self):
@@ -447,6 +450,9 @@ class TestExecutionTracker:
         assert tracker.metrics.total_tokens == 5000
         assert tracker.metrics.success_count == 1
         assert tracker.metrics.failure_count == 0
+        # Verify per-ticker outcome
+        assert "AAPL" in tracker.metrics.ticker_outcomes
+        assert tracker.metrics.ticker_outcomes["AAPL"]["status"] == "success"
 
     def test_log_call_failure(self):
         tracker = _make_mock_tracker()
@@ -456,6 +462,29 @@ class TestExecutionTracker:
         assert tracker.metrics.failure_count == 1
         assert len(tracker.metrics.errors) == 1
         assert "Rate Limit" in tracker.metrics.errors[0]
+        # Verify per-ticker failure outcome
+        assert tracker.metrics.ticker_outcomes["AAPL"]["status"] == "failed"
+        assert tracker.metrics.ticker_outcomes["AAPL"]["error"] == "Rate Limit"
+
+    def test_log_retry(self):
+        """log_retry should increment retry count and per-ticker retries."""
+        tracker = _make_mock_tracker()
+        tracker.log_retry("gemini-3-flash-free", ticker="AAPL", reason="429 Rate Limit")
+        tracker.log_retry("gemini-3-flash-free", ticker="AAPL", reason="500 Server Error")
+        tracker.log_retry("gemini-3-flash-free", ticker="MSFT", reason="ReadTimeout")
+        
+        assert tracker.metrics.retry_count == 3
+        assert tracker.metrics.ticker_outcomes["AAPL"]["retries"] == 2
+        assert tracker.metrics.ticker_outcomes["MSFT"]["retries"] == 1
+
+    def test_log_retry_does_not_affect_call_count(self):
+        """Retries should NOT increment total_calls — they are separate."""
+        tracker = _make_mock_tracker()
+        tracker.log_retry("model", ticker="AAPL", reason="429")
+        tracker.log_retry("model", ticker="AAPL", reason="500")
+        
+        assert tracker.metrics.total_calls == 0
+        assert tracker.metrics.retry_count == 2
 
     def test_log_error_non_api(self):
         """log_error should NOT increment total_calls (non-API failure)."""
@@ -480,6 +509,19 @@ class TestExecutionTracker:
         
         assert summary["success_rate"] == "0%"
         assert summary["total_calls"] == 0
+        assert summary["retry_count"] == 0
+
+    def test_get_summary_includes_retries(self):
+        """Summary should include retry count."""
+        tracker = _make_mock_tracker()
+        tracker.log_retry("model", ticker="X", reason="429")
+        tracker.log_retry("model", ticker="X", reason="500")
+        tracker.log_call(1000, True, "model", ticker="X")
+        tracker.finish()
+        
+        summary = tracker.get_summary()
+        assert summary["retry_count"] == 2
+        assert summary["total_calls"] == 1
 
     def test_get_discord_embeds(self):
         tracker = _make_mock_tracker()
@@ -526,6 +568,285 @@ class TestExecutionTracker:
         macro_fields = [f for f in fields if "Macro" in f.get("name", "")]
         assert len(macro_fields) > 0
         assert "Bulls dominate" in macro_fields[0]["value"]
+
+
+# ==========================================
+# TEST: Dashboard Quality & Layout
+# ==========================================
+
+class TestDashboardLayout:
+    """Tests for the redesigned Discord dashboard that verifies proper
+    sections, quality details, retry counts, and organized output."""
+
+    def test_updated_section_shows_successful_tickers(self):
+        """Dashboard should have an 'Updated' section listing successful tickers."""
+        tracker = _make_mock_tracker()
+        tracker.action_type = "Company_Card_Update"
+        tracker.log_call(1000, True, "model", ticker="AAPL")
+        tracker.log_call(1200, True, "model", ticker="MSFT")
+        tracker.log_call(900, True, "model", ticker="GOOGL")
+        tracker.finish()
+        
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        fields = embeds[0]["fields"]
+        updated_fields = [f for f in fields if "Updated" in f.get("name", "")]
+        assert len(updated_fields) == 1, "Should have exactly one 'Updated' section"
+        assert "AAPL" in updated_fields[0]["value"]
+        assert "MSFT" in updated_fields[0]["value"]
+        assert "GOOGL" in updated_fields[0]["value"]
+
+    def test_failed_section_shows_failed_tickers_with_errors(self):
+        """Dashboard should have a 'Failed' section with error details."""
+        tracker = _make_mock_tracker()
+        tracker.action_type = "Company_Card_Update"
+        tracker.log_call(1000, True, "model", ticker="AAPL")
+        tracker.log_call(0, False, "model", ticker="GOOGL", error="Max Retries Exhausted")
+        tracker.finish()
+        
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        fields = embeds[0]["fields"]
+        failed_fields = [f for f in fields if "Failed" in f.get("name", "")]
+        assert len(failed_fields) == 1, "Should have exactly one 'Failed' section"
+        assert "GOOGL" in failed_fields[0]["value"]
+        assert "Max Retries Exhausted" in failed_fields[0]["value"]
+
+    def test_quality_section_shows_critical_issues_with_details(self):
+        """Quality failures should show specific rule violations, not just counts."""
+        from modules.ai.quality_validators import QualityReport, QualityIssue
+        
+        tracker = _make_mock_tracker()
+        tracker.action_type = "Company_Card_Update"
+        tracker.log_call(1000, True, "model", ticker="ADBE")
+        
+        # Simulate quality report with critical issues
+        qr = QualityReport(card_type="company", ticker="ADBE")
+        qr.issues.append(QualityIssue(
+            rule="ACTION_TOO_LONG", severity="critical",
+            field="keyActionLog[-1].action",
+            message="todaysAction is 6200 chars (limit: 5000). Preview: 'Adobe reported...'"
+        ))
+        qr.issues.append(QualityIssue(
+            rule="CARD_DUMP", severity="critical",
+            field="keyActionLog[-1].action",
+            message="Contains screener_briefing content (S_Levels)"
+        ))
+        tracker.log_quality("ADBE", qr)
+        tracker.finish()
+        
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        fields = embeds[0]["fields"]
+        quality_fields = [f for f in fields if "Quality" in f.get("name", "")]
+        assert len(quality_fields) == 1, "Should have quality issues section"
+        
+        quality_text = quality_fields[0]["value"]
+        assert "ADBE" in quality_text
+        assert "ACTION_TOO_LONG" in quality_text
+        assert "CARD_DUMP" in quality_text
+        assert "6200 chars" in quality_text
+
+    def test_quality_perfect_no_quality_section(self):
+        """Perfect quality should NOT create a Quality Issues section."""
+        from modules.ai.quality_validators import QualityReport
+        
+        tracker = _make_mock_tracker()
+        tracker.action_type = "Company_Card_Update"
+        tracker.log_call(1000, True, "model", ticker="AAPL")
+        
+        qr = QualityReport(card_type="company", ticker="AAPL")
+        # No issues = perfect
+        tracker.log_quality("AAPL", qr)
+        tracker.finish()
+        
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        fields = embeds[0]["fields"]
+        quality_fields = [f for f in fields if "Quality" in f.get("name", "")]
+        assert len(quality_fields) == 0, "Perfect quality should not show quality issues section"
+
+    def test_ticker_count_shows_updated_vs_total(self):
+        """Dashboard should show 'X/Y Updated' format."""
+        tracker = _make_mock_tracker()
+        tracker.action_type = "Company_Card_Update"
+        tracker.log_call(1000, True, "model", ticker="AAPL")
+        tracker.log_call(1000, True, "model", ticker="MSFT")
+        tracker.log_call(0, False, "model", ticker="GOOGL", error="Failed")
+        tracker.finish()
+        
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        fields = embeds[0]["fields"]
+        ticker_fields = [f for f in fields if "Tickers" in f.get("name", "")]
+        assert len(ticker_fields) == 1
+        assert "2/3" in ticker_fields[0]["value"]
+
+    def test_api_requests_includes_retries(self):
+        """API Requests field should show total HTTP calls including retries."""
+        tracker = _make_mock_tracker()
+        tracker.action_type = "Company_Card_Update"
+        # Simulate: AAPL had 3 retries before succeeding
+        tracker.log_retry("model", ticker="AAPL", reason="429")
+        tracker.log_retry("model", ticker="AAPL", reason="429")
+        tracker.log_retry("model", ticker="AAPL", reason="500")
+        tracker.log_call(1000, True, "model", ticker="AAPL")
+        tracker.finish()
+        
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        fields = embeds[0]["fields"]
+        api_fields = [f for f in fields if "API" in f.get("name", "")]
+        assert len(api_fields) == 1
+        api_text = api_fields[0]["value"]
+        # Total should be 4 (1 final + 3 retries)
+        assert "4" in api_text
+        assert "retries" in api_text.lower() or "3 retries" in api_text
+
+    def test_failed_ticker_shows_retry_count(self):
+        """Failed tickers should show how many retries happened."""
+        tracker = _make_mock_tracker()
+        tracker.action_type = "Company_Card_Update"
+        tracker.log_retry("model", ticker="GOOGL", reason="429")
+        tracker.log_retry("model", ticker="GOOGL", reason="500")
+        tracker.log_call(0, False, "model", ticker="GOOGL", error="Max Retries Exhausted")
+        tracker.finish()
+        
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        fields = embeds[0]["fields"]
+        failed_fields = [f for f in fields if "Failed" in f.get("name", "")]
+        assert len(failed_fields) == 1
+        assert "2 retries" in failed_fields[0]["value"]
+
+    def test_mixed_dashboard_all_sections(self):
+        """Full scenario: successes, quality issues, failures, retries."""
+        from modules.ai.quality_validators import QualityReport, QualityIssue
+        
+        tracker = _make_mock_tracker()
+        tracker.action_type = "Company_Card_Update"
+        
+        # AAPL: success, perfect quality
+        tracker.log_call(1000, True, "model", ticker="AAPL")
+        qr_aapl = QualityReport(card_type="company", ticker="AAPL")
+        tracker.log_quality("AAPL", qr_aapl)
+        
+        # ADBE: success but quality critical
+        tracker.log_call(1500, True, "model", ticker="ADBE")
+        qr_adbe = QualityReport(card_type="company", ticker="ADBE")
+        qr_adbe.issues.append(QualityIssue(
+            rule="ACTION_TOO_LONG", severity="critical",
+            field="keyActionLog[-1].action",
+            message="todaysAction is 6200 chars (limit: 5000)"
+        ))
+        tracker.log_quality("ADBE", qr_adbe)
+        
+        # GOOGL: failed after retries
+        tracker.log_retry("model", ticker="GOOGL", reason="429")
+        tracker.log_retry("model", ticker="GOOGL", reason="429")
+        tracker.log_call(0, False, "model", ticker="GOOGL", error="Max Retries Exhausted")
+        
+        tracker.finish()
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        fields = embeds[0]["fields"]
+        
+        # Should have all 3 sections
+        field_names = [f["name"] for f in fields]
+        updated_sections = [n for n in field_names if "Updated" in n]
+        quality_sections = [n for n in field_names if "Quality" in n]
+        failed_sections = [n for n in field_names if "Failed" in n]
+        
+        assert len(updated_sections) == 1, f"Expected Updated section, got: {field_names}"
+        assert len(quality_sections) == 1, f"Expected Quality section, got: {field_names}"
+        assert len(failed_sections) == 1, f"Expected Failed section, got: {field_names}"
+        
+        # AAPL should be in Updated, not Failed or Quality
+        updated_val = [f["value"] for f in fields if "Updated" in f["name"]][0]
+        assert "AAPL" in updated_val
+        
+        # ADBE should be in Quality
+        quality_val = [f["value"] for f in fields if "Quality" in f["name"]][0]
+        assert "ADBE" in quality_val
+        
+        # GOOGL should be in Failed
+        failed_val = [f["value"] for f in fields if "Failed" in f["name"]][0]
+        assert "GOOGL" in failed_val
+
+    def test_embed_color_yellow_on_mixed(self):
+        """Mixed results (some success, some fail) should produce yellow embed."""
+        tracker = _make_mock_tracker()
+        tracker.action_type = "Company_Card_Update"
+        tracker.log_call(1000, True, "model", ticker="AAPL")
+        tracker.log_call(0, False, "model", ticker="GOOGL", error="fail")
+        tracker.finish()
+        
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        assert embeds[0]["color"] == 0xf1c40f  # Yellow
+
+    def test_embed_color_yellow_on_quality_fail(self):
+        """Quality failures (success API but critical quality) should produce yellow."""
+        from modules.ai.quality_validators import QualityReport, QualityIssue
+        
+        tracker = _make_mock_tracker()
+        tracker.action_type = "Company_Card_Update"
+        tracker.log_call(1000, True, "model", ticker="AAPL")
+        qr = QualityReport(card_type="company", ticker="AAPL")
+        qr.issues.append(QualityIssue(rule="X", severity="critical", field="x", message="bad"))
+        tracker.log_quality("AAPL", qr)
+        tracker.finish()
+        
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        assert embeds[0]["color"] == 0xf1c40f  # Yellow (not green)
+
+    def test_data_action_still_works(self):
+        """Non-AI actions (inspect, news check) should still produce valid embeds."""
+        tracker = _make_mock_tracker()
+        tracker.action_type = "News_Check"
+        tracker.set_result("news_status", "✅ Found (15000 chars)")
+        tracker.finish()
+        
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        fields = embeds[0]["fields"]
+        news_fields = [f for f in fields if "News" in f.get("name", "")]
+        assert len(news_fields) >= 1
+        assert "15000" in news_fields[0]["value"]
+
+    def test_log_quality_stores_full_details(self):
+        """log_quality should store all issue details for dashboard rendering."""
+        from modules.ai.quality_validators import QualityReport, QualityIssue
+        
+        tracker = _make_mock_tracker()
+        qr = QualityReport(card_type="company", ticker="AAPL")
+        qr.issues.append(QualityIssue(
+            rule="ACTION_TOO_LONG", severity="critical",
+            field="keyActionLog[-1].action",
+            message="todaysAction is 6200 chars (limit: 5000)"
+        ))
+        qr.issues.append(QualityIssue(
+            rule="PLACEHOLDER", severity="warning",
+            field="confidence",
+            message="Contains placeholder text"
+        ))
+        tracker.log_quality("AAPL", qr)
+        
+        stored = tracker.metrics.quality_reports["AAPL"]
+        assert len(stored) == 2
+        assert stored[0]["rule"] == "ACTION_TOO_LONG"
+        assert stored[0]["severity"] == "critical"
+        assert stored[1]["rule"] == "PLACEHOLDER"
+        assert stored[1]["severity"] == "warning"
+        
+        outcome = tracker.metrics.ticker_outcomes["AAPL"]
+        assert outcome["quality"] == "fail"
+        assert outcome["quality_critical"] == 1
+        assert outcome["quality_warnings"] == 1
+
+    def test_quality_warnings_only_still_passes(self):
+        """Warnings-only quality should mark ticker as 'warnings' not 'fail'."""
+        from modules.ai.quality_validators import QualityReport, QualityIssue
+        
+        tracker = _make_mock_tracker()
+        qr = QualityReport(card_type="company", ticker="AAPL")
+        qr.issues.append(QualityIssue(
+            rule="MINOR", severity="warning",
+            field="x", message="minor issue"
+        ))
+        tracker.log_quality("AAPL", qr)
+        
+        assert tracker.metrics.ticker_outcomes["AAPL"]["quality"] == "warnings"
 
 
 # ==========================================
