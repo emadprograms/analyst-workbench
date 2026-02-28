@@ -224,6 +224,13 @@ class ExecutionTracker:
             for t in with_warnings:
                 wc = outcomes[t].get('quality_warnings', 0)
                 lines.append(f"✅ **{t}** ⚠️ {wc} warning{'s' if wc != 1 else ''}")
+                # Show warning details so user can evaluate them
+                issues = self.metrics.quality_reports.get(t, [])
+                for issue in issues:
+                    msg = issue['message']
+                    if len(msg) > 120:
+                        msg = msg[:117] + "..."
+                    lines.append(f"   🟡 `{issue['rule']}` → {msg}")
             for t in no_quality:
                 lines.append(f"✅ **{t}**")
             

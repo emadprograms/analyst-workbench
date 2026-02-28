@@ -723,6 +723,38 @@ class TestDashboardLayout:
         quality_fields = [f for f in fields if "Quality" in f.get("name", "")]
         assert len(quality_fields) == 0, "Perfect quality should not show quality issues section"
 
+    def test_warning_details_shown_in_updated_section(self):
+        """Warnings should show their rule and message in the Updated section, not just a count."""
+        from modules.ai.quality_validators import QualityReport, QualityIssue
+        
+        tracker = _make_mock_tracker()
+        tracker.action_type = "Company_Card_Update"
+        tracker.log_call(1000, True, "model", ticker="AMD")
+        
+        qr = QualityReport(card_type="company", ticker="AMD")
+        qr.issues.append(QualityIssue(
+            rule="ACTION_NO_DATE", severity="warning",
+            field="keyActionLog[-1].date",
+            message="Log entry is missing a date stamp."
+        ))
+        tracker.log_quality("AMD", qr)
+        tracker.finish()
+        
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        fields = embeds[0]["fields"]
+        updated_fields = [f for f in fields if "Updated" in f.get("name", "")]
+        assert len(updated_fields) == 1, "Should have Updated section"
+        text = updated_fields[0]["value"]
+        assert "AMD" in text
+        assert "⚠️" in text
+        assert "ACTION_NO_DATE" in text, "Warning rule name should be visible"
+        assert "missing a date stamp" in text, "Warning message should be visible"
+        
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        fields = embeds[0]["fields"]
+        quality_fields = [f for f in fields if "Quality" in f.get("name", "")]
+        assert len(quality_fields) == 0, "Perfect quality should not show quality issues section"
+
     def test_ticker_count_shows_updated_vs_total(self):
         """Dashboard should show 'X/Y Updated' format."""
         tracker = _make_mock_tracker()
