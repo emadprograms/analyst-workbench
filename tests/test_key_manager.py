@@ -162,29 +162,31 @@ class TestReportUsage:
     
     def test_no_double_append_to_available_keys(self):
         """
-        Critical bug fix: report_usage must NOT re-add key to available_keys.
-        get_key already adds it on success path.
+        Checkout/checkin pattern: get_key() checks the key OUT (removes from pool).
+        report_usage() checks it back IN (adds to pool). Key should appear exactly once.
         """
         km = _create_test_km()
         mock_rs = MagicMock()
         mock_rs.rows = []
         km.db_client.execute.return_value = mock_rs
         
-        # Get a key (this adds it back to available_keys)
+        # Get a key (this REMOVES it from available_keys — checked out)
         name, key, wait, model_id = km.get_key("gemini-3-flash-free", estimated_tokens=100)
         assert key is not None
         
-        # Count key occurrences before report_usage
-        count_before = list(km.available_keys).count(key)
+        # Key should NOT be in the pool while checked out
+        count_checked_out = list(km.available_keys).count(key)
+        assert count_checked_out == 0, \
+            f"Key should not be in pool while checked out, but appeared {count_checked_out} times."
         
-        # Report usage (should NOT add again)
+        # Report usage (should add key back — checked in)
         km.report_usage(key, tokens=1000, model_id=model_id)
         
         count_after = list(km.available_keys).count(key)
         
-        # Should not have increased
-        assert count_after == count_before, \
-            f"Key appeared {count_after} times after report_usage (was {count_before}). Double-append bug!"
+        # Should appear exactly once
+        assert count_after == 1, \
+            f"Key should appear exactly 1 time after checkin, but appeared {count_after} times."
 
     def test_report_usage_updates_db(self):
         """Usage reporting should write to DB."""

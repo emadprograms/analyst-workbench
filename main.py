@@ -182,7 +182,7 @@ def run_update_company(selected_date: date, model_name: str, tickers: list[str],
             return False
 
     success_count = 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(tickers), 20)) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(tickers), 5)) as executor:
         results = list(executor.map(process_ticker, tickers))
         success_count = sum(1 for r in results if r)
     

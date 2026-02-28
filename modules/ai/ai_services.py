@@ -188,8 +188,14 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
                 KEY_MANAGER.report_failure(current_api_key, is_info_error=True)
                 time.sleep(10) # Give the server breathing room
             else:
-                logger.log(f"⚠️ API Error {response.status_code}: {response.text}")
-                KEY_MANAGER.report_failure(current_api_key, is_info_error=True)
+                err_text = response.text
+                logger.log(f"⚠️ API Error {response.status_code}: {err_text}")
+                # Permanently retire expired/invalid keys
+                if response.status_code == 400 and ("API_KEY_INVALID" in err_text or "API key expired" in err_text):
+                    logger.log(f"   🗑️ Retiring expired key '{key_name}' permanently.")
+                    KEY_MANAGER.report_fatal_error(current_api_key)
+                else:
+                    KEY_MANAGER.report_failure(current_api_key, is_info_error=True)
 
         except Exception as e:
             logger.log(f"💥 Exception: {str(e)}")

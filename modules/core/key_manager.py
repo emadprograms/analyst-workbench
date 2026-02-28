@@ -302,7 +302,8 @@ class KeyManager:
                 
                 if wait == 0:
                     self.available_keys.extendleft(reversed(rotation)) 
-                    self.available_keys.append(key_val) 
+                    # Key stays "checked out" — caller must return it via
+                    # report_usage() (success) or report_failure() (error).
                     return self.key_to_name[key_val], key_val, 0.0, target_model_id
                 
                 best_wait = min(best_wait, wait)
@@ -471,11 +472,13 @@ class KeyManager:
                         [key_hash, model_id, now, tokens, today_str]
                     )
                     
-                # NOTE: Key is already re-added by get_key() on success path.
-                # Do NOT append again here to avoid duplicates in available_keys.
+                # Return key to the available pool after recording usage.
+                self.available_keys.append(key)
             except Exception as e:
                 import traceback
                 log.error(f"Report Usage Failed: {e}\n{traceback.format_exc()}")
+                # Still return the key even if DB write failed
+                self.available_keys.append(key)
 
     def report_failure(self, key: str, is_info_error=False):
         with self._lock:
