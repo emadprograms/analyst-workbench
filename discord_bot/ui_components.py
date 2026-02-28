@@ -128,10 +128,13 @@ class TickerSelectionView(discord.ui.View):
         self.selected_tickers = set()
         self.dropdown_states = {}
 
-        display_stocks = sorted(stock_tickers)[:25]
-        self.add_item(TickerDropdown(display_stocks, "🏢 Select Stocks...", self))
+        sorted_stocks = sorted(stock_tickers)
+        for i in range(0, len(sorted_stocks), 25):
+            chunk = sorted_stocks[i:i+25]
+            placeholder = f"🏢 Select Stocks ({i+1}-{i+len(chunk)})..." if len(sorted_stocks) > 25 else "🏢 Select Stocks..."
+            self.add_item(TickerDropdown(chunk, placeholder, self))
 
-    @discord.ui.button(label="✅ Build Cards", style=discord.ButtonStyle.success, row=2)
+    @discord.ui.button(label="✅ Build Cards", style=discord.ButtonStyle.success, row=4)
     async def dispatch_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.selected_tickers:
             await interaction.response.send_message("❌ Please select at least one ticker!", ephemeral=True)
@@ -153,15 +156,21 @@ class TickerSelectionView(discord.ui.View):
         else:
             await msg.edit(content=f"❌ **Build Failed:** {message}")
 
-    @discord.ui.button(label="🌟 Select All", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="🌟 Select All", style=discord.ButtonStyle.secondary, row=4)
     async def select_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.selected_tickers = set(self.stock_tickers)
+        for child in self.children:
+            if isinstance(child, discord.ui.Select):
+                child.disabled = True
         await interaction.response.edit_message(content=f"🌟 **All {len(self.stock_tickers)} Stocks Selected!**\nReady to dispatch for **{self.target_date}**.", view=self)
 
-    @discord.ui.button(label="🔄 Reset", style=discord.ButtonStyle.danger, row=2)
+    @discord.ui.button(label="🔄 Reset", style=discord.ButtonStyle.danger, row=4)
     async def reset_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.selected_tickers = set()
         self.dropdown_states = {}
+        for child in self.children:
+            if isinstance(child, discord.ui.Select):
+                child.disabled = False
         await interaction.response.edit_message(content=f"🏢 **Select Companies** for **{self.target_date}**:\n(Selection Reset)", view=self)
 
 class TickerDropdown(discord.ui.Select):
@@ -225,10 +234,13 @@ class ViewTickerSelectionView(discord.ui.View):
         self.selected_tickers = set()
         self.dropdown_states = {}
 
-        display_stocks = sorted(stock_tickers)[:25]
-        self.add_item(TickerDropdown(display_stocks, "🏢 Select Stocks...", self))
+        sorted_stocks = sorted(stock_tickers)
+        for i in range(0, len(sorted_stocks), 25):
+            chunk = sorted_stocks[i:i+25]
+            placeholder = f"🏢 Select Stocks ({i+1}-{i+len(chunk)})..." if len(sorted_stocks) > 25 else "🏢 Select Stocks..."
+            self.add_item(TickerDropdown(chunk, placeholder, self))
 
-    @discord.ui.button(label="✅ View Cards", style=discord.ButtonStyle.success, row=2)
+    @discord.ui.button(label="✅ View Cards", style=discord.ButtonStyle.success, row=4)
     async def dispatch_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.selected_tickers:
             await interaction.response.send_message("❌ Please select at least one ticker!", ephemeral=True)
@@ -261,15 +273,21 @@ class ViewTickerSelectionView(discord.ui.View):
         if not_found:
             await interaction.followup.send(f"❌ Cards not found for: `{', '.join(not_found)}`")
 
-    @discord.ui.button(label="🌟 Select All", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="🌟 Select All", style=discord.ButtonStyle.secondary, row=4)
     async def select_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.selected_tickers = set(self.stock_tickers)
+        for child in self.children:
+            if isinstance(child, discord.ui.Select):
+                child.disabled = True
         await interaction.response.edit_message(content=f"🌟 **All {len(self.stock_tickers)} Stocks Selected!**\nReady to retrieve for **{self.target_date}**.", view=self)
 
-    @discord.ui.button(label="🔄 Reset", style=discord.ButtonStyle.danger, row=2)
+    @discord.ui.button(label="🔄 Reset", style=discord.ButtonStyle.danger, row=4)
     async def reset_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.selected_tickers = set()
         self.dropdown_states = {}
+        for child in self.children:
+            if isinstance(child, discord.ui.Select):
+                child.disabled = False
         await interaction.response.edit_message(content=f"🏢 **Select Companies to View** for **{self.target_date}**:\n(Selection Reset)", view=self)
 
 # --- Edit Notes UI ---
@@ -301,12 +319,16 @@ class EditNotesTickerSelectionView(discord.ui.View):
     def __init__(self, stock_tickers, fetch_callback, update_callback):
         super().__init__(timeout=180)
         self.stock_tickers = stock_tickers
-        options = [discord.SelectOption(label=t, value=t) for t in sorted(stock_tickers)[:25]]
-        self.add_item(EditNotesTickerDropdown(options, fetch_callback, update_callback))
+        sorted_stocks = sorted(stock_tickers)
+        for i in range(0, len(sorted_stocks), 25):
+            chunk = sorted_stocks[i:i+25]
+            options = [discord.SelectOption(label=t, value=t) for t in chunk]
+            placeholder = f"Select company ({i+1}-{i+len(chunk)})..." if len(sorted_stocks) > 25 else "Select company to edit notes..."
+            self.add_item(EditNotesTickerDropdown(options, placeholder, fetch_callback, update_callback))
 
 class EditNotesTickerDropdown(discord.ui.Select):
-    def __init__(self, options, fetch_callback, update_callback):
-        super().__init__(placeholder="Select company to edit notes...", options=options)
+    def __init__(self, options, placeholder, fetch_callback, update_callback):
+        super().__init__(placeholder=placeholder, options=options)
         self.fetch_callback = fetch_callback
         self.update_callback = update_callback
 
