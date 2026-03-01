@@ -194,25 +194,26 @@ class ExecutionTracker:
             "artifacts_count": len(self.metrics.artifacts)
         }
 
-    def _build_ai_embed(self, target_date: str, summary: dict, color: int) -> dict:
-        """Build the main embed for AI pipeline actions."""
-        embed = {
+    def _build_ai_embeds(self, target_date: str, summary: dict, color: int) -> list[dict]:
+        """Build a list of embeds for AI pipeline actions to avoid 2000-char limit."""
+        # 1. Main Dashboard Embed
+        dashboard_embed = {
             "title": f"🏦 Analyst Workbench | {target_date}",
             "description": f"Action: **{self.action_type.replace('_', ' ')}**",
             "color": color,
             "fields": [],
-            "footer": {"text": "Analyst Workbench v2.5 | Macro Intel Engine"},
+            "footer": {"text": "Analyst Workbench v2.5 | Macro Intel Engine | Message 1/3"},
             "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         }
 
         outcomes = self.metrics.ticker_outcomes
         total_tickers = len(outcomes) if outcomes else 0
-        
+
         # Categorize tickers
         updated = []      # success + quality perfect or warnings-only
         quality_fail = []  # success but quality critical
         failed = []        # API/pipeline failure
-        
+
         for ticker, info in outcomes.items():
             status = info.get('status', 'unknown')
             quality = info.get('quality', 'unknown')
@@ -224,37 +225,37 @@ class ExecutionTracker:
                 updated.append(ticker)
 
         updated_count = len(updated)
-        
+
         # --- ROW 1: Key Stats ---
         total_http = summary['total_calls'] + summary['retry_count']
         if total_tickers > 0:
-            embed["fields"].append({
-                "name": "📊 Tickers", 
-                "value": f"**{updated_count}/{total_tickers}** Updated", 
+            dashboard_embed["fields"].append({
+                "name": "📊 Tickers",
+                "value": f"**{updated_count}/{total_tickers}** Updated",
                 "inline": True
             })
-        
+
         # API Calls: succeeded vs total attempts (calls + retries)
         succeeded = self.metrics.success_count
         total_attempts = summary['total_calls'] + summary['retry_count']
-        
+
         if total_attempts > 0:
             call_detail = f"**{succeeded}** succeeded\n**{total_attempts}** attempts"
             if summary['retry_count'] > 0:
                 call_detail += f"\n🔁 {summary['retry_count']} retries"
         else:
             call_detail = "**0** attempts"
-        
-        embed["fields"].append({"name": "🔄 API Calls", "value": call_detail, "inline": True})
-        embed["fields"].append({"name": "🪙 Tokens", "value": f"**{summary['total_tokens']:,}**", "inline": True})
-        embed["fields"].append({"name": "⏱️ Duration", "value": f"**{summary['duration']}**", "inline": True})
-        
+
+        dashboard_embed["fields"].append({"name": "🔄 API Calls", "value": call_detail, "inline": True})
+        dashboard_embed["fields"].append({"name": "🪙 Tokens", "value": f"**{summary['total_tokens']:,}**", "inline": True})
+        dashboard_embed["fields"].append({"name": "⏱️ Duration", "value": f"**{summary['duration']}**", "inline": True})
+
         if summary['artifacts_count'] > 0:
-            embed["fields"].append({"name": "📁 Files", "value": f"**{summary['artifacts_count'] + 1}**", "inline": True})
-        
+            dashboard_embed["fields"].append({"name": "📁 Files", "value": f"**{summary['artifacts_count'] + 1}**", "inline": True})
+
         # Blank field for row alignment
-        if len(embed["fields"]) % 3 != 0:
-            embed["fields"].append({"name": "\u200b", "value": "\u200b", "inline": True})
+        if len(dashboard_embed["fields"]) % 3 != 0:
+            dashboard_embed["fields"].append({"name": "\u200b", "value": "\u200b", "inline": True})
 
         # --- SECTION: ✅ Updated Successfully ---
         if updated:
@@ -269,7 +270,7 @@ class ExecutionTracker:
             for t in with_warnings:
                 wc = outcomes[t].get('quality_warnings', 0)
                 lines.append(f"✅ **{t}** ⚠️ {wc} warning{'s' if wc != 1 else ''}")
-                # Show warning details so user can evaluate them
+                # Show warning details
                 issues = self.metrics.quality_reports.get(t, [])
                 for issue in issues:
                     msg = issue['message']
@@ -278,30 +279,28 @@ class ExecutionTracker:
                     lines.append(f"   🟡 `{issue['rule']}` → {msg}")
             for t in no_quality:
                 lines.append(f"✅ **{t}**")
-            
+
             if lines:
                 text = "\n".join(lines)
                 if len(text) > 1024:
                     text = text[:1021] + "..."
-                embed["fields"].append({
+                dashboard_embed["fields"].append({
                     "name": f"✅ Updated ({len(updated)})",
                     "value": text,
                     "inline": False
                 })
 
-        # --- SECTION: 🔴 Quality Failures (critical issues with details) ---
+        # --- SECTION: 🔴 Quality Failures ---
         if quality_fail:
             lines = []
             for ticker in quality_fail:
                 cc = outcomes[ticker].get('quality_critical', 0)
                 wc = outcomes[ticker].get('quality_warnings', 0)
                 lines.append(f"⚠️ **{ticker}** — {cc} critical, {wc} warning{'s' if wc != 1 else ''}")
-                
-                # Add specific issue details
+
                 issues = self.metrics.quality_reports.get(ticker, [])
                 for issue in issues:
                     if issue['severity'] == 'critical':
-                        # Truncate long messages
                         msg = issue['message']
                         if len(msg) > 120:
                             msg = msg[:117] + "..."
@@ -311,11 +310,11 @@ class ExecutionTracker:
                         if len(msg) > 120:
                             msg = msg[:117] + "..."
                         lines.append(f"   🟡 `{issue['rule']}` → {msg}")
-            
+
             text = "\n".join(lines)
             if len(text) > 1024:
                 text = text[:1021] + "..."
-            embed["fields"].append({
+            dashboard_embed["fields"].append({
                 "name": f"🔴 Quality Issues ({len(quality_fail)})",
                 "value": text,
                 "inline": False
@@ -333,18 +332,18 @@ class ExecutionTracker:
                 dw = outcomes[ticker].get('data_warnings', 0)
                 issue_count = dc + dw
                 lines.append(f"🔴 **{ticker}** — {issue_count} data issue{'s' if issue_count != 1 else ''}")
-                
+
                 data_issues = self.metrics.data_reports.get(ticker, [])
                 for issue in data_issues:
                     msg = issue['message']
                     if len(msg) > 120:
                         msg = msg[:117] + "..."
                     lines.append(f"   🔴 `{issue['rule']}` → {msg}")
-            
+
             text = "\n".join(lines)
             if len(text) > 1024:
                 text = text[:1021] + "..."
-            embed["fields"].append({
+            dashboard_embed["fields"].append({
                 "name": f"📊 Data Accuracy Issues ({len(data_issue_tickers)})",
                 "value": text,
                 "inline": False
@@ -360,37 +359,16 @@ class ExecutionTracker:
                 if retries > 0:
                     detail += f" (after {retries} retries)"
                 lines.append(detail)
-            
+
             text = "\n".join(lines)
             if len(text) > 1024:
                 text = text[:1021] + "..."
-            embed["fields"].append({
+            dashboard_embed["fields"].append({
                 "name": f"❌ Failed ({len(failed)})",
                 "value": text,
                 "inline": False
             })
 
-        # --- SECTION: 🧪 Validation Summary Tables ---
-        quality_table, data_table, input_table = self._build_validation_tables()
-        if quality_table:
-            embed["fields"].append({
-                "name": "🧪 Quality Checks",
-                "value": f"```\n{quality_table}\n```",
-                "inline": False
-            })
-        if data_table:
-            embed["fields"].append({
-                "name": "📊 Data Accuracy",
-                "value": f"```\n{data_table}\n```",
-                "inline": False
-            })
-        if input_table:
-            embed["fields"].append({
-                "name": "📰 Data Inputs",
-                "value": f"```\n{input_table}\n```",
-                "inline": False
-            })
-        
         # --- SECTION: 🌍 Macro Narrative (Economy Card) ---
         if "ECONOMY_CARD" in self.metrics.artifacts:
             try:
@@ -398,7 +376,7 @@ class ExecutionTracker:
                 narrative = eco_data.get("marketNarrative", "No narrative found.")
                 if len(narrative) > 500:
                     narrative = narrative[:497] + "..."
-                embed["fields"].append({
+                dashboard_embed["fields"].append({
                     "name": "🌍 Macro State (Preview)", 
                     "value": f"```\n{narrative}\n```", 
                     "inline": False
@@ -406,7 +384,44 @@ class ExecutionTracker:
             except:
                 pass
 
-        return embed
+        embeds = [dashboard_embed]
+
+        # 2. Validation Tables (Separate Embeds if they exist)
+        quality_table, data_table, input_table = self._build_validation_tables()
+
+        if quality_table:
+            quality_embed = {
+                "title": f"🧪 Quality Checks | {target_date}",
+                "color": color,
+                "description": f"```\n{quality_table}\n```",
+                "footer": {"text": "Analyst Workbench v2.5 | Message 2/3"},
+                "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+            }
+            embeds.append(quality_embed)
+
+        if data_table or input_table:
+            data_input_embed = {
+                "title": f"📊 Accuracy & Inputs | {target_date}",
+                "color": color,
+                "fields": [],
+                "footer": {"text": "Analyst Workbench v2.5 | Message 3/3"},
+                "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+            }
+            if data_table:
+                data_input_embed["fields"].append({
+                    "name": "📊 Data Accuracy",
+                    "value": f"```\n{data_table}\n```",
+                    "inline": False
+                })
+            if input_table:
+                data_input_embed["fields"].append({
+                    "name": "📰 Data Inputs",
+                    "value": f"```\n{input_table}\n```",
+                    "inline": False
+                })
+            embeds.append(data_input_embed)
+
+        return embeds
 
     # ─── Quality check categories ───
     QUALITY_CHECKS = [
@@ -453,14 +468,14 @@ class ExecutionTracker:
         Accounts for Discord emoji width to prevent distortion.
         """
         labels = [label for label, _ in checks]
-        
+
         # Header row: Use fixed 4-char width for columns to fit emojis
         header = f"{'Ticker':<7} | " + " | ".join(f"{l:^3}" for l in labels)
         separator = "-" * len(header.replace("✅", "  ").replace("❌", "  ")) # rough estimate
         # Real separator length needs adjustment because string len != display width
         # But in a code block, dashes are standard. We'll just use a long enough line.
         separator = "-" * (8 + len(labels) * 6)
-        
+
         rows = [header, separator]
         for ticker in tickers:
             failed_rules = issues_by_ticker.get(ticker, set())
@@ -469,9 +484,9 @@ class ExecutionTracker:
                 is_fail = any(r in failed_rules for r in rules)
                 marker = "  F " if is_fail else "  . "
                 cols.append(f"{marker:>4}")
-            
+
             rows.append(f"{ticker:<7} | " + " ".join(cols))
-        
+
         return "\n".join(rows)
 
     def _build_validation_tables(self):
@@ -480,7 +495,7 @@ class ExecutionTracker:
         1. Quality checks
         2. Data accuracy checks
         3. Data input availability (news + market data)
-        
+
         Returns:
             (quality_table_str, data_table_str, input_table_str) — any may be empty.
         """
@@ -496,7 +511,7 @@ class ExecutionTracker:
         q_issues = {}
         for t in tickers:
             q_issues[t] = {i['rule'] for i in self.metrics.quality_reports.get(t, [])}
-        
+
         quality_table = self._render_table(tickers, self.QUALITY_CHECKS, q_issues)
         quality_table += f"\n\nLEGEND:\n{self.QUALITY_LEGEND}"
 
@@ -504,7 +519,7 @@ class ExecutionTracker:
         d_issues = {}
         for t in tickers:
             d_issues[t] = {i['rule'] for i in self.metrics.data_reports.get(t, [])}
-        
+
         data_table = self._render_table(tickers, self.DATA_CHECKS, d_issues)
         data_table += f"\n\nLEGEND:\n{self.DATA_LEGEND}"
 
@@ -527,7 +542,7 @@ class ExecutionTracker:
         labels = [label for label, _ in self.INPUT_CHECKS]
         header = f"{'Ticker':<7} | " + " | ".join(f"{l:^4}" for l in labels)
         separator = "-" * (8 + len(labels) * 7)
-        
+
         rows = [header, separator]
         for ticker in tickers:
             avail = self.metrics.data_availability.get(ticker, {})
@@ -537,7 +552,7 @@ class ExecutionTracker:
                 marker = "  . " if has_it else "  F "
                 cols.append(f"{marker:>4}")
             rows.append(f"{ticker:<7} | " + " ".join(cols))
-        
+
         return "\n".join(rows)
 
     def _build_data_embed(self, target_date: str, summary: dict, color: int) -> dict:
@@ -559,7 +574,7 @@ class ExecutionTracker:
             embed["fields"].append({"name": "🌎 Economy", "value": f"**{self.custom_results.get('economy_card', 'Unknown')}**", "inline": True})
             embed["fields"].append({"name": "📦 Tickers", "value": f"**{self.custom_results.get('updated_tickers', 'Unknown')}**", "inline": True})
             embed["fields"].append({"name": "📊 Price Data", "value": f"`{self.custom_results.get('market_data_rows', '0')} rows`", "inline": True})
-        
+
         excluded_keys = ["news_status", "market_news", "economy_card", "updated_tickers", "market_data_rows"]
         for k, v in self.custom_results.items():
             if k in excluded_keys: continue
@@ -580,12 +595,12 @@ class ExecutionTracker:
             if len(error_text) > 1024:
                 error_text = error_text[:1021] + "..."
             embed["fields"].append({"name": "⚠️ Failures", "value": error_text, "inline": False})
-        
+
         return embed
 
     def get_discord_embeds(self, target_date: str):
         summary = self.get_summary()
-        
+
         # Determine color based on outcomes
         outcomes = self.metrics.ticker_outcomes
         if outcomes:
@@ -613,10 +628,9 @@ class ExecutionTracker:
                 color = 0xf1c40f
 
         ai_actions = ["Full_Pipeline_Run", "Economy_Card_Update", "Company_Card_Update"]
-        
-        if self.action_type in ai_actions:
-            embed = self._build_ai_embed(target_date, summary, color)
-        else:
-            embed = self._build_data_embed(target_date, summary, color)
 
-        return [embed]
+        if self.action_type in ai_actions:
+            return self._build_ai_embeds(target_date, summary, color)
+        else:
+            return [self._build_data_embed(target_date, summary, color)]
+
