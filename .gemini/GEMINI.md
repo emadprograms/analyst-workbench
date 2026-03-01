@@ -164,6 +164,21 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-03-01 — Token Reduction & Data Validator Structural Alignment
+
+#### News Context Filtering (`modules/ai/ai_services.py`)
+*   **Root cause**: The full ~120,000 token raw market news payload was being sent for every single company card update, massively inflating API costs and increasing generation times. This was especially wasteful because Macro news is already processed in the Economy Card. Additionally, sending the full Technology sector news to a single company caused cross-contamination (e.g. `APP` reading Apple's bearish news and turning overly bearish).
+*   **Fix**: Implemented a dynamic two-pass sector mapping logic in `filter_daily_news_for_company`. The system now scans the day's specific news, extracts the exact `[SECTOR:XYZ]` tag assigned to that ticker, maps it to a standard GICS sector using `SECTOR_MAP`, and then strictly filters the news block to only contain the company's specific news and matching sector news. All `[MACRO]` news is discarded. 
+*   **Result**: Token usage for company cards dropped from ~124,000 to ~40,000 per request.
+
+#### Data Validator Restructuring (`modules/ai/data_validators.py`, `tests/test_data_validators.py`)
+*   **Root cause**: The `_check_bias_vs_return` validator was wrongly throwing critical errors when a structural `Trend_Bias` (e.g. "Bearish") contradicted a massive 1-day rally (e.g. +5%). A single day's bounce doesn't break a structural trend. Additionally, `_check_price_trend_direction` was trying to validate a multi-day `priceTrend` narrative using only the single-day intraday `value_migration` blocks.
+*   **Fix**:
+    1.  Changed `_check_bias_vs_return` to validate the daily, tactical **`Setup_Bias`** from the `screener_briefing` instead of the lagging `Trend_Bias`. The `Setup_Bias` is calculated specifically to absorb single-day moves.
+    2.  Deleted `_check_price_trend_direction` entirely, as we do not have multi-day mathematical data in the validation pipeline to accurately verify a multi-day narrative.
+    3.  Updated the AI Prompt to explicitly instruct the model to base its narrative entirely on the `[Today's New Price Action Summary]` and use news only to contextualize, preventing bad news from overriding good price action.
+    4.  Rewrote the `TestBiasValidation` test suite to match the new `Setup_Bias` logic.
+
 ### 2026-03-01 — Economy Card Prompt Rebuild (Company Card Pattern Alignment)
 
 #### Economy Card Prompt Overhaul (`modules/ai/ai_services.py`)
