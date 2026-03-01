@@ -164,6 +164,12 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-03-01 — Support/Resistance Prompt Hallucination Fix
+
+#### AI Hallucination Prevention (`modules/ai/ai_services.py`)
+*   **Root cause**: The AI was suffering from "Support/Resistance Hallucinations." The model observed historic level data and if price eventually closed near it, generalized the session stating that "support held," even if the intraday, mathematical RTH low severely breached that exact support level. This caused conflicts and critical flags with the newly implemented `validate_company_data` tests.
+*   **Fix**: Modified the AI masterclass prompt string (`update_company_card` within `ai_services.py`). Added a strict `MANDATORY TRUTH (SUPPORT/RESISTANCE)` rule inside the `emotionalTone` instruction block that strictly forbids the AI from claiming support "held" or was "defended" if the mathematical RTH low broke the support level by > 0.5%.
+
 ### 2026-03-01 — Explicit Gap Calculation & Hallucination Prevention
 
 #### Impact Engine `gap_pct` Fix (`modules/analysis/impact_engine.py`, `modules/ai/ai_services.py`, `modules/ai/data_validators.py`)
