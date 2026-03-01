@@ -393,7 +393,7 @@ def _find_key_volume_events(df, count=3):
 # MASTER FUNCTION: 3-PART ANALYSIS
 # ==========================================
 
-def analyze_market_context(df, ref_levels, ticker="UNKNOWN") -> dict:
+def analyze_market_context(df, ref_levels, ticker="UNKNOWN", date_str=None) -> dict:
     """
     Analyzes the market in 3 distinct sessions:
     1. Pre-Market (04:00 - 09:30)
@@ -401,7 +401,7 @@ def analyze_market_context(df, ref_levels, ticker="UNKNOWN") -> dict:
     3. Post-Market (16:00 - 20:00)
     """
     if df is None or df.empty:
-        return {"status": "No Data", "meta": {"ticker": ticker}}
+        return {"status": "No Data", "meta": {"ticker": ticker, "date": date_str}}
     
     # 1. Slice DataFrames based on Eastern Time
     # Ensure 'dt_eastern' exists (it should from get_session_bars_from_db)
@@ -455,7 +455,7 @@ def analyze_market_context(df, ref_levels, ticker="UNKNOWN") -> dict:
     context_card = {
         "meta": {
             "ticker": ticker,
-            "date": df['dt_eastern'].iloc[0].strftime("%Y-%m-%d"),
+            "date": date_str if date_str else df['dt_eastern'].iloc[0].strftime("%Y-%m-%d"),
             "data_points": len(df)
         },
         "reference": ref_levels,
@@ -565,7 +565,7 @@ def get_or_compute_context(client, ticker: str, date_str: str, logger: AppLogger
     ref_stats = get_previous_session_stats(client, ticker, date_str, logger)
 
     # Compute Context (CPU Cost)
-    context_card = analyze_market_context(df, ref_stats, ticker)
+    context_card = analyze_market_context(df, ref_stats, ticker, date_str=date_str)
 
     # 3. Save to Cache (Freeze) — ONLY when we have real data
     if _is_valid_context(context_card):

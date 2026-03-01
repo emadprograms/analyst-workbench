@@ -168,6 +168,12 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-02-28 — Impact Engine Date Synchronization
+
+#### Target Date Mismatch Fix (`modules/analysis/impact_engine.py`)
+*   **Root cause**: The Impact Context Card was deriving its `meta.date` from the first row of the returned price DataFrame (`df['dt_eastern'].iloc[0]`). If a user requested an update for a date with no new data (e.g., during a holiday or late-night run), the database query naturally fell back to the previous session's data, causing the Context Card to stamp itself with yesterday's date. This caused the new `DATA_CONTEXT_DATE_MISMATCH` validator to throw warnings, as the card's target date and the math data's date diverged.
+*   **Fix**: Modified `analyze_market_context` and `get_or_compute_context` to explicitly pass and use the requested `date_str` as the `meta.date` in the final JSON card, ensuring the math context is always definitively bound to the date the pipeline is executing for.
+
 ### 2026-02-28 — Flash Model Cognitive Overload Fix (Schema vs. Speed)
 
 #### API Guardrails & Schema Removal (`modules/ai/ai_services.py`)
