@@ -338,26 +338,6 @@ def update_ticker_notes(ticker: str, notes: str) -> bool:
             conn.close()
 
 
-def delete_ticker(ticker: str) -> bool:
-    """Deletes a ticker from aw_ticker_notes and all its company cards from aw_company_cards.
-    Used for decommissioning tickers that are no longer in the active watch list."""
-    conn = None
-    try:
-        conn = get_db_connection()
-        if not conn:
-            return False
-        conn.execute("DELETE FROM aw_ticker_notes WHERE ticker = ?", (ticker,))
-        conn.execute("DELETE FROM aw_company_cards WHERE ticker = ?", (ticker,))
-        logging.info(f"Deleted ticker '{ticker}' from aw_ticker_notes and aw_company_cards.")
-        return True
-    except LibsqlError as e:
-        logging.error(f"Error in delete_ticker: {e}")
-        return False
-    finally:
-        if conn:
-            conn.close()
-
-
 def get_ticker_stats() -> list[dict]:
     """Gets a list of all tracked tickers with their last card update date."""
     conn = None
