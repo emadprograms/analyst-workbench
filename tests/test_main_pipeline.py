@@ -1029,7 +1029,16 @@ class TestValidationSummaryTable:
         tracker.finish()
         
         embeds = tracker.get_discord_embeds("2026-02-23")
-        fields = embeds[0]["fields"]
+        # Flatten all fields from all embeds
+        fields = []
+        for e in embeds:
+            fields.extend(e.get("fields", []))
+            # Also check the description (Quality Table is in description for Embed 2)
+            if "description" in e and "```" in e["description"]:
+                # Create a synthetic field to match the test's expectation
+                if "Quality Checks" in e.get("title", ""):
+                    fields.append({"name": "Quality Checks", "value": e["description"]})
+
         q_fields = [f for f in fields if "Quality Checks" in f.get("name", "")]
         assert len(q_fields) >= 1, "Quality Checks field should exist"
         assert "AAPL" in q_fields[0]["value"]
@@ -1059,7 +1068,16 @@ class TestValidationSummaryTable:
         tracker.finish()
         
         embeds = tracker.get_discord_embeds("2026-02-23")
-        fields = embeds[0]["fields"]
+        # Flatten all fields from all embeds
+        fields = []
+        for e in embeds:
+            fields.extend(e.get("fields", []))
+            # Also check the description (Quality Table is in description for Embed 2)
+            if "description" in e and "```" in e["description"]:
+                # Create a synthetic field to match the test's expectation
+                if "Quality Checks" in e.get("title", ""):
+                    fields.append({"name": "Quality Checks", "value": e["description"]})
+
         q_fields = [f for f in fields if "Quality Checks" in f.get("name", "")]
         assert len(q_fields) >= 1
         table_text = q_fields[0]["value"]
@@ -1076,7 +1094,16 @@ class TestValidationSummaryTable:
         tracker.finish()
         
         embeds = tracker.get_discord_embeds("2026-02-23")
-        fields = embeds[0]["fields"]
+        # Flatten all fields from all embeds
+        fields = []
+        for e in embeds:
+            fields.extend(e.get("fields", []))
+            # Also check the description (Quality Table is in description for Embed 2)
+            if "description" in e and "```" in e["description"]:
+                # Create a synthetic field to match the test's expectation
+                if "Quality Checks" in e.get("title", ""):
+                    fields.append({"name": "Quality Checks", "value": e["description"]})
+
         q_fields = [f for f in fields if "Quality Checks" in f.get("name", "")]
         assert len(q_fields) == 0, "No validation table for failed-only runs"
 
@@ -1097,7 +1124,16 @@ class TestValidationSummaryTable:
         tracker.finish()
         
         embeds = tracker.get_discord_embeds("2026-02-23")
-        fields = embeds[0]["fields"]
+        # Flatten all fields from all embeds
+        fields = []
+        for e in embeds:
+            fields.extend(e.get("fields", []))
+            # Also check the description (Quality Table is in description for Embed 2)
+            if "description" in e and "```" in e["description"]:
+                # Create a synthetic field to match the test's expectation
+                if "Quality Checks" in e.get("title", ""):
+                    fields.append({"name": "Quality Checks", "value": e["description"]})
+
         q_fields = [f for f in fields if "Quality Checks" in f.get("name", "")]
         assert len(q_fields) >= 1
         table_text = q_fields[0]["value"]
@@ -1123,7 +1159,11 @@ class TestValidationSummaryTable:
         tracker.finish()
         
         embeds = tracker.get_discord_embeds("2026-02-23")
-        fields = embeds[0]["fields"]
+        # Flatten all fields from all embeds
+        fields = []
+        for e in embeds:
+            fields.extend(e.get("fields", []))
+            
         input_fields = [f for f in fields if "Data Inputs" in f.get("name", "")]
         assert len(input_fields) >= 1, "Data Inputs field should exist"
         table_text = input_fields[0]["value"]

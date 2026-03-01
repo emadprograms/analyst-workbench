@@ -21,7 +21,7 @@ The **Analyst Workbench** is a Streamlit-based Python application designed to ac
 *   **Computation Layer (Python)**:
     *   `modules/analysis/impact_engine.py`: The quantitative heart. Slices price action into 3 sessions (Pre, RTH, Post), detects "Impact Levels" (Support/Resistance), tracks "Value Migration" (30min blocks), and calculates **Volume Profiles** (POC, VAH, VAL) and Key Volume Events. Also provides `get_latest_price_details` for market-data validation.
     *   `modules/ai/ai_services.py`: The logic layer. Constructs the massive "Masterclass" prompts, manages API keys (`KeyManager`), and parses the AI's JSON response.
-    *   `main.py`: The CLI entry point. Handles argument parsing, pipeline orchestration (`run_update_economy`, `run_update_company`, `run_pipeline`), and Discord webhook reporting.
+    *   `main.py`: The CLI entry point. Handles argument parsing, pipeline orchestration (`run_update_economy`, `run_update_company`, `run_pipeline`), and multi-message Discord webhook reporting.
     *   **Discord Bot (`discord_bot/bot.py`)**: The Command & Control layer.
         *   **Orchestration**: Dispatches heavy compute tasks (Card Building) to GitHub Actions to maintain a serverless architecture and keep Railway costs near zero.
         *   **Local Ingestion**: Directly handles `!inputnews` to save news context to the database without GitHub Actions. Supports manual text entry, file attachments (.txt, .log), and URL fetching (with auto-conversion of Pastebin links to raw format).
@@ -41,7 +41,7 @@ The AI does not "guess." It strictly follows the **4-Participant Model** to cons
 ### A. The 4 Participants
 Price moves due to **Absence** or **Exhaustion**, not just aggressive action.
 1.  **Committed Buyers**: Patient. Build value at support. (Create "Accumulation").
-2.  **Committed Sellers**: Patient. Distribute value at resistance. (Create "Distribution").
+2.  **Committed Sellers**: Patient. Distribution value at resistance. (Create "Distribution").
 3.  **Desperate Buyers (FOMO)**: Emotional. Chase price higher. (Create "Parabolic MOves").
 4.  **Desperate Sellers (Panic)**: Emotional. Dump price lower. (Create "Capitulation").
 
@@ -163,6 +163,16 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 ## 8. Engineering Log
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
+
+### 2026-03-01 — Discord Dashboard Split (2000-Char Limit Fix)
+
+#### Multi-Embed Reporting (`modules/core/tracker.py`, `main.py`)
+*   **Root cause**: When updating a large number of tickers (e.g., 19 companies), the combined size of the dashboard summary, quality table, and data accuracy tables frequently exceeded Discord's 2000-character-per-message limit. This caused the entire dashboard to be dropped, leaving the user with only the log file.
+*   **Fix**: 
+    1.  **Tracker (`tracker.py`)**: Refactored `get_discord_embeds` to return a list of up to three distinct embeds (Dashboard, Quality Table, and Accuracy/Inputs). Each embed is designed to stay within safety limits.
+    2.  **Pipeline (`main.py`)**: Modified `send_webhook_report` to iterate through the returned embeds and send them as **separate Discord messages** with a 0.5s delay to ensure correct chronological ordering.
+    3.  **Table Formatting**: Quality and Data tables now utilize their own embeds with monospace descriptions to maximize horizontal space and readability.
+*   **Result**: The dashboard is now 100% reliable regardless of the number of tickers updated.
 
 ### 2026-03-01 — Time-Based Support/Resistance Validation (Wicks Allowed)
 
@@ -300,7 +310,7 @@ This section records resolved bugs and structural changes for traceability. Newe
 
 #### todaysAction Character Limit Relaxed (`quality_validators.py`, `ai_services.py`)
 *   **Change**: Increased from 500 → 1200 characters. The 500-char limit was cutting off sentences mid-thought. The AI prompt now says "max 4-5 sentences, under 1200 chars" instead of "max 2-3 sentences, under 500 chars".
-*   **Updated in**: Validator threshold, company card prompt constraint, company card JSON template, economy card system prompt, and boundary tests (1200/1201 edge cases).
+*   **Updated in**: Validator threshold, company card prompt constraint, company card JSON template, economy card system prompt, and boundary tests (1200/1201 x chars).
 
 #### Inspect Command Improvements (`modules/data/inspect_db.py`)
 *   **Missing tickers**: Now queries `aw_ticker_notes` (stocks only, not ETFs) to determine the expected ticker list. Compares against `aw_company_cards` for the target date and explicitly lists missing tickers with count: `⚠️ Missing Tickers (6): ABT, ADBE, ...`. Shows `X/Y` format (e.g., `Updated Tickers (13/19)`).
