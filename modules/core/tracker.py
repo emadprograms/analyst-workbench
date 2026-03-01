@@ -407,7 +407,7 @@ class ExecutionTracker:
         ("Pln", ["PLAN_NO_PRICE"]),
         ("Sub", ["CONTENT_THIN"]),
     ]
-    QUALITY_LEGEND = "Sch=Schema Plc=Placeholders Act=ActionLog Con=Confidence Scr=Screener Ton=Tone Par=Participants Pln=Plans Sub=Substance"
+    QUALITY_LEGEND = "Sch:Schema Plc:Placeholder Act:ActionLog Con:Confidence Scr:Screener Ton:Tone Par:Participants Pln:Plans Sub:Substance"
 
     # ─── Data accuracy check categories ───
     DATA_CHECKS = [
@@ -421,25 +421,22 @@ class ExecutionTracker:
                   "DATA_LOG_DATE_STALE", "DATA_CONTEXT_DATE_MISMATCH",
                   "DATA_CONTEXT_TICKER_MISMATCH"]),
     ]
-    DATA_LEGEND = "Bias=BiasVsPrice Trnd=PriceTrend Gaps=GapClaims HiLo=HigherLows Sup=SupportHeld Vol=Volume Date=Date/Ticker"
+    DATA_LEGEND = "Bias:BiasVsPrice Trnd:PriceTrend Gaps:GapClaims HiLo:HigherLows Sup:SupportHeld Vol:Volume Date:Date/Ticker"
 
     @staticmethod
-    def _render_table(tickers, checks, issues_by_ticker, col_width=4):
+    def _render_table(tickers, checks, issues_by_ticker):
         """
-        Renders a monospace table with P (pass) / F (FAIL) markers.
-        
-        Args:
-            tickers: sorted list of ticker symbols
-            checks: list of (label, [rule_names]) tuples
-            issues_by_ticker: dict of ticker -> set of failed rule names
-            col_width: character width per column
-        Returns:
-            Monospace table string
+        Renders a premium monospace table with ✅/❌ markers.
+        Accounts for Discord emoji width to prevent distortion.
         """
         labels = [label for label, _ in checks]
-        # Header row
-        header = "Ticker" + " | " + " ".join(f"{l:>{col_width}}" for l in labels)
-        separator = "-" * len(header)
+        
+        # Header row: Use fixed 4-char width for columns to fit emojis
+        header = f"{'Ticker':<7} | " + " | ".join(f"{l:^3}" for l in labels)
+        separator = "-" * len(header.replace("✅", "  ").replace("❌", "  ")) # rough estimate
+        # Real separator length needs adjustment because string len != display width
+        # But in a code block, dashes are standard. We'll just use a long enough line.
+        separator = "-" * (8 + len(labels) * 6)
         
         rows = [header, separator]
         for ticker in tickers:
@@ -447,9 +444,11 @@ class ExecutionTracker:
             cols = []
             for _, rules in checks:
                 is_fail = any(r in failed_rules for r in rules)
-                marker = "  F " if is_fail else "  . "
-                cols.append(f"{marker:>{col_width}}")
-            rows.append(f"{ticker:<6}" + " | " + " ".join(cols))
+                # In Discord monospace, emoji + 2 spaces usually aligns with 3-4 char header
+                icon = "❌ " if is_fail else "✅ "
+                cols.append(f" {icon}")
+            
+            rows.append(f"{ticker:<7} | " + " | ".join(cols))
         
         return "\n".join(rows)
 
@@ -457,7 +456,7 @@ class ExecutionTracker:
         """
         Builds two separate monospace code-block tables:
         one for Quality checks, one for Data Accuracy checks.
-        Uses ASCII P/F markers that render cleanly in Discord code blocks.
+        Uses ✅/❌ markers with careful alignment.
         
         Returns:
             (quality_table_str, data_table_str) — either may be empty.
@@ -476,7 +475,7 @@ class ExecutionTracker:
             q_issues[t] = {i['rule'] for i in self.metrics.quality_reports.get(t, [])}
         
         quality_table = self._render_table(tickers, self.QUALITY_CHECKS, q_issues)
-        quality_table += f"\n{self.QUALITY_LEGEND}"
+        quality_table += f"\n\nLEGEND:\n{self.QUALITY_LEGEND}"
 
         # Build data issues map
         d_issues = {}
@@ -484,7 +483,7 @@ class ExecutionTracker:
             d_issues[t] = {i['rule'] for i in self.metrics.data_reports.get(t, [])}
         
         data_table = self._render_table(tickers, self.DATA_CHECKS, d_issues)
-        data_table += f"\n{self.DATA_LEGEND}"
+        data_table += f"\n\nLEGEND:\n{self.DATA_LEGEND}"
 
         # Truncate if needed (Discord 1024 char limit minus code block fences)
         if len(quality_table) > 1010:
