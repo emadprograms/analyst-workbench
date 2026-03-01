@@ -463,6 +463,7 @@ def update_company_card(
 
     **7. `behavioralSentiment` Section (The "Micro" / Today's Analysis):**
         * **`emotionalTone` (The 3-Act Pattern + Proof of Reasoning):**
+            * **CRITICAL RULE:** You MUST derive your bias and narrative ENTIRELY from `[Today's New Price Action Summary]`. The math (Impact Engine) is the absolute truth. If the stock rallied and value migrated higher, the narrative is Bullish. Do NOT let negative news override positive price action.
             * This is your **Justification**, not a description. You MUST show your work by analyzing the **3-Part Session Arc** (`Pre-Market` -> `RTH` -> `Post-Market`):
             * **1. Act I (Intent):** What did `sessions.pre_market` try to do? (e.g., "Bulls attempted a gap up...").
             * **2. Act II (The Conflict - RTH):** Did `sessions.regular_hours` validate or invalidate that intent? Analyze the 'Value Migration'. (e.g., "...but RTH invalidated the gap immediately, migrating value LOWER on high volume.").
@@ -471,10 +472,11 @@ def update_company_card(
             * **Final Format:** "Label - Reasoning: [Your full 3-Act proof]"
             * **Example:** "Accumulation (Stable) - Reasoning: **(Act I)** Pre-market held support. **(Act II)** RTH confirmed this by defending the low and migrating value higher into a 'Wide Expansion' range. **(Act III)** Post-market held gains. This consistency signals **Committed Buyers** are in control."
         * **`newsReaction` (The Surprise / Correlation Analysis):**
-            * **You MUST detect the 'Disconnect':** Compare the **Pre-Market News Theme** vs. the **RTH Price Response**.
-            * **Scenario A (Validation):** News was Bad -> Price Sold Off. (Standard Headwind).
-            * **Scenario B (Surprise/Invalidation - CRITICAL):** News was Bad (e.g., 'Sell America' theme in Pre-Market) -> **Price IGNORED it and Rallied** (RTH). 
-            * **Rule:** If price *invalidates* the news theme, you MUST label this as a **MAJOR SIGNAL** of underlying conviction. (e.g., "Bullish Surprise - Stock ignored the 'Sell America' pre-market theme and rallied, proving extreme relative strength.").
+            * **CRITICAL RULE:** You MUST use the `[Raw Market Context for Today]` ONLY to confirm or contextualize the price action narrative you just built. Never use news to establish the bias itself.
+            * **You MUST detect the 'Disconnect':** Compare the **News Theme** vs. the **RTH Price Response**.
+            * **Scenario A (Validation):** News was Bad -> Price Sold Off. (Standard).
+            * **Scenario B (Surprise/Invalidation - CRITICAL):** News was Bad -> **Price IGNORED it and Rallied** (RTH). 
+            * **Rule:** If price *invalidates* the news theme, you MUST label this as a **MAJOR SIGNAL** of underlying conviction. (e.g., "Bullish Surprise - Stock ignored the negative news and rallied, proving extreme relative strength. Price action overrides the news.").
         * **`buyerVsSeller` (The Conclusion):**
             * This is your *final synthesis* of the `emotionalTone` and `newsReaction`.
             * (e.g., "Committed Buyers are in firm control. They not only showed a 'Stable Accumulation' pattern at $415 but did so *against* a weak, bearish market, confirming their high conviction.")
