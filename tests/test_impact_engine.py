@@ -449,30 +449,17 @@ class TestAnalyzeMarketContext:
 
 
 # ==========================================
-# TEST: Caching (get_or_compute_context)
+# TEST: get_or_compute_context (Direct DB)
 # ==========================================
 
-class TestCaching:
-    CACHE_DIR = "cache/context"
-    TEST_TICKER = "TEST_CACHE"
+class TestGetOrComputeContext:
+    TEST_TICKER = "TEST_COMPUTE"
     TEST_DATE = "2026-02-23"
-
-    def setup_method(self):
-        """Clean up test cache file before each test."""
-        cache_file = f"{self.CACHE_DIR}/{self.TEST_TICKER}_{self.TEST_DATE}.json"
-        if os.path.exists(cache_file):
-            os.remove(cache_file)
-
-    def teardown_method(self):
-        """Clean up test cache file after each test."""
-        cache_file = f"{self.CACHE_DIR}/{self.TEST_TICKER}_{self.TEST_DATE}.json"
-        if os.path.exists(cache_file):
-            os.remove(cache_file)
 
     @patch('modules.analysis.impact_engine.get_previous_session_stats')
     @patch('modules.analysis.impact_engine.get_session_bars_from_db')
-    def test_cache_miss_computes_and_saves(self, mock_bars, mock_stats):
-        """On cache miss, should compute context and save to file."""
+    def test_computes_from_db(self, mock_bars, mock_stats):
+        """Should always compute context from DB."""
         from modules.core.logger import AppLogger
         logger = AppLogger("test")
         
@@ -490,35 +477,8 @@ class TestCaching:
         
         assert result is not None
         assert result["meta"]["ticker"] == self.TEST_TICKER
-        
-        # Verify cache file was created
-        cache_file = f"{self.CACHE_DIR}/{self.TEST_TICKER}_{self.TEST_DATE}.json"
-        assert os.path.exists(cache_file)
-
-    @patch('modules.analysis.impact_engine.get_previous_session_stats')
-    @patch('modules.analysis.impact_engine.get_session_bars_from_db')
-    def test_cache_hit_skips_compute(self, mock_bars, mock_stats):
-        """On cache hit, should NOT call DB functions."""
-        from modules.core.logger import AppLogger
-        logger = AppLogger("test")
-        
-        # Pre-populate cache with a valid context (_is_valid_context requires
-        # status != 'No Data' and meta.data_points > 0).
-        cache_file = f"{self.CACHE_DIR}/{self.TEST_TICKER}_{self.TEST_DATE}.json"
-        os.makedirs(self.CACHE_DIR, exist_ok=True)
-        cached_data = {
-            "meta": {"ticker": self.TEST_TICKER, "data_points": 5},
-            "status": "Active",
-            "cached": True,
-        }
-        with open(cache_file, "w") as f:
-            json.dump(cached_data, f)
-
-        result = get_or_compute_context(MagicMock(), self.TEST_TICKER, self.TEST_DATE, logger)
-
-        assert result["cached"] is True
-        mock_bars.assert_not_called()
-        mock_stats.assert_not_called()
+        mock_bars.assert_called_once()
+        mock_stats.assert_called_once()
 
 
 # ==========================================

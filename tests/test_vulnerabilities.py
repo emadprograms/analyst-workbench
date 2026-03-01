@@ -25,42 +25,30 @@ def test_malformed_json_response_failure(caplog):
         
         assert result is None
 
-# --- 2. Cache Invalidation Vulnerability Test ---
+# --- 2. Direct DB Fetch Test ---
 @patch('modules.analysis.impact_engine.get_session_bars_from_db')
 @patch('modules.analysis.impact_engine.get_previous_session_stats')
-@patch('os.path.exists')
-@patch('builtins.open', new_callable=MagicMock)
-def test_cache_staleness_logic(mock_open, mock_exists, mock_stats, mock_bars):
+def test_always_fetches_from_db(mock_stats, mock_bars):
     """
-    Confirm that if a cache file exists, it's ALWAYS used, 
-    even if the DB has more data (Vulnerability).
+    Confirm that get_or_compute_context always queries the DB directly.
+    No caching — every call fetches fresh data.
     """
     ticker = "TEST"
     date_str = "2024-01-01"
     
-    # Simulate cache HIT
-    mock_exists.return_value = True
-    
-    # Mock file reading
-    mock_file_content = {
-        "meta": {"ticker": ticker, "data_points": 10},
-        "sessions": {}
-    }
-    
-    # Setup mock_open
-    mock_file = MagicMock()
-    mock_file.__enter__.return_value.read.return_value = json.dumps(mock_file_content)
-    mock_open.return_value = mock_file
+    # DB returns no data
+    mock_bars.return_value = None
+    mock_stats.return_value = {"yesterday_close": 0, "yesterday_high": 0, "yesterday_low": 0}
     
     logger = MagicMock()
     
-    # This call should hit the cache and RETURN the 10 data points context
+    # First call hits DB
     result = get_or_compute_context(None, ticker, date_str, logger)
+    mock_bars.assert_called_once()
     
-    assert result["meta"]["data_points"] == 10
-    # Ensure it NEVER even tried to call the DB
-    mock_bars.assert_not_called()
-    mock_stats.assert_not_called()
+    # Second call also hits DB (no caching)
+    result = get_or_compute_context(None, ticker, date_str, logger)
+    assert mock_bars.call_count == 2
 
 # --- 3. Same-Date Overwrite Test ---
 def test_todays_action_same_date_overwrites():

@@ -139,11 +139,11 @@ def _minimal_ai_economy_response(action: str = "Economy action") -> dict:
 
 
 # ===========================================================================
-# BUG 1 — Cache Staleness
+# BUG 1 — _is_valid_context guard (Cache removed, guard still used)
 # ===========================================================================
 
 class TestIsValidContext:
-    """Unit tests for the _is_valid_context guard function (Bug 1)."""
+    """Unit tests for the _is_valid_context guard function."""
 
     def test_none_is_invalid(self):
         assert _is_valid_context(None) is False
@@ -188,75 +188,27 @@ class TestIsValidContext:
         assert _is_valid_context(ctx) is True
 
 
-class TestCacheStaleness:
-    """
-    Integration-level tests for get_or_compute_context (Bug 1).
+class TestGetOrComputeContext:
+    """Tests that get_or_compute_context always fetches from DB."""
 
-    All filesystem interactions are scoped to a temp directory so the real
-    cache/context/ folder is untouched.
-    """
-
-    TICKER = "BUG1_TEST"
+    TICKER = "DIRECT_TEST"
     DATE = "2026-01-15"
-
-    @pytest.fixture(autouse=True)
-    def _isolated_cache(self, tmp_path, monkeypatch):
-        """Redirect cache writes to a temporary directory for every test."""
-        cache_dir = tmp_path / "cache" / "context"
-        cache_dir.mkdir(parents=True)
-
-        # Monkeypatch the cache_dir path inside get_or_compute_context by
-        # patching os.makedirs and open to use our temp directory.
-        # Simpler: just use the real filesystem but in a unique temp sub-path.
-        self.cache_dir = str(cache_dir)
-        self.cache_file = str(cache_dir / f"{self.TICKER}_{self.DATE}.json")
-
-        # Patch the path string used inside get_or_compute_context
-        import modules.analysis.impact_engine as ie
-        original = ie.get_or_compute_context
-
-        def patched_get_or_compute_context(client, ticker, date_str, logger):
-            # Temporarily switch the cache_dir to our isolated tmp dir
-            real_cache = "cache/context"
-            real_file = f"{real_cache}/{ticker}_{date_str}.json"
-            tmp_file = str(cache_dir / f"{ticker}_{date_str}.json")
-
-            # We patch os.path.exists / open at the module level is complex;
-            # instead we rely on the class attribute for setup and teardown.
-            return original(client, ticker, date_str, logger)
-
-        self.logger = AppLogger("bug1_test")
-        yield
-        # Cleanup is automatic — tmp_path is scoped per test
-
-    # ------------------------------------------------------------------
 
     @patch("modules.analysis.impact_engine.get_session_bars_from_db")
     @patch("modules.analysis.impact_engine.get_previous_session_stats")
-    def test_stale_no_data_cache_is_invalidated_and_recomputed(
-        self, mock_stats, mock_bars, tmp_path
-    ):
-        """
-        BUG 1 CORE: If the cache file contains a 'No Data' result (written during
-        a previous failed attempt), get_or_compute_context must discard it and
-        re-compute — NOT serve the stale empty result.
-        """
-        # Plant the stale cache file in the REAL cache directory (not tmp_path)
-        os.makedirs("cache/context", exist_ok=True)
-        stale_file = f"cache/context/{self.TICKER}_{self.DATE}.json"
-        with open(stale_file, "w") as f:
-            json.dump(_NO_DATA_CONTEXT, f)
-
-        # DB now returns real data
+    def test_always_queries_db(self, mock_stats, mock_bars):
+        """Every call must hit the DB — no caching."""
         import pandas as pd
         from pytz import timezone as pytz_timezone
-        utc = pytz_timezone("UTC")
         from datetime import datetime, timedelta
-        bars = []
+        utc = pytz_timezone("UTC")
+        logger = AppLogger("test")
+
         base = datetime(2026, 1, 15, 14, 30, tzinfo=utc)
+        rows = []
         for i in range(13):
             t = base + timedelta(minutes=30 * i)
-            bars.append({
+            rows.append({
                 "timestamp": t,
                 "Open": 100.0 + i * 0.1,
                 "High": 101.0 + i * 0.1,
@@ -265,180 +217,17 @@ class TestCacheStaleness:
                 "Volume": 10000 + i * 100,
                 "dt_eastern": t.astimezone(pytz_timezone("US/Eastern")),
             })
-        mock_bars.return_value = pd.DataFrame(bars)
-        mock_stats.return_value = {
-            "yesterday_close": 99.0,
-            "yesterday_high": 101.0,
-            "yesterday_low": 98.0,
-        }
-
-        try:
-            # Even though cache file EXISTS, the stale guard must trigger re-compute
-            result = get_or_compute_context(None, self.TICKER, self.DATE, self.logger)
-
-            # Must call DB since stale cache was invalidated
-            mock_bars.assert_called_once()
-            assert result is not None
-            # Result must NOT be "No Data"
-            assert result.get("status") != "No Data"
-        finally:
-            if os.path.exists(stale_file):
-                os.remove(stale_file)
-
-    @patch("modules.analysis.impact_engine.get_session_bars_from_db")
-    @patch("modules.analysis.impact_engine.get_previous_session_stats")
-    def test_zero_data_points_cache_forces_recompute(self, mock_stats, mock_bars):
-        """
-        A cached result with data_points=0 must be treated as stale and
-        trigger a fresh DB fetch.
-        """
-        import pandas as pd
-        from pytz import timezone as pytz_timezone
-        from datetime import datetime, timedelta
-        utc = pytz_timezone("UTC")
-
-        # Build a zero-datapoint fake cache
-        zero_ctx = {"status": "Active", "meta": {"ticker": self.TICKER, "data_points": 0}, "sessions": {}}
-
-        # DB returns real bars this time
-        base = datetime(2026, 1, 15, 14, 30, tzinfo=utc)
-        rows = []
-        for i in range(5):
-            t = base + timedelta(minutes=30 * i)
-            rows.append({
-                "timestamp": t,
-                "Open": 200.0,
-                "High": 201.0,
-                "Low": 199.0,
-                "Close": 200.5,
-                "Volume": 5000,
-                "dt_eastern": t.astimezone(pytz_timezone("US/Eastern")),
-            })
         mock_bars.return_value = pd.DataFrame(rows)
-        mock_stats.return_value = {"yesterday_close": 199.0, "yesterday_high": 201.0, "yesterday_low": 198.0}
+        mock_stats.return_value = {"yesterday_close": 99.0, "yesterday_high": 101.0, "yesterday_low": 98.0}
 
-        # Write the zero-datapoint cache
-        ticker2, date2 = "BUG1_ZERO", "2026-01-16"
-        cache_path = f"cache/context/{ticker2}_{date2}.json"
-        os.makedirs("cache/context", exist_ok=True)
-        with open(cache_path, "w") as f:
-            json.dump(zero_ctx, f)
+        result1 = get_or_compute_context(None, self.TICKER, self.DATE, logger)
+        assert result1 is not None
+        assert mock_bars.call_count == 1
 
-        try:
-            result = get_or_compute_context(None, ticker2, date2, self.logger)
-            # DB must have been queried since stale cache was invalidated
-            mock_bars.assert_called_once()
-            assert result is not None
-        finally:
-            if os.path.exists(cache_path):
-                os.remove(cache_path)
-
-    @patch("modules.analysis.impact_engine.get_session_bars_from_db")
-    @patch("modules.analysis.impact_engine.get_previous_session_stats")
-    def test_corrupt_cache_triggers_recompute(self, mock_stats, mock_bars):
-        """Invalid JSON in cache file must cause re-compute, not a crash."""
-        import pandas as pd
-        from pytz import timezone as pytz_timezone
-        from datetime import datetime, timedelta
-        utc = pytz_timezone("UTC")
-
-        ticker3, date3 = "BUG1_CORRUPT", "2026-01-17"
-        cache_path = f"cache/context/{ticker3}_{date3}.json"
-        os.makedirs("cache/context", exist_ok=True)
-        with open(cache_path, "w") as f:
-            f.write("{ this is not json !!!")
-
-        base = datetime(2026, 1, 17, 14, 30, tzinfo=utc)
-        rows = [
-            {
-                "timestamp": base,
-                "Open": 50.0, "High": 51.0, "Low": 49.0, "Close": 50.5,
-                "Volume": 3000,
-                "dt_eastern": base.astimezone(pytz_timezone("US/Eastern")),
-            }
-        ]
-        mock_bars.return_value = pd.DataFrame(rows)
-        mock_stats.return_value = {"yesterday_close": 49.0, "yesterday_high": 51.0, "yesterday_low": 48.0}
-
-        try:
-            result = get_or_compute_context(None, ticker3, date3, self.logger)
-            mock_bars.assert_called_once()
-            assert result is not None
-        finally:
-            if os.path.exists(cache_path):
-                os.remove(cache_path)
-
-    @patch("modules.analysis.impact_engine.get_session_bars_from_db")
-    @patch("modules.analysis.impact_engine.get_previous_session_stats")
-    def test_no_data_result_is_not_persisted_to_cache(self, mock_stats, mock_bars):
-        """
-        BUG 1 CORE: When the DB has no data for the date, the resulting
-        'No Data' context must NOT be written to the cache file.
-        """
-        mock_bars.return_value = None   # No bars → analyze_market_context → No Data
-        mock_stats.return_value = {"yesterday_close": 0, "yesterday_high": 0, "yesterday_low": 0}
-
-        ticker4, date4 = "BUG1_NODATA", "2026-01-18"
-        cache_path = f"cache/context/{ticker4}_{date4}.json"
-        # Ensure clean state
-        if os.path.exists(cache_path):
-            os.remove(cache_path)
-
-        try:
-            get_or_compute_context(None, ticker4, date4, self.logger)
-            # The stale-save guard must have blocked cache creation
-            assert not os.path.exists(cache_path), (
-                "BUG 1 REGRESSION: A 'No Data' result was persisted to cache; "
-                "subsequent calls will never re-query the DB."
-            )
-        finally:
-            if os.path.exists(cache_path):
-                os.remove(cache_path)
-
-    @patch("modules.analysis.impact_engine.get_session_bars_from_db")
-    @patch("modules.analysis.impact_engine.get_previous_session_stats")
-    def test_valid_result_is_persisted_and_served_from_cache(self, mock_stats, mock_bars):
-        """Valid context is written to cache and subsequent calls skip the DB."""
-        import pandas as pd
-        from pytz import timezone as pytz_timezone
-        from datetime import datetime, timedelta
-        utc = pytz_timezone("UTC")
-
-        ticker5, date5 = "BUG1_VALID", "2026-01-19"
-        cache_path = f"cache/context/{ticker5}_{date5}.json"
-        if os.path.exists(cache_path):
-            os.remove(cache_path)
-
-        base = datetime(2026, 1, 19, 14, 30, tzinfo=utc)
-        rows = []
-        for i in range(13):
-            t = base + timedelta(minutes=30 * i)
-            rows.append({
-                "timestamp": t, "Open": 300.0, "High": 301.0, "Low": 299.0,
-                "Close": 300.5, "Volume": 50000,
-                "dt_eastern": t.astimezone(pytz_timezone("US/Eastern")),
-            })
-        mock_bars.return_value = pd.DataFrame(rows)
-        mock_stats.return_value = {"yesterday_close": 299.0, "yesterday_high": 301.0, "yesterday_low": 298.0}
-
-        try:
-            # First call — cache miss, should compute and save
-            result1 = get_or_compute_context(None, ticker5, date5, self.logger)
-            assert result1 is not None
-            assert os.path.exists(cache_path), "Cache file should have been created."
-
-            # Reset mock call counts
-            mock_bars.reset_mock()
-            mock_stats.reset_mock()
-
-            # Second call — must hit the cache (zero DB calls)
-            result2 = get_or_compute_context(None, ticker5, date5, self.logger)
-            mock_bars.assert_not_called()
-            mock_stats.assert_not_called()
-            assert result2 == result1
-        finally:
-            if os.path.exists(cache_path):
-                os.remove(cache_path)
+        # Second call must also hit DB
+        result2 = get_or_compute_context(None, self.TICKER, self.DATE, logger)
+        assert result2 is not None
+        assert mock_bars.call_count == 2
 
 
 # ===========================================================================

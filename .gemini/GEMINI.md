@@ -28,12 +28,9 @@ The **Analyst Workbench** is a Streamlit-based Python application designed to ac
         *   **Direct Interaction**: Performs lightweight, low-compute tasks (Retrieving Cards, Editing Historical Notes, Checking News Ingestion, DB Inspection) directly against the database for instantaneous user feedback.
         *   **Dynamic Discovery**: Fetches the active stock watch list directly from `aw_ticker_notes`, eliminating hardcoded lists in the UI.
 
-*   **Caching Layer (Context Freezing)**:
-    *   **Goal**: Reduce DB reads.
-    *   **Mechanism**: The `impact_engine` checks for a local file `cache/context/{ticker}_{date}.json`. If found **and valid**, it loads it instantly. Use `impact_engine.get_or_compute_context`.
-    *   **Validation Gate (`_is_valid_context`)**: A cached file is only served if it passes the validity check: `status != "No Data"` AND `meta.data_points > 0`. Files that fail this check are deleted from disk and re-computed. This prevents stale "No Data" results from being returned forever when the DB was transiently empty.
-    *   **Write Gate**: Only a result that passes `_is_valid_context` is written to disk. A failed computation never enters the cache.
-    *   **Numpy Serialisation**: The `json.dump` call uses the `_numpy_json_default` encoder to handle `np.int64` / `np.float64` values that pandas produces from integer-valued price data.
+*   **Impact Context Computation**:
+    *   `get_or_compute_context(client, ticker, date_str, logger)` always fetches fresh data from the database and computes the context card. No local caching — every call goes to the DB to ensure data freshness.
+    *   **Validation Guard (`_is_valid_context`)**: After computation, checks that the result has `status != "No Data"` AND `meta.data_points > 0`. Invalid results are logged but still returned to the caller.
 
 ---
 
@@ -79,7 +76,7 @@ The AI explicitly hunts for **Disconnects**:
 
 ## 4. Developer Rules
 
-1.  **Do NOT edit `get_or_compute_context`** casually. It protects the database bill.
+1.  **`get_or_compute_context`** always queries the DB directly for fresh data. There is no local caching layer.
 2.  **Prompt Engineering**: All prompts live in `modules/ai_services.py`. If you change the logic there, update this document.
 3.  **Data Integrity**: Users cannot manually edit the `todaysAction` log. It is a system-managed record of the AI's daily analysis.
 4.  **`keyActionLog` overwrites on same-date re-run**. Both `update_company_card` and `update_economy_card` use a find-or-append strategy: if an entry already exists for `trade_date_str`, it is **overwritten** with the latest AI output so the user always sees fresh analysis. Entries for other dates are never touched. This is intentional — re-running a card for the same date should replace stale data, not duplicate it.
@@ -167,6 +164,28 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 ## 8. Engineering Log
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
+
+### 2026-03-01 — Economy Card Prompt Rebuild (Company Card Pattern Alignment)
+
+#### Economy Card Prompt Overhaul (`modules/ai/ai_services.py`)
+*   **Root cause**: The economy card prompt was minimal — it told the AI to "follow the exact JSON schema provided in the system prompt" but the system prompt never provided the JSON schema. Unlike the company card (which has a detailed "Masterclass" prompt with explicit JSON format, field-by-field execution tasks, and anti-degeneration rules), the economy card relied on Gemini to infer the structure from the `response_schema` kwarg alone. Since `responseSchema` is intentionally NOT enforced in the API payload (to prevent Flash model cognitive overload — see 2026-02-28 entry), the model had no format guidance and frequently returned JSON missing the `todaysAction` field, causing the "AI response is missing required fields" error.
+*   **Fix**: Rebuilt the economy card prompt to match the company card pattern:
+    1. **System prompt**: Rewrote to be a clear role assignment with output format expectations (no schema reference).
+    2. **Analytical Framework**: Added a structured 5-part framework (Two-Source Synthesis, Sector Rotation, Index Analysis, Inter-Market Analysis, Market Internals) giving the AI clear analytical guidance — mirroring the company card's "Masterclass" section.
+    3. **Explicit JSON template**: Added the exact JSON output format directly in the prompt body (with `{{ }}` escaping for f-string compatibility), matching the company card's approach. Each field has a descriptive placeholder showing the AI what is expected.
+    4. **Field-by-field execution tasks**: Added 8 numbered tasks explaining exactly what the AI should write in each field, with examples and rules.
+    5. **`todaysAction` hardening**: Added the same anti-degeneration rules and character limit (1200 chars) that were proven effective in the company card prompt.
+    6. **Debug output on failure**: Added `logger.log_code(json.dumps(ai_data, indent=2))` when `todaysAction` is missing, matching the company card's debug output pattern so the raw AI JSON is visible in logs for diagnosis.
+*   **No schema enforcement change**: The `response_schema` kwarg is still passed to `call_gemini_api` for the `responseMimeType: application/json` trigger, but `responseSchema` is still NOT injected into the API payload. The AI follows the format from the prompt itself.
+*   **Validators**: Economy card quality validators (`validate_economy_card`) and data validators (`validate_economy_data`) were already in place and require no changes. They continue to run after successful card generation.
+
+### 2026-03-01 — Cache Layer Removal
+
+#### Removed Local File Caching (`modules/analysis/impact_engine.py`)
+*   **Reason**: The caching layer (`cache/context/{ticker}_{date}.json`) served stale data when the database was updated for an existing date. Users had to manually delete cache files to get fresh results, which was confusing and error-prone.
+*   **Change**: `get_or_compute_context` now always fetches from the database and computes fresh context. The `_is_valid_context` guard is retained for logging when no data is available. The `_numpy_json_default` encoder is retained for other serialization needs.
+*   **Tests updated**: Removed `TestCaching` (cache hit/miss tests) from `test_impact_engine.py` and `TestCacheStaleness` (5 cache integration tests) from `test_fixes.py`. Replaced with `TestGetOrComputeContext` tests that verify every call hits the DB.
+*   **GEMINI.md**: Removed "Caching Layer (Context Freezing)" section. Updated developer rule #1.
 
 ### 2026-02-28 — Impact Engine Date Synchronization
 

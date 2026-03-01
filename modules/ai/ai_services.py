@@ -286,7 +286,6 @@ def update_company_card(
     conn = get_db_connection()
     if conn:
         try:
-            # --- CACHING IMPLEMENTED VIA get_or_compute_context ---
             context_card = get_or_compute_context(conn, ticker, trade_date_str, logger)
             impact_context_json = json.dumps(context_card, indent=2)
             logger.log(f"✅ Loaded Impact Context Card for {ticker}")
@@ -737,7 +736,6 @@ def update_economy_card(
         try:
             for etf in target_etfs:
                 try:
-                    # --- CACHING IMPLEMENTED ---
                     context_card = get_or_compute_context(conn, etf, trade_date_str, logger)
                     etf_impact_data[etf] = context_card
                     # logger.log(f"   ...Loaded Impact Context for {etf}") # Too verbose?
@@ -751,19 +749,120 @@ def update_economy_card(
     
     combined_etf_evidence = "[IMPACT ENGINE CONTEXT]\\n" + json.dumps(etf_impact_data, indent=2)
 
-    # --- FIX: Main Prompt ---
+    # --- Prompt (Rebuilt to match Company Card pattern — explicit JSON format in prompt, no schema enforcement) ---
     system_prompt = (
-        "You are an expert Macro Strategist. Your objective is to synthesize raw market news "
-        "(The 'Why') with quantitative ETF price action (The 'How') to update the global Economy Card. "
-        "Complete the required JSON schema accurately and comprehensively. "
-        "CRITICAL RULE for 'todaysAction': This field is a CONCISE daily log entry. Write EXACTLY 2 to 3 sentences summarizing the macro day. "
-        "Format: 'DATE: [Macro Theme]. [Brief narrative of what drove markets today and the outcome].'. "
-        "You MUST end this string immediately with a period after the final sentence."
+        "You are an expert Macro Strategist. Your *only* job is to synthesize raw market news "
+        "(The 'Why') with quantitative ETF price action (The 'How') to produce a comprehensive "
+        "Global Economy Card. You will be given a detailed analytical framework and an exact JSON "
+        "output format. Do not deviate from the format. Populate every single field with substantive analysis."
     )
 
     prompt = f"""
-    Your task is to synthesize the raw market news with quantitative ETF price action to update the global Economy Card.
-    Follow the exact JSON schema provided in the system prompt.
+    [Your Task for {trade_date_str}]
+    Your task is to populate the JSON template below. You MUST synthesize The 'Why' (Raw Market News)
+    with The 'How' (ETF Impact Context Cards) to produce a comprehensive macroeconomic analysis.
+
+    --- START ANALYTICAL FRAMEWORK ---
+
+    **Part 1: The Two-Source Synthesis**
+    You have two types of data. You MUST cross-reference them:
+    * **The "Why" (Raw Market News):** Headlines, narratives, catalysts. This tells you the STORY.
+    * **The "How" (ETF Impact Context Cards):** Quantitative price action, volume profiles, value migration. This tells you the PROOF.
+    * **Rule:** Never state a narrative claim without confirming it against ETF evidence. Never cite ETF data without connecting it to the narrative.
+
+    **Part 2: Sector Rotation Analysis**
+    * Identify which sectors (XLK, XLF, XLE, XLV, XLI, XLC, XLP, XLU, SMH) are LEADING and LAGGING.
+    * Use the ETF Impact Context Cards (session returns, volume) to determine leadership.
+    * Provide a `rotationAnalysis` explaining what the rotation pattern signals about risk appetite.
+
+    **Part 3: Index Analysis (SPY & QQQ)**
+    * For each index, describe its session arc (Pre-Market intent, RTH conflict, Post-Market resolution).
+    * Use the Impact Context Card data (value migration, volume profile, key levels) for evidence.
+    * The `pattern` field should describe the STRUCTURAL story (e.g., "Indices consolidating above support after Monday's sell-off").
+
+    **Part 4: Inter-Market Analysis**
+    * **Bonds (TLT):** What are yields doing? What does this signal for equities?
+    * **Commodities (CL=F, PAXGUSDT):** Oil and Gold — inflation signals, safety trade.
+    * **Currencies (UUP, EURUSDT):** Dollar strength/weakness and its impact on risk assets.
+    * **Crypto (BTCUSDT):** Risk-on/risk-off gauge.
+
+    **Part 5: Market Internals**
+    * **Volatility (^VIX):** Is fear rising or falling? What does the VIX level and direction signal?
+
+    --- END ANALYTICAL FRAMEWORK ---
+
+    **YOUR EXECUTION TASKS:**
+
+    **1. `marketNarrative` (The Macro Story):**
+        * Synthesize the RAW news into a cohesive 2-4 sentence narrative of what is driving markets TODAY.
+        * This is the "governing theme" — e.g., "Markets are digesting Friday's PCE inflation data while bracing for next week's FOMC meeting."
+
+    **2. `marketBias` (The Verdict):**
+        * Must be one of: "Bullish", "Bearish", "Neutral", "Risk-On", "Risk-Off", or a shaded variant like "Neutral (Bullish Lean)".
+        * Base this on the COMBINED evidence from index performance, sector rotation, and inter-market signals.
+
+    **3. `keyEconomicEvents`:**
+        * `last_24h`: Summarize the most impactful economic data or events from the last 24 hours.
+        * `next_24h`: List upcoming high-impact events that traders should watch.
+
+    **4. `sectorRotation`:**
+        * `leadingSectors`: Array of sector names showing relative strength (e.g., ["Technology", "Communication Services"]).
+        * `laggingSectors`: Array of sector names showing relative weakness (e.g., ["Energy", "Utilities"]).
+        * `rotationAnalysis`: 1-2 sentences explaining what the rotation pattern signals.
+
+    **5. `indexAnalysis`:**
+        * `pattern`: The structural pattern across major indices (1-2 sentences).
+        * `SPY`: SPY's session summary using Impact Context data (levels, value migration, volume).
+        * `QQQ`: QQQ's session summary using Impact Context data.
+
+    **6. `interMarketAnalysis`:**
+        * `bonds`: TLT analysis and yield implications.
+        * `commodities`: Oil and Gold analysis.
+        * `currencies`: Dollar and EUR analysis.
+        * `crypto`: Bitcoin as risk gauge.
+
+    **7. `marketInternals`:**
+        * `volatility`: VIX analysis and what it signals.
+
+    **8. `todaysAction` (STRICT FORMAT — MAX 4-5 SENTENCES, UNDER 1200 CHARS):**
+        * This is a **concise daily log entry**, NOT a card summary.
+        * **CRITICAL CONSTRAINT:** The `todaysAction` field must be **under 1200 characters**.
+        * **ANTI-DEGENERATION RULE:** Do NOT add meta-commentary or sign-off text like "End of record", "Analysis complete", "JSON ready", "End.", "Task finished", or ANY closing phrase after your final analytical sentence. Do NOT loop or repeat yourself. If you find yourself writing the same idea twice, STOP. The entry ends after your last analytical sentence — period.
+        * **Required Format:** `"{trade_date_str}: [Macro Theme]. [Brief narrative of what drove markets today and the outcome]."`
+        * **GOOD Example:** `"2026-02-13: Inflation Scare (Risk-Off). Hot CPI data sent yields surging, with TLT dropping 1.2% and SPY selling off from the open. Tech led the decline as QQQ fell 1.5%, while defensive sectors (XLU, XLP) outperformed. VIX spiked above 20, confirming elevated fear. Gold rallied as a safety bid emerged."`
+        * Write this field LAST, after all other analysis is complete. Distill, do not duplicate.
+
+    [Output Format Constraint]
+    Output ONLY a single, valid JSON object in this exact format. **You must populate every single field.**
+
+    {{
+      "marketNarrative": "Your 2-4 sentence synthesis of the macro story driving markets today.",
+      "marketBias": "Your verdict: Bullish/Bearish/Neutral/Risk-On/Risk-Off (with optional lean).",
+      "keyEconomicEvents": {{
+        "last_24h": "Summary of recent major data releases and their market impact.",
+        "next_24h": "List of upcoming high-impact events to watch."
+      }},
+      "sectorRotation": {{
+        "leadingSectors": ["Sector1", "Sector2"],
+        "laggingSectors": ["Sector1", "Sector2"],
+        "rotationAnalysis": "1-2 sentences on what the rotation pattern signals about risk appetite."
+      }},
+      "indexAnalysis": {{
+        "pattern": "Structural pattern across major indices (1-2 sentences).",
+        "SPY": "SPY session summary with levels and volume evidence.",
+        "QQQ": "QQQ session summary with levels and volume evidence."
+      }},
+      "interMarketAnalysis": {{
+        "bonds": "TLT/bond market analysis and yield implications.",
+        "commodities": "Oil and Gold analysis for inflation/safety signals.",
+        "currencies": "Dollar (UUP) and EUR analysis and impact on risk.",
+        "crypto": "Bitcoin analysis as risk-on/risk-off gauge."
+      }},
+      "marketInternals": {{
+        "volatility": "VIX analysis and what it signals for market sentiment."
+      }},
+      "todaysAction": "Write EXACTLY 2 to 4 sentences summarizing the macro day. Format: 'DATE: [Macro Theme]. [Brief narrative of what drove markets and the outcome].'. You MUST end immediately with a period."
+    }}
     
     --- START OF DATA ---
     
@@ -825,11 +924,20 @@ def update_economy_card(
                 "_safe_parse_ai_json could not extract a valid JSON object", ai_response_text, 0
             )
         
+        # Guard: AI sometimes returns a list instead of a dict
+        if not isinstance(ai_data, dict):
+            logger.log(f"Error: AI returned {type(ai_data).__name__} instead of dict.")
+            logger.log("--- DEBUG: RAW AI OUTPUT ---")
+            logger.log_code(json.dumps(ai_data, indent=2) if isinstance(ai_data, (list, dict)) else str(ai_data), language='json')
+            return None
+
         # --- FIX: Extract the 'todaysAction' ---
         new_action = ai_data.pop("todaysAction", None)
         
         if not new_action:
-            logger.log("Error: AI response is missing required fields.")
+            logger.log("Error: AI response is missing required fields ('todaysAction').")
+            logger.log("--- DEBUG: RAW AI OUTPUT ---")
+            logger.log_code(json.dumps(ai_data, indent=2), language='json')
             return None
 
         # --- FIX: Rebuild the full card in Python ---
