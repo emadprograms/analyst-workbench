@@ -353,7 +353,6 @@ def update_company_card(
             * **If no new info:** **Carry over** the *entire, unchanged* narrative from the `[Previous Card]`.
 
     **4. `fundamentalContext` (Dynamic Fields):**
-        * **`valuation`:** "AI RULE: READ-ONLY".
         * **`analystSentiment` & `insiderActivity`:**
             * **Step 1:** Read from `[Previous Card]`.
             * **Step 2:** *Hunt* the `[Overall Market Context for Today]` for new analyst ratings or insider transactions.
@@ -455,7 +454,6 @@ def update_company_card(
         "volumeMomentum": "Your **Volume Analysis** from Task 6 (e.g., 'High-volume defense. The rejection of $239.15...')."
       }},
       "fundamentalContext": {{
-        "valuation": "AI RULE: READ-ONLY (Set during initialization/manual edit)",
         "analystSentiment": "Carry over from [Previous Card] UNLESS new analyst ratings are found in [Overall Market Context].",
         "insiderActivity": "Carry over from [Previous Card] UNLESS new insider activity is found in [Overall Market Context].",
         "peerPerformance": "How did this stock perform *relative to its sector* or the `[Overall Market Context]`?"
@@ -535,7 +533,7 @@ def update_company_card(
             "screener_briefing": {"type": "STRING"},
             "basicContext": {"type": "OBJECT", "properties": {"tickerDate": {"type": "STRING"}, "sector": {"type": "STRING"}, "companyDescription": {"type": "STRING"}, "priceTrend": {"type": "STRING"}, "recentCatalyst": {"type": "STRING"}}},
             "technicalStructure": {"type": "OBJECT", "properties": {"majorSupport": {"type": "STRING"}, "majorResistance": {"type": "STRING"}, "pattern": {"type": "STRING"}, "volumeMomentum": {"type": "STRING"}}},
-            "fundamentalContext": {"type": "OBJECT", "properties": {"valuation": {"type": "STRING"}, "analystSentiment": {"type": "STRING"}, "insiderActivity": {"type": "STRING"}, "peerPerformance": {"type": "STRING"}}},
+            "fundamentalContext": {"type": "OBJECT", "properties": {"analystSentiment": {"type": "STRING"}, "insiderActivity": {"type": "STRING"}, "peerPerformance": {"type": "STRING"}}},
             "behavioralSentiment": {"type": "OBJECT", "properties": {"buyerVsSeller": {"type": "STRING"}, "emotionalTone": {"type": "STRING"}, "newsReaction": {"type": "STRING"}}},
             "todaysAction": {"type": "STRING"},
             "openingTradePlan": {"type": "OBJECT", "properties": {"planName": {"type": "STRING"}, "knownParticipant": {"type": "STRING"}, "expectedParticipant": {"type": "STRING"}, "trigger": {"type": "STRING"}, "invalidation": {"type": "STRING"}}},
@@ -589,13 +587,6 @@ def update_company_card(
         # 3. Manually update fields the AI shouldn't control
         final_card['basicContext']['tickerDate'] = f"{ticker} | {trade_date_str}"
 
-        # 'valuation' is READ-ONLY per GEMINI.md: "Set during initialization/manual edit".
-        # The AI is instructed to echo the placeholder text, so deep_update would
-        # overwrite the real valuation data.  Explicitly restore the previous value.
-        prev_valuation = previous_overview_card_dict.get('fundamentalContext', {}).get('valuation', '')
-        if prev_valuation:
-            final_card.setdefault('fundamentalContext', {})['valuation'] = prev_valuation
-        
         # 4. Programmatically append to the log
         if "technicalStructure" not in final_card:
             final_card['technicalStructure'] = {}

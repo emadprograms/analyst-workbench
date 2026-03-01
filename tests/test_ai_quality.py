@@ -75,7 +75,6 @@ SAMPLE_GOOD_COMPANY_CARD = {
         "volumeMomentum": "Extreme volume confirmation. The breakout above $210 occurred on 2.3x average volume with the POC migrating to $212.50 (above the breakout level). Key volume event: massive 1.5M share spike at $211 in the first 15 minutes confirming Desperate Buyer (FOMO) presence. Value Area fully above $210."
     },
     "fundamentalContext": {
-        "valuation": "28x forward P/E, premium to sector median of 25x",
         "analystSentiment": "Strong Buy — Goldman upgraded to $240 PT on Feb 22 following AI deal. 85% Buy ratings.",
         "insiderActivity": "CFO sold 50,000 shares at $208 on Feb 19 (pre-planned 10b5-1). No material signal.",
         "peerPerformance": "Outperforming sector (+2.3% vs XLK +0.8%). Leading mega-cap tech on the day alongside MSFT."
@@ -226,7 +225,6 @@ SAMPLE_BAD_COMPANY_CARD_DUMP = {
         "volumeMomentum": "High"  # Too short
     },
     "fundamentalContext": {
-        "valuation": "AI RULE: READ-ONLY (Set during initialization/manual edit)",  # Placeholder overwrite
         "analystSentiment": "Buy",
         "insiderActivity": "None",
         "peerPerformance": "Good"  # Too short
@@ -505,31 +503,6 @@ class TestMissingFieldsCard:
         report = validate_company_card("this is not json", ticker="BAD")
         assert not report.passed
         assert any(i.rule == "PARSE_FAIL" for i in report.issues)
-
-
-# ==========================================
-# TESTS: VALUATION PRESERVATION
-# ==========================================
-
-class TestValuationPreservation:
-    """The 'valuation' field is READ-ONLY and must not be overwritten by AI."""
-
-    def test_valuation_preserved(self):
-        """When previous card has real valuation, it should be preserved."""
-        previous = {"fundamentalContext": {"valuation": "28x forward P/E"}}
-        current = copy.deepcopy(SAMPLE_GOOD_COMPANY_CARD)
-        report = validate_company_card(current, ticker="AAPL", previous_card=previous)
-        val_issues = [i for i in report.issues if i.rule == "VALUATION_OVERWRITTEN"]
-        assert len(val_issues) == 0
-
-    def test_valuation_overwritten_with_placeholder(self):
-        """If AI writes the placeholder instead of real valuation, it must be caught."""
-        previous = {"fundamentalContext": {"valuation": "28x forward P/E"}}
-        current = copy.deepcopy(SAMPLE_GOOD_COMPANY_CARD)
-        current["fundamentalContext"]["valuation"] = "AI RULE: READ-ONLY (Set during initialization/manual edit)"
-        report = validate_company_card(current, ticker="AAPL", previous_card=previous)
-        val_issues = [i for i in report.issues if i.rule == "VALUATION_OVERWRITTEN"]
-        assert len(val_issues) > 0, "Should detect valuation overwritten with placeholder."
 
 
 # ==========================================

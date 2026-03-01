@@ -87,7 +87,6 @@ def _minimal_ai_company_response(action: str = "Default action") -> dict:
             "volumeMomentum": "High volume",
         },
         "fundamentalContext": {
-            "valuation": "25x P/E",
             "analystSentiment": "Overweight",
             "insiderActivity": "None",
             "peerPerformance": "Outperforming",
@@ -945,33 +944,6 @@ class TestCardAssemblyPreservesReadOnlyFields:
         ):
             self.mock_api = mock_api
             yield
-
-    def test_valuation_field_preserved(self):
-        """The 'valuation' field is READ-ONLY and must survive any AI update."""
-        custom_card = json.loads(DEFAULT_COMPANY_OVERVIEW_JSON.replace("TICKER", "AAPL"))
-        custom_card.setdefault("fundamentalContext", {})["valuation"] = "P/E 28x — Custom"
-        custom_json = json.dumps(custom_card)
-
-        # AI response does NOT change valuation
-        ai_resp = _minimal_ai_company_response("Valuation test")
-        self.mock_api.return_value = json.dumps(ai_resp)
-
-        result = update_company_card(
-            ticker="AAPL",
-            previous_card_json=custom_json,
-            previous_card_date="2026-02-22",
-            historical_notes="",
-            new_eod_date=date(2026, 2, 23),
-            model_name="model",
-            market_context_summary="News",
-            logger=AppLogger("test"),
-        )
-
-        assert result is not None
-        card = json.loads(result)
-        assert "P/E 28x — Custom" in card.get("fundamentalContext", {}).get("valuation", ""), (
-            "Valuation field was overwritten by AI update."
-        )
 
     def test_ticker_date_field_auto_updated(self):
         """tickerDate must always reflect the new trade date after update."""

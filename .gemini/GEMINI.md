@@ -81,8 +81,7 @@ The AI explicitly hunts for **Disconnects**:
 3.  **Data Integrity**: Users cannot manually edit the `todaysAction` log. It is a system-managed record of the AI's daily analysis.
 4.  **`keyActionLog` overwrites on same-date re-run**. Both `update_company_card` and `update_economy_card` use a find-or-append strategy: if an entry already exists for `trade_date_str`, it is **overwritten** with the latest AI output so the user always sees fresh analysis. Entries for other dates are never touched. This is intentional — re-running a card for the same date should replace stale data, not duplicate it.
 5.  **AI JSON parsing must use `_safe_parse_ai_json`**. Never call `json.loads` directly on a raw Gemini response. The helper tries three strategies (direct parse → last fenced block → bare braces) and returns `None` on total failure, which the caller must handle with a clean exception rather than silent data loss.
-6.  **`fundamentalContext.valuation` is user-managed and read-only**. After every AI update to a company card, the previous card's `valuation` value must be restored. The AI is not permitted to overwrite it with placeholder text.
-7.  **`dispatch_github_action` returns a 3-tuple `(bool, str, str | None)`**. All call sites must unpack all three values. The third element is the direct Actions run URL (or `None`); callers should fall back to `ACTIONS_URL` when it is `None`.
+6.  **`dispatch_github_action` returns a 3-tuple `(bool, str, str | None)`**. All call sites must unpack all three values. The third element is the direct Actions run URL (or `None`); callers should fall back to `ACTIONS_URL` when it is `None`.
 
 ---
 
@@ -261,7 +260,7 @@ This section records resolved bugs and structural changes for traceability. Newe
 #### Quality Validators (`modules/ai/quality_validators.py`) — NEW
 *   **Purpose**: Reusable validator library that checks AI-generated cards against quality rules.
 *   **Architecture**: `QualityReport` / `QualityIssue` dataclasses. Two public entry points: `validate_company_card(card, ticker)` and `validate_economy_card(card)`.
-*   **10+ validator categories**: Schema completeness, placeholder detection, todaysAction length/card-dump detection, confidence format, screener briefing keys, emotionalTone 3-Act structure, 4-Participant terminology, trade plan price levels, content substance, valuation preservation.
+*   **10+ validator categories**: Schema completeness, placeholder detection, todaysAction length/card-dump detection, confidence format, screener briefing keys, emotionalTone 3-Act structure, 4-Participant terminology, trade plan price levels, content substance.
 *   **Production integration**: Both `update_company_card()` and `update_economy_card()` in `ai_services.py` run validators after every card generation. Results are logged to AppLogger and TRACKER but never block card return (observability-only).
 
 #### Data Validators (`modules/ai/data_validators.py`) — NEW
@@ -338,10 +337,6 @@ This section records resolved bugs and structural changes for traceability. Newe
 #### Bug 4 — Silent Fire-and-Forget Dispatch (`discord_bot/bot.py`)
 *   **Root cause**: `dispatch_github_action` returned `(True, "Success")` with no response body on error, and gave no confirmation URL when the dispatch succeeded.
 *   **Fix**: Returns `(bool, str, str | None)` 3-tuple. Error responses include up to 300 chars of the response body. Success path polls GitHub once (after a 5 s delay) via `_fetch_latest_run_url` to retrieve the direct Actions run URL.
-
-#### Bug 5 (discovered via tests) — `valuation` Overwritten by AI (`modules/ai/ai_services.py`)
-*   **Root cause**: The `deep_update` call in `update_company_card` allowed the AI to overwrite the user's real `fundamentalContext.valuation` with its echoed placeholder text.
-*   **Fix**: After `deep_update`, the previous card's `valuation` is explicitly restored.
 
 #### Test Suite (`tests/test_fixes.py`)
 *   58 tests across 9 classes covering all 5 bugs, the `_safe_parse_ai_json` helper, `_is_valid_context`, `_fetch_latest_run_url`, deep-copy isolation, and read-only field protection.

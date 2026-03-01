@@ -14,7 +14,7 @@ PLACEHOLDER_PATTERNS = [
     r"Carry over from \[Previous Card\]",
     r"AI will provide",
 ]
-EXEMPT = {"fundamentalContext.valuation"}
+EXEMPT = set()
 
 def scan(card, prefix=""):
     hits = []

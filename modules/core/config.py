@@ -139,7 +139,6 @@ DEFAULT_COMPANY_OVERVIEW_JSON = """
     "volumeMomentum": "AI Updates: Volume qualifier for action AT key levels."
   },
   "fundamentalContext": {
-    "valuation": "AI RULE: READ-ONLY (Set during initialization/manual edit)",
     "analystSentiment": "AI RULE: READ-ONLY (Set during initialization/manual edit)",
     "insiderActivity": "AI RULE: READ-ONLY (Set during initialization/manual edit)",
     "peerPerformance": "AI Updates: How stock performed relative to peers today."

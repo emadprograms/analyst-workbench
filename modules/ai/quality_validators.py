@@ -88,7 +88,6 @@ COMPANY_REQUIRED_SCHEMA = {
         "volumeMomentum": str,
     },
     "fundamentalContext": {
-        "valuation": str,
         "analystSentiment": str,
         "insiderActivity": str,
         "peerPerformance": str,
@@ -210,10 +209,9 @@ PLACEHOLDER_PATTERNS = [
 ]
 
 # Fields where these placeholders are checked
-# (valuation is READ-ONLY so its placeholder is expected)
-# Match by suffix so nested paths like previousCard.fundamentalContext.valuation are also exempt.
+# analystSentiment / insiderActivity are carry-over fields — their default
+# template text ("AI RULE: READ-ONLY") is expected on first-run cards.
 PLACEHOLDER_EXEMPT_SUFFIXES = (
-    "fundamentalContext.valuation",
     "fundamentalContext.analystSentiment",
     "fundamentalContext.insiderActivity",
 )
@@ -713,33 +711,6 @@ def _check_substance(card: dict, min_lengths: dict, report: QualityReport):
 
 
 # ─────────────────────────────────────────────
-# Valuation Preservation Check
-# ─────────────────────────────────────────────
-
-def _check_valuation_preserved(card: dict, previous_card: dict | None, report: QualityReport):
-    """
-    The 'valuation' field is READ-ONLY per prompt rules.
-    If a previous card is provided, check that valuation was preserved.
-    """
-    if previous_card is None:
-        return
-
-    prev_val = previous_card.get("fundamentalContext", {}).get("valuation", "")
-    new_val = card.get("fundamentalContext", {}).get("valuation", "")
-
-    if prev_val and new_val and prev_val != new_val:
-        # Allow if the new value looks like real data (not placeholder)
-        if "READ-ONLY" in new_val or "AI RULE" in new_val:
-            report.issues.append(QualityIssue(
-                rule="VALUATION_OVERWRITTEN",
-                severity="critical",
-                field="fundamentalContext.valuation",
-                message=f"READ-ONLY 'valuation' was overwritten with placeholder text. "
-                        f"Previous: '{prev_val[:60]}', New: '{new_val[:60]}'"
-            ))
-
-
-# ─────────────────────────────────────────────
 # PUBLIC API: Main Validator Functions
 # ─────────────────────────────────────────────
 
@@ -810,9 +781,6 @@ def validate_company_card(
 
     # 9. Content substance
     _check_substance(card, COMPANY_SUBSTANTIVE_FIELDS, report)
-
-    # 10. Valuation preservation
-    _check_valuation_preserved(card, previous_card, report)
 
     return report
 

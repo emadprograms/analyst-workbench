@@ -20,7 +20,7 @@ def test_immutability_violation():
         "screener_briefing": "...",
         "basicContext": {"tickerDate": "...", "sector": "...", "companyDescription": "...", "priceTrend": "...", "recentCatalyst": "..."},
         "technicalStructure": {"majorSupport": "...", "majorResistance": "...", "pattern": "...", "volumeMomentum": "..."},
-        "fundamentalContext": {"valuation": "...", "analystSentiment": "...", "insiderActivity": "...", "peerPerformance": "..."},
+        "fundamentalContext": {"analystSentiment": "...", "insiderActivity": "...", "peerPerformance": "..."},
         "behavioralSentiment": {"buyerVsSeller": "...", "emotionalTone": "...", "newsReaction": "..."},
         "openingTradePlan": {"planName": "...", "knownParticipant": "...", "expectedParticipant": "...", "trigger": "...", "invalidation": "..."},
         "alternativePlan": {"planName": "...", "scenario": "...", "knownParticipant": "...", "expectedParticipant": "...", "trigger": "...", "invalidation": "..."},
