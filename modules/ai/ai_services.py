@@ -94,6 +94,89 @@ def _safe_parse_ai_json(text: str) -> dict | None:
 
     return None
 
+SECTOR_MAP = {
+    "technology": "technology", "tech": "technology", "it": "technology", "information technology": "technology",
+    "healthcare": "healthcare", "health care": "healthcare", "medical": "healthcare",
+    "financials": "financials", "finance": "financials", "financial": "financials",
+    "consumer discretionary": "consumer_discretionary", "consumer cyclical": "consumer_discretionary", "retail": "consumer_discretionary", "consumer discretionary sector": "consumer_discretionary",
+    "communication services": "communications", "telecom": "communications", "media": "communications", "communications": "communications",
+    "industrials": "industrials", "industrial": "industrials",
+    "consumer staples": "consumer_staples", "consumer defensive": "consumer_staples",
+    "energy": "energy",
+    "utilities": "utilities",
+    "real estate": "real_estate", "realestate": "real_estate",
+    "materials": "materials", "basic materials": "materials"
+}
+
+def normalize_sector(raw_sector: str) -> str:
+    if not raw_sector:
+        return ""
+    clean_sector = raw_sector.lower().replace("sector", "").strip()
+    return SECTOR_MAP.get(clean_sector, clean_sector)
+
+def filter_daily_news_for_company(news_text: str, ticker: str, fallback_sector: str) -> str:
+    """
+    Filters daily news to only include the company's specific news OR news from its sector.
+    Determines the sector primarily from the day's news tags to ensure consistency, 
+    falling back to the static sector from the previous card if no news is found.
+    """
+    if not news_text:
+        return ""
+        
+    blocks = re.split(r'(?=ENTITY:)', news_text)
+    parsed_blocks = []
+    
+    ticker_upper = ticker.upper()
+    target_sector = None
+    
+    # Pass 1: Parse blocks and find target sector from the company's own news
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+            
+        lines = block.split('\n')
+        header = lines[0]
+        
+        # Extract sector if present
+        block_sector = None
+        sector_match = re.search(r'\[SECTOR:(.*?)\]', header, re.IGNORECASE)
+        if sector_match:
+            block_sector = normalize_sector(sector_match.group(1))
+            
+        parsed_blocks.append({
+            "text": block,
+            "header": header,
+            "sector": block_sector,
+            "is_macro": "[MACRO]" in header,
+            "has_ticker": f" {ticker_upper}" in header or f"] {ticker_upper}" in header
+        })
+        
+        # If this is our ticker's news, grab its sector
+        if parsed_blocks[-1]["has_ticker"] and block_sector:
+            target_sector = block_sector
+            
+    # Fallback if no news for ticker or news lacked a sector tag
+    if not target_sector and fallback_sector:
+        target_sector = normalize_sector(fallback_sector)
+        
+    # Pass 2: Filter blocks
+    final_blocks = []
+    for pb in parsed_blocks:
+        if pb["is_macro"]:
+            continue
+            
+        # Keep if it's the company's own news
+        if pb["has_ticker"]:
+            final_blocks.append(pb["text"])
+            continue
+            
+        # Keep if it matches the target sector
+        if target_sector and pb["sector"] == target_sector:
+            final_blocks.append(pb["text"])
+            
+    return "\n\n".join(final_blocks) if final_blocks else "No specific company or sector news found for today."
+
 # --- The Robust API Caller (V8) ---
 def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_name: str, max_retries=5, **kwargs) -> str | None:
     """
@@ -252,6 +335,10 @@ def update_company_card(
     except (json.JSONDecodeError, TypeError):
         logger.log("   ...Warn: Could not parse previous card. Starting from default.")
         previous_overview_card_dict = json.loads(DEFAULT_COMPANY_OVERVIEW_JSON.replace("TICKER", ticker))
+
+    # --- FILTER NEWS BY SECTOR ---
+    fallback_sector = previous_overview_card_dict.get("basicContext", {}).get("sector", "")
+    filtered_market_news = filter_daily_news_for_company(market_context_summary, ticker, fallback_sector)
 
     # --- Extract the keyActionLog from the previous card ---
     previous_action_log = previous_overview_card_dict.get("technicalStructure", {}).get("keyActionLog", [])
@@ -492,7 +579,7 @@ def update_company_card(
     [Raw Market Context for Today]
     (This contains RAW, unstructured news headlines and snippets from various sources. You must synthesize the macro "Headwind" or "Tailwind" yourself from this data. It also contains company-specific news.)
     <market_context>
-    {market_context_summary or "No raw market news was provided."}
+    {filtered_market_news or "No raw market news was provided."}
     </market_context>
 
     [Historical Notes for {ticker}]
