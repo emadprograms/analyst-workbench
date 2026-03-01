@@ -924,8 +924,11 @@ def update_economy_card(
                 "_safe_parse_ai_json could not extract a valid JSON object", ai_response_text, 0
             )
         
-        # Guard: AI sometimes returns a list instead of a dict
-        if not isinstance(ai_data, dict):
+        # Guard: AI sometimes wraps the response in a list — unwrap it
+        if isinstance(ai_data, list) and len(ai_data) == 1 and isinstance(ai_data[0], dict):
+            logger.log("Warning: AI returned a single-element list. Unwrapping.")
+            ai_data = ai_data[0]
+        elif not isinstance(ai_data, dict):
             logger.log(f"Error: AI returned {type(ai_data).__name__} instead of dict.")
             logger.log("--- DEBUG: RAW AI OUTPUT ---")
             logger.log_code(json.dumps(ai_data, indent=2) if isinstance(ai_data, (list, dict)) else str(ai_data), language='json')
