@@ -557,6 +557,15 @@ def update_company_card(
             raise json.JSONDecodeError(
                 "_safe_parse_ai_json could not extract a valid JSON object", ai_response_text, 0
             )
+        
+        # --- UNWRAP: Handle cases where AI returns a single-element list ---
+        if isinstance(ai_data, list) and len(ai_data) == 1 and isinstance(ai_data[0], dict):
+            logger.log("Warning: AI returned a single-element list. Unwrapping.")
+            ai_data = ai_data[0]
+        elif not isinstance(ai_data, dict):
+            logger.log(f"Error: AI returned {type(ai_data).__name__} instead of dict.")
+            return None
+
         new_action = ai_data.pop("todaysAction", None)
         
         if not new_action:
