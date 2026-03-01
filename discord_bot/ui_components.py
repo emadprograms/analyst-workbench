@@ -104,7 +104,7 @@ class BuildTypeSelectionView(discord.ui.View):
         success, message, run_url = await self.dispatch_callback(inputs)
         monitor_link = run_url or self.actions_url
         if success:
-            await msg.edit(content=f"🧠 **Building Economy Card** ({self.target_date})...\n✅ **Dispatched!** (ETA: ~5-7 mins)\n🔗 [Monitor Progress]({monitor_link}) 📡⏱️")
+            await msg.edit(content=f"🧠 **Building Economy Card** ({self.target_date})...\n✅ **Dispatched!** (ETA: ~5-7 mins)\n🔗 [Monitor Progress](<{monitor_link}>) 📡⏱️")
         else:
             await msg.edit(content=f"🧠 **Building Economy Card** ({self.target_date})... ❌ **Failed:** {message}")
 
@@ -152,7 +152,7 @@ class TickerSelectionView(discord.ui.View):
         success, message, run_url = await self.dispatch_callback(inputs)
         monitor_link = run_url or self.actions_url
         if success:
-            await msg.edit(content=f"🚀 **Cards Dispatched!** ({len(self.selected_tickers)} tickers)\n✅ **Target Date:** {self.target_date}\n🔗 [Monitor Progress]({monitor_link}) 📡⏱️")
+            await msg.edit(content=f"🚀 **Cards Dispatched!** ({len(self.selected_tickers)} tickers)\n✅ **Target Date:** {self.target_date}\n🔗 [Monitor Progress](<{monitor_link}>) 📡⏱️")
         else:
             await msg.edit(content=f"❌ **Build Failed:** {message}")
 
