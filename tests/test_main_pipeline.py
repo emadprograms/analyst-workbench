@@ -1005,3 +1005,100 @@ class TestMainCLIEdgeCases:
         import main
         source = open(main.__file__).read()
         assert "target_date is not None" in source, "Webhook should check target_date is not None"
+
+
+# ==========================================
+# TEST: Validation Summary Table
+# ==========================================
+
+class TestValidationSummaryTable:
+    """Tests for the per-ticker validation summary table in the Discord dashboard."""
+
+    def test_validation_table_appears_for_company_updates(self):
+        """Validation Summary field should appear when tickers are successfully updated."""
+        from modules.ai.quality_validators import QualityReport
+        
+        tracker = _make_mock_tracker()
+        tracker.action_type = "Company_Card_Update"
+        tracker.log_call(1000, True, "model", ticker="AAPL")
+        
+        # Perfect quality + perfect data
+        qr = QualityReport(card_type="company", ticker="AAPL")
+        tracker.log_quality("AAPL", qr)
+        tracker.metrics.data_reports["AAPL"] = []
+        tracker.metrics.ticker_outcomes["AAPL"]["data_accuracy"] = "perfect"
+        tracker.finish()
+        
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        fields = embeds[0]["fields"]
+        val_fields = [f for f in fields if "Validation" in f.get("name", "")]
+        assert len(val_fields) >= 1, "Validation Summary field should exist"
+        assert "AAPL" in val_fields[0]["value"]
+        assert "✅" in val_fields[0]["value"]
+
+    def test_validation_table_shows_failures(self):
+        """Validation table should show ❌ for failed checks."""
+        from modules.ai.quality_validators import QualityReport, QualityIssue
+        
+        tracker = _make_mock_tracker()
+        tracker.action_type = "Company_Card_Update"
+        tracker.log_call(1000, True, "model", ticker="APP")
+        
+        qr = QualityReport(card_type="company", ticker="APP")
+        qr.issues.append(QualityIssue(
+            rule="CONTENT_PLACEHOLDER", severity="critical",
+            field="fundamentalContext.valuation",
+            message="Field contains prompt placeholder text"
+        ))
+        tracker.log_quality("APP", qr)
+        tracker.metrics.data_reports["APP"] = []
+        tracker.metrics.ticker_outcomes["APP"]["data_accuracy"] = "perfect"
+        tracker.finish()
+        
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        fields = embeds[0]["fields"]
+        val_fields = [f for f in fields if "Validation" in f.get("name", "")]
+        assert len(val_fields) >= 1
+        table_text = val_fields[0]["value"]
+        assert "APP" in table_text
+        assert "❌" in table_text  # Placeholder check should fail
+
+    def test_validation_table_not_shown_for_failed_tickers(self):
+        """Tickers that failed API calls should not appear in the validation table."""
+        tracker = _make_mock_tracker()
+        tracker.action_type = "Company_Card_Update"
+        tracker.log_call(0, False, "model", ticker="GOOGL", error="Rate Limit")
+        tracker.finish()
+        
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        fields = embeds[0]["fields"]
+        val_fields = [f for f in fields if "Validation" in f.get("name", "")]
+        assert len(val_fields) == 0, "No validation table for failed-only runs"
+
+    def test_validation_table_multiple_tickers(self):
+        """Table should show all successful tickers sorted alphabetically."""
+        from modules.ai.quality_validators import QualityReport
+        
+        tracker = _make_mock_tracker()
+        tracker.action_type = "Company_Card_Update"
+        
+        for ticker in ["TSLA", "AAPL", "MSFT"]:
+            tracker.log_call(1000, True, "model", ticker=ticker)
+            qr = QualityReport(card_type="company", ticker=ticker)
+            tracker.log_quality(ticker, qr)
+            tracker.metrics.data_reports[ticker] = []
+            tracker.metrics.ticker_outcomes[ticker]["data_accuracy"] = "perfect"
+        
+        tracker.finish()
+        
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        fields = embeds[0]["fields"]
+        val_fields = [f for f in fields if "Validation" in f.get("name", "")]
+        assert len(val_fields) >= 1
+        table_text = val_fields[0]["value"]
+        # Should be sorted: AAPL before MSFT before TSLA
+        aapl_pos = table_text.find("AAPL")
+        msft_pos = table_text.find("MSFT")
+        tsla_pos = table_text.find("TSLA")
+        assert aapl_pos < msft_pos < tsla_pos, "Tickers should be sorted alphabetically"
+

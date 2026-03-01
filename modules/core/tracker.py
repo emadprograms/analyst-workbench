@@ -311,7 +311,7 @@ class ExecutionTracker:
                 "inline": False
             })
 
-        # --- SECTION: 📊 Data Accuracy Issues ---
+         # --- SECTION: 📊 Data Accuracy Issues ---
         data_issue_tickers = [
             t for t, info in outcomes.items()
             if info.get('data_accuracy') in ('fail', 'warnings')
@@ -359,6 +359,29 @@ class ExecutionTracker:
                 "value": text,
                 "inline": False
             })
+
+        # --- SECTION: 🧪 Validation Summary Table ---
+        validation_table = self._build_validation_table()
+        if validation_table:
+            # Split into chunks of 1024 chars for Discord field limits
+            chunks = []
+            current = ""
+            for line in validation_table.split("\n"):
+                if len(current) + len(line) + 1 > 1020:
+                    chunks.append(current)
+                    current = line
+                else:
+                    current = current + "\n" + line if current else line
+            if current:
+                chunks.append(current)
+            
+            for i, chunk in enumerate(chunks):
+                label = "🧪 Validation Summary" if i == 0 else "🧪 Validation (cont.)"
+                embed["fields"].append({
+                    "name": label,
+                    "value": f"```\n{chunk}\n```",
+                    "inline": False
+                })
         
         # --- SECTION: 🌍 Macro Narrative (Economy Card) ---
         if "ECONOMY_CARD" in self.metrics.artifacts:
@@ -376,6 +399,87 @@ class ExecutionTracker:
                 pass
 
         return embed
+
+    # ─── Quality check categories: rule prefix → short label ───
+    QUALITY_CHECKS = [
+        ("Sch", ["SCHEMA_MISSING", "SCHEMA_TYPE"]),
+        ("Plc", ["CONTENT_PLACEHOLDER"]),
+        ("Act", ["ACTION_LOG_MISSING", "ACTION_LOG_FORMAT", "ACTION_EMPTY",
+                 "ACTION_NO_DATE", "ACTION_TOO_LONG", "ACTION_DEGENERATION",
+                 "ACTION_CARD_DUMP"]),
+        ("Con", ["CONFIDENCE_NO_BIAS", "CONFIDENCE_NO_STORY",
+                 "CONFIDENCE_BAD_RATING", "CONFIDENCE_NO_REASONING"]),
+        ("Scr", ["SCREENER_MISSING_KEY", "SCREENER_BAD_BIAS"]),
+        ("Ton", ["TONE_NO_PATTERN", "TONE_NO_STATE", "TONE_NO_ACTS"]),
+        ("Par", ["PARTICIPANT_MISSING"]),
+        ("Pln", ["PLAN_NO_PRICE"]),
+        ("Sub", ["CONTENT_THIN"]),
+    ]
+
+    # ─── Data accuracy check categories: rule prefix → short label ───
+    DATA_CHECKS = [
+        ("Bias", ["DATA_BIAS_CONTRADICTION", "DATA_BIAS_MISMATCH"]),
+        ("Trnd", ["DATA_TREND_MISMATCH"]),
+        ("Gaps", ["DATA_GAP_MISMATCH"]),
+        ("HiLo", ["DATA_HIGHER_LOWS_FALSE"]),
+        ("Sup",  ["DATA_SUPPORT_BREACHED"]),
+        ("Vol",  ["DATA_VOLUME_MISMATCH", "DATA_VOLUME_PROFILE_MISMATCH"]),
+        ("Date", ["DATA_TICKER_WRONG", "DATA_DATE_WRONG",
+                  "DATA_LOG_DATE_STALE", "DATA_CONTEXT_DATE_MISMATCH",
+                  "DATA_CONTEXT_TICKER_MISMATCH"]),
+    ]
+
+    def _build_validation_table(self) -> str:
+        """
+        Builds a compact per-ticker validation summary table showing
+        ✅/❌ for each quality and data accuracy check category.
+        """
+        outcomes = self.metrics.ticker_outcomes
+        # Only include tickers that had an API call (success or quality_fail)
+        tickers = [
+            t for t, info in outcomes.items()
+            if info.get('status') == 'success'
+        ]
+        if not tickers:
+            return ""
+
+        q_labels = [label for label, _ in self.QUALITY_CHECKS]
+        d_labels = [label for label, _ in self.DATA_CHECKS]
+
+        # Build header
+        q_header = " ".join(f"{l:>3}" for l in q_labels)
+        d_header = " ".join(f"{l:>4}" for l in d_labels)
+        header = f"{'Ticker':<6} │ {q_header} │ {d_header}"
+        separator = "─" * len(header)
+
+        lines = [header, separator]
+
+        for ticker in sorted(tickers):
+            q_issues = {i['rule'] for i in self.metrics.quality_reports.get(ticker, [])}
+            d_issues = {i['rule'] for i in self.metrics.data_reports.get(ticker, [])}
+
+            # Quality columns
+            q_cols = []
+            for _, rules in self.QUALITY_CHECKS:
+                failed = any(r in q_issues for r in rules)
+                q_cols.append(f"{'❌':>3}" if failed else f"{'✅':>3}")
+
+            # Data columns
+            d_cols = []
+            has_data = len(self.metrics.data_reports.get(ticker, [])) > 0 or \
+                       outcomes[ticker].get('data_accuracy') is not None
+            for _, rules in self.DATA_CHECKS:
+                if not has_data:
+                    d_cols.append(f"{'──':>4}")
+                else:
+                    failed = any(r in d_issues for r in rules)
+                    d_cols.append(f"{'❌':>4}" if failed else f"{'✅':>4}")
+
+            q_str = " ".join(q_cols)
+            d_str = " ".join(d_cols)
+            lines.append(f"{ticker:<6} │ {q_str} │ {d_str}")
+
+        return "\n".join(lines)
 
     def _build_data_embed(self, target_date: str, summary: dict, color: int) -> dict:
         """Build the embed for non-AI actions (News, Inspect, etc.)."""
