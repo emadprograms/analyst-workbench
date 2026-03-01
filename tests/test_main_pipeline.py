@@ -706,7 +706,7 @@ class TestDashboardLayout:
         
         embeds = tracker.get_discord_embeds("2026-02-23")
         fields = embeds[0]["fields"]
-        quality_fields = [f for f in fields if "Quality" in f.get("name", "")]
+        quality_fields = [f for f in fields if "Quality Issues" in f.get("name", "")]
         assert len(quality_fields) == 1, "Should have quality issues section"
         
         quality_text = quality_fields[0]["value"]
@@ -730,7 +730,7 @@ class TestDashboardLayout:
         
         embeds = tracker.get_discord_embeds("2026-02-23")
         fields = embeds[0]["fields"]
-        quality_fields = [f for f in fields if "Quality" in f.get("name", "")]
+        quality_fields = [f for f in fields if "Quality Issues" in f.get("name", "")]
         assert len(quality_fields) == 0, "Perfect quality should not show quality issues section"
 
     def test_warning_details_shown_in_updated_section(self):
@@ -762,7 +762,7 @@ class TestDashboardLayout:
         
         embeds = tracker.get_discord_embeds("2026-02-23")
         fields = embeds[0]["fields"]
-        quality_fields = [f for f in fields if "Quality" in f.get("name", "")]
+        quality_fields = [f for f in fields if "Quality Issues" in f.get("name", "")]
         assert len(quality_fields) == 0, "Perfect quality should not show quality issues section"
 
     def test_ticker_count_shows_updated_vs_total(self):
@@ -882,7 +882,7 @@ class TestDashboardLayout:
         # Should have all 3 sections
         field_names = [f["name"] for f in fields]
         updated_sections = [n for n in field_names if "Updated" in n]
-        quality_sections = [n for n in field_names if "Quality" in n]
+        quality_sections = [n for n in field_names if "Quality Issues" in n]
         failed_sections = [n for n in field_names if "Failed" in n]
         
         assert len(updated_sections) == 1, f"Expected Updated section, got: {field_names}"

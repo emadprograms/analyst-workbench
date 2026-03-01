@@ -306,19 +306,24 @@ def _check_gap_claims(card: dict, context: dict, report: DataReport):
     if not _session_active(pre):
         return
 
-    # Pre-market open: use the first migration block's range start
-    pre_migration = pre.get("value_migration", [])
-    if not pre_migration:
-        return
+    # Use explicitly calculated gap_pct and session_open if available
+    if "gap_pct" in pre and "session_open" in pre:
+        gap_pct = pre["gap_pct"]
+        pre_open = pre["session_open"]
+    else:
+        # Fallback for old context format
+        pre_migration = pre.get("value_migration", [])
+        if not pre_migration:
+            return
 
-    # Parse the first range "low-high" to get the approximate open
-    first_range = pre_migration[0].get("range", "")
-    range_match = re.match(r"([\d.]+)-([\d.]+)", str(first_range))
-    if not range_match:
-        return
+        # Parse the first range "low-high" to get the approximate open
+        first_range = pre_migration[0].get("range", "")
+        range_match = re.match(r"([\d.]+)-([\d.]+)", str(first_range))
+        if not range_match:
+            return
 
-    pre_open = float(range_match.group(1))
-    gap_pct = ((pre_open - prev_close) / prev_close) * 100
+        pre_open = float(range_match.group(1))
+        gap_pct = ((pre_open - prev_close) / prev_close) * 100
 
     tone_lower = tone.lower()
 

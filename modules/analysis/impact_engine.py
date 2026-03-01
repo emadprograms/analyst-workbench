@@ -422,7 +422,7 @@ def analyze_market_context(df, ref_levels, ticker="UNKNOWN", date_str=None) -> d
     
     # 2. Analyze Each Slice
     
-    def analyze_slice(slice_df, name):
+    def analyze_slice(slice_df, name, ref_close=None):
         if slice_df.empty: return {"status": "No Data"}
         
         avg_p = slice_df['Close'].mean()
@@ -433,11 +433,17 @@ def analyze_market_context(df, ref_levels, ticker="UNKNOWN", date_str=None) -> d
         low = slice_df['Low'].min()
         vol = slice_df['Volume'].sum() if 'Volume' in slice_df.columns else 0
         
+        session_open = slice_df['Open'].iloc[0]
+        gap_pct = None
+        if ref_close and ref_close > 0:
+            gap_pct = round(((session_open - ref_close) / ref_close) * 100, 2)
+            
         poc, vah, val = _calculate_volume_profile(slice_df)
         key_vol_events = _find_key_volume_events(slice_df)
         
-        return {
+        res = {
             "status": "Active",
+            "session_open": round(session_open, 2),
             "high": round(high, 2),
             "low": round(low, 2),
             "volume_approx": int(vol),
@@ -450,8 +456,13 @@ def analyze_market_context(df, ref_levels, ticker="UNKNOWN", date_str=None) -> d
             "key_levels": rejections,
             "value_migration": migration
         }
+        if gap_pct is not None:
+            res["gap_pct"] = gap_pct
+            
+        return res
 
     # 3. Construct Composite Card
+    ref_close = ref_levels.get("yesterday_close", 0)
     context_card = {
         "meta": {
             "ticker": ticker,
@@ -460,9 +471,9 @@ def analyze_market_context(df, ref_levels, ticker="UNKNOWN", date_str=None) -> d
         },
         "reference": ref_levels,
         "sessions": {
-            "pre_market": analyze_slice(df_pre, "Pre-Market"),
-            "regular_hours": analyze_slice(df_rth, "RTH"),
-            "post_market": analyze_slice(df_post, "Post-Market")
+            "pre_market": analyze_slice(df_pre, "Pre-Market", ref_close=ref_close),
+            "regular_hours": analyze_slice(df_rth, "RTH", ref_close=ref_close),
+            "post_market": analyze_slice(df_post, "Post-Market", ref_close=ref_close)
         }
     }
     
