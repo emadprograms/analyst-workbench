@@ -291,7 +291,7 @@ def _check_price_trend_direction(card: dict, context: dict, report: DataReport):
 def _check_gap_claims(card: dict, context: dict, report: DataReport):
     """
     Check if "gap up" / "gap down" claims in emotionalTone correspond to
-    actual pre-market behavior vs previous close.
+    actual pre-market or regular hours behavior vs previous close.
     """
     tone = card.get("behavioralSentiment", {}).get("emotionalTone", "")
     if not tone:
@@ -303,55 +303,81 @@ def _check_gap_claims(card: dict, context: dict, report: DataReport):
         return
 
     pre = _get_session(context, "pre_market")
-    if not _session_active(pre):
-        return
+    rth = _get_session(context, "regular_hours")
 
-    # Use explicitly calculated gap_pct and session_open if available
-    if "gap_pct" in pre and "session_open" in pre:
-        gap_pct = pre["gap_pct"]
-        pre_open = pre["session_open"]
-    else:
+    # Helper to get gap info from a session
+    def _get_gap_info(session_data):
+        if not _session_active(session_data):
+            return None, None
+            
+        if "gap_pct" in session_data and "session_open" in session_data:
+            return session_data["session_open"], session_data["gap_pct"]
+            
         # Fallback for old context format
-        pre_migration = pre.get("value_migration", [])
-        if not pre_migration:
-            return
-
-        # Parse the first range "low-high" to get the approximate open
-        first_range = pre_migration[0].get("range", "")
+        migration = session_data.get("value_migration", [])
+        if not migration:
+            return None, None
+            
+        first_range = migration[0].get("range", "")
         range_match = re.match(r"([\d.]+)-([\d.]+)", str(first_range))
         if not range_match:
-            return
+            return None, None
+            
+        s_open = float(range_match.group(1))
+        g_pct = ((s_open - prev_close) / prev_close) * 100
+        return s_open, g_pct
 
-        pre_open = float(range_match.group(1))
-        gap_pct = ((pre_open - prev_close) / prev_close) * 100
+    pre_open, pre_gap_pct = _get_gap_info(pre)
+    rth_open, rth_gap_pct = _get_gap_info(rth)
+    
+    # If we have no gap info for either session, we can't validate
+    if pre_gap_pct is None and rth_gap_pct is None:
+        return
 
     tone_lower = tone.lower()
 
     # Check "gap up" claims
     if "gap up" in tone_lower or "gapped up" in tone_lower or "gap open" in tone_lower:
-        if gap_pct < 0.1:  # essentially flat or negative
+        pre_valid = pre_gap_pct is not None and pre_gap_pct >= 0.1
+        rth_valid = rth_gap_pct is not None and rth_gap_pct >= 0.1
+        
+        if not pre_valid and not rth_valid:
+            # Construct a helpful error message
+            msg_parts = []
+            if pre_gap_pct is not None:
+                msg_parts.append(f"Pre-Market: ${pre_open:.2f} ({pre_gap_pct:+.2f}%)")
+            if rth_gap_pct is not None:
+                msg_parts.append(f"RTH: ${rth_open:.2f} ({rth_gap_pct:+.2f}%)")
+                
             report.issues.append(DataIssue(
                 rule="DATA_GAP_MISMATCH",
                 severity="critical",
                 field="behavioralSentiment.emotionalTone",
                 message=(
-                    f"Claims 'gap up' but pre-market opened at ${pre_open:.2f} vs "
-                    f"prev close ${prev_close:.2f} ({gap_pct:+.2f}%). "
-                    f"No meaningful gap up detected."
+                    f"Claims 'gap up' vs prev close ${prev_close:.2f}, but: " +
+                    " / ".join(msg_parts) + ". No meaningful gap up detected."
                 )
             ))
 
     # Check "gap down" claims
     if "gap down" in tone_lower or "gapped down" in tone_lower:
-        if gap_pct > -0.1:
+        pre_valid = pre_gap_pct is not None and pre_gap_pct <= -0.1
+        rth_valid = rth_gap_pct is not None and rth_gap_pct <= -0.1
+        
+        if not pre_valid and not rth_valid:
+            msg_parts = []
+            if pre_gap_pct is not None:
+                msg_parts.append(f"Pre-Market: ${pre_open:.2f} ({pre_gap_pct:+.2f}%)")
+            if rth_gap_pct is not None:
+                msg_parts.append(f"RTH: ${rth_open:.2f} ({rth_gap_pct:+.2f}%)")
+                
             report.issues.append(DataIssue(
                 rule="DATA_GAP_MISMATCH",
                 severity="critical",
                 field="behavioralSentiment.emotionalTone",
                 message=(
-                    f"Claims 'gap down' but pre-market opened at ${pre_open:.2f} vs "
-                    f"prev close ${prev_close:.2f} ({gap_pct:+.2f}%). "
-                    f"No meaningful gap down detected."
+                    f"Claims 'gap down' vs prev close ${prev_close:.2f}, but: " +
+                    " / ".join(msg_parts) + ". No meaningful gap down detected."
                 )
             ))
 
