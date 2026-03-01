@@ -844,6 +844,11 @@ def update_economy_card(
     
     combined_etf_evidence = "[IMPACT ENGINE CONTEXT]\\n" + json.dumps(etf_impact_data, indent=2)
 
+    # --- Record data availability for the dashboard table ---
+    has_news = bool(daily_market_news and daily_market_news.strip())
+    has_data = len(etf_impact_data) > 0 and any("error" not in v for v in etf_impact_data.values())
+    TRACKER.log_data_availability("ECONOMY", has_news=has_news, has_data=has_data)
+
     # --- Prompt (Rebuilt to match Company Card pattern — explicit JSON format in prompt, no schema enforcement) ---
     system_prompt = (
         "You are an expert Macro Strategist. Your *only* job is to synthesize raw market news "
