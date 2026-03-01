@@ -1050,7 +1050,7 @@ class TestValidationSummaryTable:
         qr = QualityReport(card_type="company", ticker="APP")
         qr.issues.append(QualityIssue(
             rule="CONTENT_PLACEHOLDER", severity="critical",
-            field="fundamentalContext.valuation",
+            field="fundamentalContext.analystSentiment",
             message="Field contains prompt placeholder text"
         ))
         tracker.log_quality("APP", qr)
