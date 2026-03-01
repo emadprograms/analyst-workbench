@@ -653,8 +653,8 @@ class TestTimeoutHandling:
 
     @patch('modules.ai.ai_services.KEY_MANAGER')
     @patch('requests.post')
-    def test_http_timeout_is_240_seconds(self, mock_post, mock_km):
-        """HTTP timeout should be 240s (4 min) to balance reliability with resource efficiency."""
+    def test_http_timeout_is_180_seconds(self, mock_post, mock_km):
+        """HTTP timeout should be 180s (3 min) to balance reliability with resource efficiency."""
         from modules.ai.ai_services import call_gemini_api
 
         mock_km.estimate_tokens.return_value = 100
@@ -673,6 +673,5 @@ class TestTimeoutHandling:
 
         # Verify the timeout parameter passed to requests.post
         call_kwargs = mock_post.call_args
-        assert call_kwargs.kwargs.get('timeout') == 240 or \
-               (call_kwargs[1].get('timeout') == 240 if len(call_kwargs) > 1 else False), \
-            f"HTTP timeout should be 240s, got {call_kwargs}"
+        actual_timeout = call_kwargs.kwargs.get('timeout')
+        assert actual_timeout == 180, f"HTTP timeout should be 180s, got {actual_timeout}"
