@@ -467,10 +467,16 @@ def _check_held_support_claim(card: dict, context: dict, report: DataReport):
         except ValueError:
             continue
 
-        # If RTH low broke significantly below the claimed support level
         # Allow a small tolerance (0.5%) for intraday wicks
         tolerance = claimed_support * 0.005
-        if rth_low < (claimed_support - tolerance):
+        if rth_low >= (claimed_support - tolerance):
+            continue
+
+        # If it broke the absolute low tolerance, check HOW LONG it stayed broken using time blocks.
+        migration = rth.get("value_migration", [])
+        
+        if not migration:
+            # Fallback to strict math if time blocks are missing
             breach_pct = ((claimed_support - rth_low) / claimed_support) * 100
             report.issues.append(DataIssue(
                 rule="DATA_SUPPORT_BREACHED",
@@ -482,7 +488,31 @@ def _check_held_support_claim(card: dict, context: dict, report: DataReport):
                     f"Support was breached, not held."
                 )
             ))
+            continue
 
+        # Time-based validation: Count how many 30-min blocks had their Point of Control (POC) below support.
+        # POC is where the majority of volume traded. If POC is below support, value formally migrated lower.
+        blocks_below = 0
+        for block in migration:
+            poc = block.get("POC")
+            if poc is not None and poc < claimed_support:
+                blocks_below += 1
+                
+        # If it spent 2 or more blocks (1+ hours of majority volume) below support, it failed.
+        # If it was just 0 or 1 block (30 mins or less), it's a liquidity sweep and is allowed to be called "held".
+        if blocks_below >= 2:
+            breach_pct = ((claimed_support - rth_low) / claimed_support) * 100
+            report.issues.append(DataIssue(
+                rule="DATA_SUPPORT_BREACHED",
+                severity="critical",
+                field="behavioralSentiment.emotionalTone",
+                message=(
+                    f"Claims support 'held' at ${claimed_support:.2f} but value (POC) migrated below "
+                    f"it for {blocks_below} time blocks ({blocks_below * 30} mins). "
+                    f"RTH low was ${rth_low:.2f} ({breach_pct:.2f}% below). "
+                    f"Support was breached, not held."
+                )
+            ))
 
 # ─────────────────────────────────────────────
 # 3. Volume Validators

@@ -412,6 +412,23 @@ class TestSessionArcValidation:
         support_issues = [i for i in report.issues if i.rule == "DATA_SUPPORT_BREACHED"]
         assert len(support_issues) == 0
 
+    def test_held_support_claim_wick_allowed(self):
+        """Claims 'held $260', RTH low was $250 (huge wick), but all value migration POCs were > $260 → allowed."""
+        card = copy.deepcopy(SAMPLE_COMPANY_CARD)
+        card["behavioralSentiment"]["emotionalTone"] = (
+            "Accumulation - Reasoning: Buyers successfully defended $260."
+        )
+        ctx = copy.deepcopy(SAMPLE_CONTEXT_CARD)
+        ctx["sessions"]["regular_hours"]["low"] = 250.00
+        # Force all value migration POCs to be above 260.0, so the drop to 250 was just a fast wick
+        for block in ctx["sessions"]["regular_hours"]["value_migration"]:
+            if block["POC"] < 260.0:
+                block["POC"] = 260.50
+                
+        report = validate_company_data(card, ctx, ticker="AAPL", trade_date="2026-02-23")
+        support_issues = [i for i in report.issues if i.rule == "DATA_SUPPORT_BREACHED"]
+        assert len(support_issues) == 0  # Should allow the claim because value stayed above 260
+
 
 # ==========================================
 # VOLUME TESTS

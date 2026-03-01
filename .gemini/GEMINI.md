@@ -164,6 +164,14 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-03-01 — Time-Based Support/Resistance Validation (Wicks Allowed)
+
+#### Validator & Prompt Relaxation (`modules/ai/data_validators.py`, `modules/ai/ai_services.py`)
+*   **Reason**: The previous hard 0.5% tolerance on support levels was too mathematically rigid. In live markets, support "zones" frequently experience intra-day liquidity sweeps (wicks) below the level before quickly recovering. Punishing the AI for calling this a "defended support" ignored market realities.
+*   **Fix**: 
+    1.  **Data Validator (`data_validators.py`)**: Rewrote `_check_held_support_claim` to use a **Time-Based** validation approach. It now iteration through the 30-minute `value_migration` blocks. A support level is only considered "breached" if the Point of Control (POC) — where majority volume trades — migrates and stays below the support level for 2 or more blocks (1+ hours). Brief 0-1 block wicks below support are now legally allowed to be called "held".
+    2.  **AI Prompt (`ai_services.py`)**: Rebuilt the `MANDATORY TRUTH (SUPPORT/RESISTANCE)` rule to explicitly teach the AI this concept. It is now encouraged to accept intraday wicks as "holds", provided the value migration POCs confirm the rejection.
+
 ### 2026-03-01 — Support/Resistance Prompt Hallucination Fix
 
 #### AI Hallucination Prevention (`modules/ai/ai_services.py`)
