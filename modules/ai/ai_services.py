@@ -682,6 +682,11 @@ def update_company_card(
         
         final_card = deep_update(final_card, ai_data)
         
+        # --- STRIP DEPRECATED FIELDS ---
+        # Ensure 'valuation' is removed even if it exists in the previous database record
+        if "fundamentalContext" in final_card and "valuation" in final_card["fundamentalContext"]:
+            del final_card["fundamentalContext"]["valuation"]
+
         # 3. Manually update fields the AI shouldn't control
         final_card['basicContext']['tickerDate'] = f"{ticker} | {trade_date_str}"
 
