@@ -1015,7 +1015,7 @@ class TestValidationSummaryTable:
     """Tests for the per-ticker validation summary table in the Discord dashboard."""
 
     def test_validation_table_appears_for_company_updates(self):
-        """Validation Summary field should appear when tickers are successfully updated."""
+        """Quality Checks and Data Accuracy fields should appear when tickers are updated."""
         from modules.ai.quality_validators import QualityReport
         
         tracker = _make_mock_tracker()
@@ -1031,10 +1031,11 @@ class TestValidationSummaryTable:
         
         embeds = tracker.get_discord_embeds("2026-02-23")
         fields = embeds[0]["fields"]
-        val_fields = [f for f in fields if "Validation" in f.get("name", "")]
-        assert len(val_fields) >= 1, "Validation Summary field should exist"
-        assert "AAPL" in val_fields[0]["value"]
-        assert "✅" in val_fields[0]["value"]
+        q_fields = [f for f in fields if "Quality Checks" in f.get("name", "")]
+        d_fields = [f for f in fields if "Data Accuracy" == f.get("name", "").replace("📊 ", "")]
+        assert len(q_fields) >= 1, "Quality Checks field should exist"
+        assert "AAPL" in q_fields[0]["value"]
+        assert "✅" in q_fields[0]["value"]
 
     def test_validation_table_shows_failures(self):
         """Validation table should show ❌ for failed checks."""
@@ -1057,11 +1058,12 @@ class TestValidationSummaryTable:
         
         embeds = tracker.get_discord_embeds("2026-02-23")
         fields = embeds[0]["fields"]
-        val_fields = [f for f in fields if "Validation" in f.get("name", "")]
-        assert len(val_fields) >= 1
-        table_text = val_fields[0]["value"]
+        q_fields = [f for f in fields if "Quality Checks" in f.get("name", "")]
+        assert len(q_fields) >= 1
+        table_text = q_fields[0]["value"]
         assert "APP" in table_text
         assert "❌" in table_text  # Placeholder check should fail
+        assert "Placeholders" in table_text
 
     def test_validation_table_not_shown_for_failed_tickers(self):
         """Tickers that failed API calls should not appear in the validation table."""
@@ -1072,8 +1074,8 @@ class TestValidationSummaryTable:
         
         embeds = tracker.get_discord_embeds("2026-02-23")
         fields = embeds[0]["fields"]
-        val_fields = [f for f in fields if "Validation" in f.get("name", "")]
-        assert len(val_fields) == 0, "No validation table for failed-only runs"
+        q_fields = [f for f in fields if "Quality Checks" in f.get("name", "")]
+        assert len(q_fields) == 0, "No validation table for failed-only runs"
 
     def test_validation_table_multiple_tickers(self):
         """Table should show all successful tickers sorted alphabetically."""
@@ -1093,12 +1095,13 @@ class TestValidationSummaryTable:
         
         embeds = tracker.get_discord_embeds("2026-02-23")
         fields = embeds[0]["fields"]
-        val_fields = [f for f in fields if "Validation" in f.get("name", "")]
-        assert len(val_fields) >= 1
-        table_text = val_fields[0]["value"]
+        q_fields = [f for f in fields if "Quality Checks" in f.get("name", "")]
+        assert len(q_fields) >= 1
+        table_text = q_fields[0]["value"]
         # Should be sorted: AAPL before MSFT before TSLA
         aapl_pos = table_text.find("AAPL")
         msft_pos = table_text.find("MSFT")
         tsla_pos = table_text.find("TSLA")
         assert aapl_pos < msft_pos < tsla_pos, "Tickers should be sorted alphabetically"
+
 
