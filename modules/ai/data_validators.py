@@ -187,7 +187,7 @@ def _check_bias_vs_return(card: dict, context: dict, report: DataReport):
     elif bias == "Bullish" and day_return < -BIAS_WARNING_THRESHOLD:
         report.issues.append(DataIssue(
             rule="DATA_BIAS_MISMATCH",
-            severity="warning",
+            severity="critical",
             field="confidence",
             message=(
                 f"Trend_Bias is 'Bullish' but the day's return was "
@@ -210,7 +210,7 @@ def _check_bias_vs_return(card: dict, context: dict, report: DataReport):
     elif bias == "Bearish" and day_return > BIAS_WARNING_THRESHOLD:
         report.issues.append(DataIssue(
             rule="DATA_BIAS_MISMATCH",
-            severity="warning",
+            severity="critical",
             field="confidence",
             message=(
                 f"Trend_Bias is 'Bearish' but the day's return was "
@@ -263,7 +263,7 @@ def _check_price_trend_direction(card: dict, context: dict, report: DataReport):
     if claims_bullish and poc_change_pct < -1.5:
         report.issues.append(DataIssue(
             rule="DATA_TREND_MISMATCH",
-            severity="warning",
+            severity="critical",
             field="basicContext.priceTrend",
             message=(
                 f"priceTrend uses bullish language but intraday POC moved "
@@ -274,7 +274,7 @@ def _check_price_trend_direction(card: dict, context: dict, report: DataReport):
     elif claims_bearish and poc_change_pct > 1.5:
         report.issues.append(DataIssue(
             rule="DATA_TREND_MISMATCH",
-            severity="warning",
+            severity="critical",
             field="basicContext.priceTrend",
             message=(
                 f"priceTrend uses bearish language but intraday POC moved "
@@ -327,7 +327,7 @@ def _check_gap_claims(card: dict, context: dict, report: DataReport):
         if gap_pct < 0.1:  # essentially flat or negative
             report.issues.append(DataIssue(
                 rule="DATA_GAP_MISMATCH",
-                severity="warning",
+                severity="critical",
                 field="behavioralSentiment.emotionalTone",
                 message=(
                     f"Claims 'gap up' but pre-market opened at ${pre_open:.2f} vs "
@@ -341,7 +341,7 @@ def _check_gap_claims(card: dict, context: dict, report: DataReport):
         if gap_pct > -0.1:
             report.issues.append(DataIssue(
                 rule="DATA_GAP_MISMATCH",
-                severity="warning",
+                severity="critical",
                 field="behavioralSentiment.emotionalTone",
                 message=(
                     f"Claims 'gap down' but pre-market opened at ${pre_open:.2f} vs "
@@ -392,7 +392,7 @@ def _check_higher_lows_claim(card: dict, context: dict, report: DataReport):
     if ascending_ratio < 0.4:
         report.issues.append(DataIssue(
             rule="DATA_HIGHER_LOWS_FALSE",
-            severity="warning",
+            severity="critical",
             field="behavioralSentiment.emotionalTone",
             message=(
                 f"Claims 'higher lows' but only {ascending_count}/{len(block_lows)-1} "
@@ -443,7 +443,7 @@ def _check_held_support_claim(card: dict, context: dict, report: DataReport):
             breach_pct = ((claimed_support - rth_low) / claimed_support) * 100
             report.issues.append(DataIssue(
                 rule="DATA_SUPPORT_BREACHED",
-                severity="warning",
+                severity="critical",
                 field="behavioralSentiment.emotionalTone",
                 message=(
                     f"Claims support 'held' at ${claimed_support:.2f} but RTH low "
@@ -560,7 +560,7 @@ def _check_volume_claims(card: dict, context: dict, report: DataReport):
             if claims_low and value_concentration > 0.70:
                 report.issues.append(DataIssue(
                     rule="DATA_VOLUME_PROFILE_MISMATCH",
-                    severity="warning",
+                    severity="critical",
                     field="technicalStructure.volumeMomentum",
                     message=(
                         f"Claims 'low/light volume' but Value Area covers "
@@ -633,7 +633,7 @@ def _check_ticker_date_consistency(
     if context_date and context_date != trade_date:
         report.issues.append(DataIssue(
             rule="DATA_CONTEXT_DATE_MISMATCH",
-            severity="warning",
+            severity="critical",
             field="meta.date",
             message=(
                 f"Impact Engine context card date is '{context_date}' but "
@@ -803,7 +803,7 @@ def _check_economy_bias_vs_spy(card: dict, spy_context: dict, report: DataReport
     elif is_bullish and spy_return < -BIAS_WARNING_THRESHOLD:
         report.issues.append(DataIssue(
             rule="DATA_ECON_BIAS_MISMATCH",
-            severity="warning",
+            severity="critical",
             field="marketBias",
             message=(
                 f"marketBias is '{bias}' but SPY returned "
@@ -825,7 +825,7 @@ def _check_economy_bias_vs_spy(card: dict, spy_context: dict, report: DataReport
     elif is_bearish and spy_return > BIAS_WARNING_THRESHOLD:
         report.issues.append(DataIssue(
             rule="DATA_ECON_BIAS_MISMATCH",
-            severity="warning",
+            severity="critical",
             field="marketBias",
             message=(
                 f"marketBias is '{bias}' but SPY returned "

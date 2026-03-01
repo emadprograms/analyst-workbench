@@ -46,7 +46,7 @@ SAMPLE_CONTEXT_CARD = {
     "reference": {
         "yesterday_high": 255.45,
         "yesterday_low": 253.30,
-        "yesterday_close": 255.30,
+        "yesterday_close": 253.30,
         "date": "2026-02-22",
     },
     "sessions": {
@@ -147,7 +147,6 @@ SAMPLE_COMPANY_CARD = {
         "volumeMomentum": "High-volume breakout. RTH volume surged with massive 1.4M share spike at the $257 reclaim, confirming Committed Buyer conviction.",
     },
     "fundamentalContext": {
-        "valuation": "28x forward P/E",
         "analystSentiment": "Strong Buy",
         "insiderActivity": "No material activity.",
         "peerPerformance": "Outperforming XLK by 2%.",
@@ -244,17 +243,17 @@ class TestBiasValidation:
         assert critical[0].severity == "critical"
         assert "Bullish" in critical[0].message
 
-    def test_bullish_bias_on_mild_down_day_warning(self):
-        """Bullish bias on a day that dropped 2-5% → warning."""
+    def test_bullish_bias_on_mild_down_day_critical(self):
+        """Bullish bias on a day that dropped 2-5% → critical."""
         ctx = copy.deepcopy(SAMPLE_CONTEXT_CARD)
         # ~275 → ~264 ≈ -4%
         ctx["reference"]["yesterday_close"] = 275.0
         report = validate_company_data(
             SAMPLE_COMPANY_CARD, ctx, ticker="AAPL", trade_date="2026-02-23",
         )
-        warnings = [i for i in report.issues if i.rule == "DATA_BIAS_MISMATCH"]
-        assert len(warnings) == 1
-        assert warnings[0].severity == "warning"
+        issues = [i for i in report.issues if i.rule == "DATA_BIAS_MISMATCH"]
+        assert len(issues) == 1
+        assert issues[0].severity == "critical"
 
     def test_bearish_bias_on_big_up_day_critical(self):
         """Bearish bias on a huge rally → critical."""
@@ -725,14 +724,14 @@ class TestEdgeCases:
         assert not report.passed
         assert report.critical_count == 1
 
-    def test_report_passed_with_warnings_only(self):
-        """DataReport with only warnings still passes."""
+    def test_report_all_issues_are_critical(self):
+        """DataReport: all data issues are critical severity."""
         report = DataReport(card_type="company", ticker="AAPL")
         report.issues.append(DataIssue(
-            rule="TEST", severity="warning", field="test", message="warn",
+            rule="TEST", severity="critical", field="test", message="data issue",
         ))
-        assert report.passed
-        assert report.warning_count == 1
+        assert not report.passed
+        assert report.critical_count == 1
 
     def test_full_validation_good_card_no_criticals(self):
         """A properly constructed card against matching data → no critical issues."""
@@ -746,10 +745,10 @@ class TestEdgeCases:
         """DataReport details() produces readable multi-line output."""
         report = DataReport(card_type="company", ticker="TEST")
         report.issues.append(DataIssue(
-            rule="DATA_TEST", severity="warning", field="test.field",
-            message="Test warning message",
+            rule="DATA_TEST", severity="critical", field="test.field",
+            message="Test critical message",
         ))
         details = report.details()
         assert "DATA_TEST" in details
-        assert "🟡" in details
+        assert "🔴" in details
         assert "test.field" in details

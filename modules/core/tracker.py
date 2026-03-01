@@ -311,6 +311,35 @@ class ExecutionTracker:
                 "inline": False
             })
 
+        # --- SECTION: 📊 Data Accuracy Issues ---
+        data_issue_tickers = [
+            t for t, info in outcomes.items()
+            if info.get('data_accuracy') in ('fail', 'warnings')
+        ]
+        if data_issue_tickers:
+            lines = []
+            for ticker in data_issue_tickers:
+                dc = outcomes[ticker].get('data_critical', 0)
+                dw = outcomes[ticker].get('data_warnings', 0)
+                issue_count = dc + dw
+                lines.append(f"🔴 **{ticker}** — {issue_count} data issue{'s' if issue_count != 1 else ''}")
+                
+                data_issues = self.metrics.data_reports.get(ticker, [])
+                for issue in data_issues:
+                    msg = issue['message']
+                    if len(msg) > 120:
+                        msg = msg[:117] + "..."
+                    lines.append(f"   🔴 `{issue['rule']}` → {msg}")
+            
+            text = "\n".join(lines)
+            if len(text) > 1024:
+                text = text[:1021] + "..."
+            embed["fields"].append({
+                "name": f"📊 Data Accuracy Issues ({len(data_issue_tickers)})",
+                "value": text,
+                "inline": False
+            })
+
         # --- SECTION: ❌ Failed ---
         if failed:
             lines = []

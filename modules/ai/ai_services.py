@@ -256,8 +256,8 @@ def update_company_card(
     # --- Extract the keyActionLog from the previous card ---
     previous_action_log = previous_overview_card_dict.get("technicalStructure", {}).get("keyActionLog", [])
     if isinstance(previous_action_log, list):
-         # Get the last 5 entries to keep the prompt context reasonable
-        recent_log_entries = previous_action_log[-5:]
+         # Get the last 10 entries to keep the prompt context reasonable
+        recent_log_entries = previous_action_log[-10:]
     else:
         recent_log_entries = [] # Handle corrupted data
 
@@ -647,16 +647,10 @@ def update_company_card(
                 trade_date=trade_date_str,
             )
             TRACKER.log_data_accuracy(ticker, dr)
-            if not dr.passed:
-                logger.warning(f"⚠️ DATA ACCURACY FAIL ({ticker}): {dr.critical_count} critical, {dr.warning_count} warnings")
+            if dr.issues:
+                logger.warning(f"⚠️ DATA ACCURACY ({ticker}): {dr.critical_count} issue(s)")
                 for issue in dr.issues:
-                    if issue.severity == 'critical':
-                        logger.warning(f"   🔴 [{issue.rule}] {issue.field}: {issue.message}")
-            elif dr.warning_count > 0:
-                logger.log(f"   📊 Data Accuracy: PASS with {dr.warning_count} warnings for {ticker}")
-                for issue in dr.issues:
-                    if issue.severity == 'warning':
-                        logger.warning(f"   🟡 [{issue.rule}] {issue.field}: {issue.message}")
+                    logger.warning(f"   🔴 [{issue.rule}] {issue.field}: {issue.message}")
             else:
                 logger.log(f"   📊 Data Accuracy: PERFECT for {ticker}")
         except Exception as de:
@@ -1002,16 +996,10 @@ def update_economy_card(
                 trade_date=trade_date_str,
             )
             TRACKER.log_data_accuracy("ECONOMY", dr)
-            if not dr.passed:
-                logger.warning(f"⚠️ DATA ACCURACY FAIL (ECONOMY): {dr.critical_count} critical, {dr.warning_count} warnings")
+            if dr.issues:
+                logger.warning(f"⚠️ DATA ACCURACY (ECONOMY): {dr.critical_count} issue(s)")
                 for issue in dr.issues:
-                    if issue.severity == 'critical':
-                        logger.warning(f"   🔴 [{issue.rule}] {issue.field}: {issue.message}")
-            elif dr.warning_count > 0:
-                logger.log(f"   📊 Data Accuracy: PASS with {dr.warning_count} warnings for ECONOMY")
-                for issue in dr.issues:
-                    if issue.severity == 'warning':
-                        logger.warning(f"   🟡 [{issue.rule}] {issue.field}: {issue.message}")
+                    logger.warning(f"   🔴 [{issue.rule}] {issue.field}: {issue.message}")
             else:
                 logger.log(f"   📊 Data Accuracy: PERFECT for ECONOMY")
         except Exception as de:
