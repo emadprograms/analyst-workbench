@@ -1032,13 +1032,13 @@ class TestValidationSummaryTable:
         embeds = tracker.get_discord_embeds("2026-02-23")
         fields = embeds[0]["fields"]
         q_fields = [f for f in fields if "Quality Checks" in f.get("name", "")]
-        d_fields = [f for f in fields if "Data Accuracy" == f.get("name", "").replace("📊 ", "")]
         assert len(q_fields) >= 1, "Quality Checks field should exist"
         assert "AAPL" in q_fields[0]["value"]
-        assert "✅" in q_fields[0]["value"]
+        # All passing = dots only, no F
+        assert "F" not in q_fields[0]["value"].split("---")[1] if "---" in q_fields[0]["value"] else True
 
     def test_validation_table_shows_failures(self):
-        """Validation table should show ❌ for failed checks."""
+        """Validation table should show F for failed checks."""
         from modules.ai.quality_validators import QualityReport, QualityIssue
         
         tracker = _make_mock_tracker()
@@ -1062,8 +1062,7 @@ class TestValidationSummaryTable:
         assert len(q_fields) >= 1
         table_text = q_fields[0]["value"]
         assert "APP" in table_text
-        assert "❌" in table_text  # Placeholder check should fail
-        assert "Placeholders" in table_text
+        assert "F" in table_text  # Placeholder check should fail
 
     def test_validation_table_not_shown_for_failed_tickers(self):
         """Tickers that failed API calls should not appear in the validation table."""

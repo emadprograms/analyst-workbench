@@ -365,13 +365,13 @@ class ExecutionTracker:
         if quality_table:
             embed["fields"].append({
                 "name": "🧪 Quality Checks",
-                "value": quality_table,
+                "value": f"```\n{quality_table}\n```",
                 "inline": False
             })
         if data_table:
             embed["fields"].append({
                 "name": "📊 Data Accuracy",
-                "value": data_table,
+                "value": f"```\n{data_table}\n```",
                 "inline": False
             })
         
@@ -392,40 +392,72 @@ class ExecutionTracker:
 
         return embed
 
-    # ─── Quality check categories: rule prefix → short label ───
+    # ─── Quality check categories ───
     QUALITY_CHECKS = [
-        ("Schema",       ["SCHEMA_MISSING", "SCHEMA_TYPE"]),
-        ("Placeholders", ["CONTENT_PLACEHOLDER"]),
-        ("Action Log",   ["ACTION_LOG_MISSING", "ACTION_LOG_FORMAT", "ACTION_EMPTY",
-                          "ACTION_NO_DATE", "ACTION_TOO_LONG", "ACTION_DEGENERATION",
-                          "ACTION_CARD_DUMP"]),
-        ("Confidence",   ["CONFIDENCE_NO_BIAS", "CONFIDENCE_NO_STORY",
-                          "CONFIDENCE_BAD_RATING", "CONFIDENCE_NO_REASONING"]),
-        ("Screener",     ["SCREENER_MISSING_KEY", "SCREENER_BAD_BIAS"]),
-        ("Tone",         ["TONE_NO_PATTERN", "TONE_NO_STATE", "TONE_NO_ACTS"]),
-        ("Participants", ["PARTICIPANT_MISSING"]),
-        ("Plans",        ["PLAN_NO_PRICE"]),
-        ("Substance",    ["CONTENT_THIN"]),
+        ("Sch", ["SCHEMA_MISSING", "SCHEMA_TYPE"]),
+        ("Plc", ["CONTENT_PLACEHOLDER"]),
+        ("Act", ["ACTION_LOG_MISSING", "ACTION_LOG_FORMAT", "ACTION_EMPTY",
+                 "ACTION_NO_DATE", "ACTION_TOO_LONG", "ACTION_DEGENERATION",
+                 "ACTION_CARD_DUMP"]),
+        ("Con", ["CONFIDENCE_NO_BIAS", "CONFIDENCE_NO_STORY",
+                 "CONFIDENCE_BAD_RATING", "CONFIDENCE_NO_REASONING"]),
+        ("Scr", ["SCREENER_MISSING_KEY", "SCREENER_BAD_BIAS"]),
+        ("Ton", ["TONE_NO_PATTERN", "TONE_NO_STATE", "TONE_NO_ACTS"]),
+        ("Par", ["PARTICIPANT_MISSING"]),
+        ("Pln", ["PLAN_NO_PRICE"]),
+        ("Sub", ["CONTENT_THIN"]),
     ]
+    QUALITY_LEGEND = "Sch=Schema Plc=Placeholders Act=ActionLog Con=Confidence Scr=Screener Ton=Tone Par=Participants Pln=Plans Sub=Substance"
 
-    # ─── Data accuracy check categories: rule prefix → short label ───
+    # ─── Data accuracy check categories ───
     DATA_CHECKS = [
-        ("Bias vs Price", ["DATA_BIAS_CONTRADICTION", "DATA_BIAS_MISMATCH"]),
-        ("Price Trend",   ["DATA_TREND_MISMATCH"]),
-        ("Gap Claims",    ["DATA_GAP_MISMATCH"]),
-        ("Higher Lows",   ["DATA_HIGHER_LOWS_FALSE"]),
-        ("Support Held",  ["DATA_SUPPORT_BREACHED"]),
-        ("Volume",        ["DATA_VOLUME_MISMATCH", "DATA_VOLUME_PROFILE_MISMATCH"]),
-        ("Date/Ticker",   ["DATA_TICKER_WRONG", "DATA_DATE_WRONG",
-                           "DATA_LOG_DATE_STALE", "DATA_CONTEXT_DATE_MISMATCH",
-                           "DATA_CONTEXT_TICKER_MISMATCH"]),
+        ("Bias", ["DATA_BIAS_CONTRADICTION", "DATA_BIAS_MISMATCH"]),
+        ("Trnd", ["DATA_TREND_MISMATCH"]),
+        ("Gaps", ["DATA_GAP_MISMATCH"]),
+        ("HiLo", ["DATA_HIGHER_LOWS_FALSE"]),
+        ("Sup",  ["DATA_SUPPORT_BREACHED"]),
+        ("Vol",  ["DATA_VOLUME_MISMATCH", "DATA_VOLUME_PROFILE_MISMATCH"]),
+        ("Date", ["DATA_TICKER_WRONG", "DATA_DATE_WRONG",
+                  "DATA_LOG_DATE_STALE", "DATA_CONTEXT_DATE_MISMATCH",
+                  "DATA_CONTEXT_TICKER_MISMATCH"]),
     ]
+    DATA_LEGEND = "Bias=BiasVsPrice Trnd=PriceTrend Gaps=GapClaims HiLo=HigherLows Sup=SupportHeld Vol=Volume Date=Date/Ticker"
+
+    @staticmethod
+    def _render_table(tickers, checks, issues_by_ticker, col_width=4):
+        """
+        Renders a monospace table with P (pass) / F (FAIL) markers.
+        
+        Args:
+            tickers: sorted list of ticker symbols
+            checks: list of (label, [rule_names]) tuples
+            issues_by_ticker: dict of ticker -> set of failed rule names
+            col_width: character width per column
+        Returns:
+            Monospace table string
+        """
+        labels = [label for label, _ in checks]
+        # Header row
+        header = "Ticker" + " | " + " ".join(f"{l:>{col_width}}" for l in labels)
+        separator = "-" * len(header)
+        
+        rows = [header, separator]
+        for ticker in tickers:
+            failed_rules = issues_by_ticker.get(ticker, set())
+            cols = []
+            for _, rules in checks:
+                is_fail = any(r in failed_rules for r in rules)
+                marker = "  F " if is_fail else "  . "
+                cols.append(f"{marker:>{col_width}}")
+            rows.append(f"{ticker:<6}" + " | " + " ".join(cols))
+        
+        return "\n".join(rows)
 
     def _build_validation_tables(self):
         """
-        Builds two separate per-ticker validation summary tables:
+        Builds two separate monospace code-block tables:
         one for Quality checks, one for Data Accuracy checks.
-        Uses Discord markdown (not code blocks) for clean emoji rendering.
+        Uses ASCII P/F markers that render cleanly in Discord code blocks.
         
         Returns:
             (quality_table_str, data_table_str) — either may be empty.
@@ -438,42 +470,29 @@ class ExecutionTracker:
         if not tickers:
             return "", ""
 
-        # --- Quality Table ---
-        q_lines = []
-        for ticker in tickers:
-            q_issues = {i['rule'] for i in self.metrics.quality_reports.get(ticker, [])}
-            checks = []
-            for label, rules in self.QUALITY_CHECKS:
-                failed = any(r in q_issues for r in rules)
-                icon = "❌" if failed else "✅"
-                checks.append(f"{icon}`{label}`")
-            q_lines.append(f"**{ticker}**: {' '.join(checks)}")
+        # Build quality issues map
+        q_issues = {}
+        for t in tickers:
+            q_issues[t] = {i['rule'] for i in self.metrics.quality_reports.get(t, [])}
+        
+        quality_table = self._render_table(tickers, self.QUALITY_CHECKS, q_issues)
+        quality_table += f"\n{self.QUALITY_LEGEND}"
 
-        quality_text = "\n".join(q_lines)
-        if len(quality_text) > 1024:
-            quality_text = quality_text[:1021] + "..."
+        # Build data issues map
+        d_issues = {}
+        for t in tickers:
+            d_issues[t] = {i['rule'] for i in self.metrics.data_reports.get(t, [])}
+        
+        data_table = self._render_table(tickers, self.DATA_CHECKS, d_issues)
+        data_table += f"\n{self.DATA_LEGEND}"
 
-        # --- Data Table ---
-        d_lines = []
-        for ticker in tickers:
-            d_issues = {i['rule'] for i in self.metrics.data_reports.get(ticker, [])}
-            has_data = len(self.metrics.data_reports.get(ticker, [])) > 0 or \
-                       outcomes[ticker].get('data_accuracy') is not None
-            if not has_data:
-                d_lines.append(f"**{ticker}**: ⏭️ *No data context*")
-                continue
-            checks = []
-            for label, rules in self.DATA_CHECKS:
-                failed = any(r in d_issues for r in rules)
-                icon = "❌" if failed else "✅"
-                checks.append(f"{icon}`{label}`")
-            d_lines.append(f"**{ticker}**: {' '.join(checks)}")
+        # Truncate if needed (Discord 1024 char limit minus code block fences)
+        if len(quality_table) > 1010:
+            quality_table = quality_table[:1007] + "..."
+        if len(data_table) > 1010:
+            data_table = data_table[:1007] + "..."
 
-        data_text = "\n".join(d_lines)
-        if len(data_text) > 1024:
-            data_text = data_text[:1021] + "..."
-
-        return quality_text, data_text
+        return quality_table, data_table
 
     def _build_data_embed(self, target_date: str, summary: dict, color: int) -> dict:
         """Build the embed for non-AI actions (News, Inspect, etc.)."""
