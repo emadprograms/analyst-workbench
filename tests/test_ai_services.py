@@ -51,7 +51,6 @@ SAMPLE_PREVIOUS_COMPANY_CARD = {
         "volumeMomentum": "High volume at support"
     },
     "fundamentalContext": {
-        "valuation": "25x P/E",
         "analystSentiment": "Overweight",
         "insiderActivity": "No recent activity",
         "peerPerformance": "Outperforming sector"
@@ -96,7 +95,6 @@ SAMPLE_AI_COMPANY_RESPONSE = {
         "volumeMomentum": "Very high volume on breakout"
     },
     "fundamentalContext": {
-        "valuation": "25x P/E",
         "analystSentiment": "Strong Buy upgrade",
         "insiderActivity": "No recent activity",
         "peerPerformance": "Leading sector"

@@ -164,7 +164,7 @@ SAMPLE_BAD_COMPANY_CARD_DUMP = {
                 "with the alternativePlan being a short at $280. The behavioralSentiment "
                 "shows Committed Buyers in control with Accumulation pattern. Volume was "
                 "2x average confirming the volumeMomentum thesis. The fundamentalContext "
-                "valuation at 85x P/E remains elevated but justified by growth. "
+                "shows strong analyst conviction. "
                 "Peer performance shows outperformance vs XLY sector. "
                 "The technicalStructure pattern shows a multi-day ascending channel formation "
                 "with the volumeProfile POC migrating higher toward $270 confirming sustained "

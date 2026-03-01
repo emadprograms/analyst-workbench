@@ -52,7 +52,7 @@ SAMPLE_COMPANY_CARD = json.dumps({
                      "priceTrend": "Up", "recentCatalyst": "Earnings"},
     "technicalStructure": {"majorSupport": "$200", "majorResistance": "$220",
                            "pattern": "Consolidation", "keyActionLog": [], "volumeMomentum": "High"},
-    "fundamentalContext": {"valuation": "Fair", "analystSentiment": "Buy",
+    "fundamentalContext": {"analystSentiment": "Buy",
                            "insiderActivity": "None", "peerPerformance": "Inline"},
     "behavioralSentiment": {"buyerVsSeller": "Buyers", "emotionalTone": "Calm", "newsReaction": "Neutral"},
     "openingTradePlan": {"planName": "Long", "knownParticipant": "Buyers", "expectedParticipant": "FOMO",
