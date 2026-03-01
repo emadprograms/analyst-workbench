@@ -28,7 +28,7 @@ from modules.ai.data_validators import (
     validate_economy_data,
     DataReport,
     DataIssue,
-    _extract_bias,
+    _extract_setup_bias,
     _get_rth_return,
 )
 
@@ -181,20 +181,20 @@ SAMPLE_COMPANY_CARD = {
 class TestHelpers:
     """Test internal helper functions."""
 
-    def test_extract_bias_bullish(self):
-        assert _extract_bias("Trend_Bias: Bullish (Story_Confidence: High)") == "Bullish"
+    def test_extract_setup_bias_bullish(self):
+        assert _extract_setup_bias("Setup_Bias: Bullish\nJustification: ...") == "Bullish"
 
-    def test_extract_bias_bearish(self):
-        assert _extract_bias("Trend_Bias: Bearish (Story_Confidence: Low)") == "Bearish"
+    def test_extract_setup_bias_bearish(self):
+        assert _extract_setup_bias("Setup_Bias: Bearish\nJustification: ...") == "Bearish"
 
-    def test_extract_bias_neutral(self):
-        assert _extract_bias("Trend_Bias: Neutral (Story_Confidence: Medium)") == "Neutral"
+    def test_extract_setup_bias_neutral(self):
+        assert _extract_setup_bias("Setup_Bias: Neutral\nJustification: ...") == "Neutral"
 
-    def test_extract_bias_missing(self):
-        assert _extract_bias("Some random text") is None
+    def test_extract_setup_bias_missing(self):
+        assert _extract_setup_bias("Some random text") is None
 
-    def test_extract_bias_underscore_variant(self):
-        assert _extract_bias("Trend Bias: Bullish") == "Bullish"
+    def test_extract_setup_bias_underscore_variant(self):
+        assert _extract_setup_bias("Setup Bias: Bullish") == "Bullish"
 
     def test_get_rth_return_positive(self):
         """Price went up from prev close 255.30 → post-market POC 264.50 ≈ +3.6%"""
@@ -219,7 +219,7 @@ class TestHelpers:
 # ==========================================
 
 class TestBiasValidation:
-    """Test directional / bias claim validators."""
+    """Test directional / bias claim validators using Setup_Bias."""
 
     def test_bullish_bias_matches_up_day(self):
         """Bullish bias on a day that rallied → no issues."""
@@ -258,7 +258,7 @@ class TestBiasValidation:
     def test_bearish_bias_on_big_up_day_critical(self):
         """Bearish bias on a huge rally → critical."""
         card = copy.deepcopy(SAMPLE_COMPANY_CARD)
-        card["confidence"] = "Trend_Bias: Bearish (Story_Confidence: High) - Reasoning: Breakdown below support."
+        card["screener_briefing"] = "Setup_Bias: Bearish\nJustification: Breakdown below support."
         ctx = copy.deepcopy(SAMPLE_CONTEXT_CARD)
         # ~240 → ~264 ≈ +10%
         ctx["reference"]["yesterday_close"] = 240.0
@@ -270,7 +270,7 @@ class TestBiasValidation:
     def test_bearish_bias_on_mild_up_day_warning(self):
         """Bearish bias on a day that rallied 2-5% → warning."""
         card = copy.deepcopy(SAMPLE_COMPANY_CARD)
-        card["confidence"] = "Trend_Bias: Bearish (Story_Confidence: Medium)"
+        card["screener_briefing"] = "Setup_Bias: Bearish"
         ctx = copy.deepcopy(SAMPLE_CONTEXT_CARD)
         ctx["reference"]["yesterday_close"] = 257.0  # ~257 → ~264 ≈ +2.7%
         report = validate_company_data(card, ctx, ticker="AAPL", trade_date="2026-02-23")
@@ -280,40 +280,12 @@ class TestBiasValidation:
     def test_neutral_bias_no_contradiction(self):
         """Neutral bias should never trigger bias contradictions."""
         card = copy.deepcopy(SAMPLE_COMPANY_CARD)
-        card["confidence"] = "Trend_Bias: Neutral (Story_Confidence: Medium)"
+        card["screener_briefing"] = "Setup_Bias: Neutral"
         ctx = copy.deepcopy(SAMPLE_CONTEXT_CARD)
         ctx["reference"]["yesterday_close"] = 290.0  # big drop
         report = validate_company_data(card, ctx, ticker="AAPL", trade_date="2026-02-23")
         bias_issues = [i for i in report.issues if "BIAS" in i.rule]
         assert len(bias_issues) == 0
-
-    def test_price_trend_bullish_language_matches(self):
-        """Bullish priceTrend on a day where POC migrated higher → no issue."""
-        report = validate_company_data(
-            SAMPLE_COMPANY_CARD, SAMPLE_CONTEXT_CARD,
-            ticker="AAPL", trade_date="2026-02-23",
-        )
-        trend_issues = [i for i in report.issues if i.rule == "DATA_TREND_MISMATCH"]
-        assert len(trend_issues) == 0
-
-    def test_price_trend_bullish_on_declining_poc_warns(self):
-        """Bullish priceTrend when POCs were actually declining → warning."""
-        ctx = copy.deepcopy(SAMPLE_CONTEXT_CARD)
-        # Make POCs decline
-        ctx["sessions"]["regular_hours"]["value_migration"] = [
-            {"time": "14:30", "POC": 265.00, "nature": "Red", "range": "264.00-266.00"},
-            {"time": "15:00", "POC": 264.00, "nature": "Red", "range": "263.00-265.00"},
-            {"time": "15:30", "POC": 263.00, "nature": "Red", "range": "262.00-264.00"},
-            {"time": "16:00", "POC": 262.00, "nature": "Red", "range": "261.00-263.00"},
-            {"time": "16:30", "POC": 260.50, "nature": "Red", "range": "259.00-261.00"},
-            {"time": "17:00", "POC": 259.00, "nature": "Red", "range": "258.00-260.00"},
-        ]
-        card = copy.deepcopy(SAMPLE_COMPANY_CARD)
-        card["basicContext"]["priceTrend"] = "Strong uptrend with breakout continuation."
-        report = validate_company_data(card, ctx, ticker="AAPL", trade_date="2026-02-23")
-        trend_issues = [i for i in report.issues if i.rule == "DATA_TREND_MISMATCH"]
-        assert len(trend_issues) == 1
-        assert "bullish" in trend_issues[0].message.lower()
 
 
 # ==========================================

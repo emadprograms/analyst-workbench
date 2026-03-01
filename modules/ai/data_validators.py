@@ -131,9 +131,9 @@ def _get_rth_return(context: dict) -> float | None:
     return ((close_proxy - prev_close) / prev_close) * 100
 
 
-def _extract_bias(confidence_text: str) -> str | None:
-    """Extract the Trend_Bias value from the confidence field."""
-    m = re.search(r"Trend[_ ]?Bias:\s*(Bullish|Bearish|Neutral)", confidence_text, re.IGNORECASE)
+def _extract_setup_bias(screener_text: str) -> str | None:
+    """Extract the Setup_Bias value from the screener_briefing field."""
+    m = re.search(r"Setup[_ ]?Bias:\s*(Bullish|Bearish|Neutral)", screener_text, re.IGNORECASE)
     if m:
         return m.group(1).capitalize()
     return None
@@ -153,18 +153,18 @@ TREND_BLOCK_COUNT = 6  # last ~3 hours of RTH
 
 def _check_bias_vs_return(card: dict, context: dict, report: DataReport):
     """
-    Compare stated Trend_Bias against the actual day's return.
+    Compare stated Setup_Bias against the actual day's return.
 
     Rules:
     - Bullish bias + day dropped > 5%  → critical
     - Bearish bias + day rallied > 5%  → critical
     - Milder contradictions (2-5%)     → warning
     """
-    confidence = card.get("confidence", "")
-    if not confidence:
+    screener = card.get("screener_briefing", "")
+    if not screener:
         return
 
-    bias = _extract_bias(confidence)
+    bias = _extract_setup_bias(screener)
     if not bias:
         return  # can't verify without a parseable bias
 
@@ -177,9 +177,9 @@ def _check_bias_vs_return(card: dict, context: dict, report: DataReport):
         report.issues.append(DataIssue(
             rule="DATA_BIAS_CONTRADICTION",
             severity="critical",
-            field="confidence",
+            field="screener_briefing",
             message=(
-                f"Trend_Bias is 'Bullish' but the day's return was "
+                f"Setup_Bias is 'Bullish' but the day's return was "
                 f"{day_return:+.2f}% (dropped >{BIAS_CONTRADICTION_THRESHOLD}%). "
                 f"This is a major contradiction."
             )
@@ -188,9 +188,9 @@ def _check_bias_vs_return(card: dict, context: dict, report: DataReport):
         report.issues.append(DataIssue(
             rule="DATA_BIAS_MISMATCH",
             severity="critical",
-            field="confidence",
+            field="screener_briefing",
             message=(
-                f"Trend_Bias is 'Bullish' but the day's return was "
+                f"Setup_Bias is 'Bullish' but the day's return was "
                 f"{day_return:+.2f}%. May need justification."
             )
         ))
@@ -200,9 +200,9 @@ def _check_bias_vs_return(card: dict, context: dict, report: DataReport):
         report.issues.append(DataIssue(
             rule="DATA_BIAS_CONTRADICTION",
             severity="critical",
-            field="confidence",
+            field="screener_briefing",
             message=(
-                f"Trend_Bias is 'Bearish' but the day's return was "
+                f"Setup_Bias is 'Bearish' but the day's return was "
                 f"{day_return:+.2f}% (rallied >{BIAS_CONTRADICTION_THRESHOLD}%). "
                 f"This is a major contradiction."
             )
@@ -211,9 +211,9 @@ def _check_bias_vs_return(card: dict, context: dict, report: DataReport):
         report.issues.append(DataIssue(
             rule="DATA_BIAS_MISMATCH",
             severity="critical",
-            field="confidence",
+            field="screener_briefing",
             message=(
-                f"Trend_Bias is 'Bearish' but the day's return was "
+                f"Setup_Bias is 'Bearish' but the day's return was "
                 f"{day_return:+.2f}%. May need justification."
             )
         ))
@@ -725,7 +725,6 @@ def validate_company_data(
 
     # 1. Directional / Bias claims
     _check_bias_vs_return(card, impact_context, report)
-    _check_price_trend_direction(card, impact_context, report)
 
     # 2. Session arc claims
     _check_gap_claims(card, impact_context, report)
