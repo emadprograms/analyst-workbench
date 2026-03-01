@@ -825,7 +825,7 @@ class TestDashboardLayout:
         for i, ticker in enumerate(["AAPL", "MSFT", "GOOGL", "AMZN", "META", 
                                      "NVDA", "TSLA", "ADBE", "CRM", "ORCL",
                                      "INTC", "AMD", "QCOM", "AVGO", "TXN",
-                                     "AMAT", "LRCX", "KLAC", "MRVL"]):
+                                     "AMAT", "SHOP", "KLAC", "MRVL"]):
             # Some tickers had retries
             if i < 10:
                 tracker.log_retry("model", ticker=ticker, reason="429")
@@ -1022,7 +1022,6 @@ class TestValidationSummaryTable:
         tracker.action_type = "Company_Card_Update"
         tracker.log_call(1000, True, "model", ticker="AAPL")
         
-        # Perfect quality + perfect data
         qr = QualityReport(card_type="company", ticker="AAPL")
         tracker.log_quality("AAPL", qr)
         tracker.metrics.data_reports["AAPL"] = []
@@ -1034,12 +1033,14 @@ class TestValidationSummaryTable:
         q_fields = [f for f in fields if "Quality Checks" in f.get("name", "")]
         assert len(q_fields) >= 1, "Quality Checks field should exist"
         assert "AAPL" in q_fields[0]["value"]
-        # All passing = ✅ only, no ❌
-        assert "❌" not in q_fields[0]["value"] 
-        assert "✅" in q_fields[0]["value"]
+        # All passing = dots only, no F markers in data rows
+        data_rows = q_fields[0]["value"].split("\n")
+        ticker_rows = [r for r in data_rows if "AAPL" in r]
+        assert len(ticker_rows) >= 1
+        assert "F" not in ticker_rows[0]
 
     def test_validation_table_shows_failures(self):
-        """Validation table should show ❌ for failed checks."""
+        """Validation table should show F for failed checks."""
         from modules.ai.quality_validators import QualityReport, QualityIssue
         
         tracker = _make_mock_tracker()
@@ -1063,7 +1064,9 @@ class TestValidationSummaryTable:
         assert len(q_fields) >= 1
         table_text = q_fields[0]["value"]
         assert "APP" in table_text
-        assert "❌" in table_text  # Placeholder check should fail
+        # The Plc (placeholder) column should show F
+        ticker_rows = [r for r in table_text.split("\n") if "APP" in r]
+        assert "F" in ticker_rows[0]
 
     def test_validation_table_not_shown_for_failed_tickers(self):
         """Tickers that failed API calls should not appear in the validation table."""
@@ -1098,10 +1101,37 @@ class TestValidationSummaryTable:
         q_fields = [f for f in fields if "Quality Checks" in f.get("name", "")]
         assert len(q_fields) >= 1
         table_text = q_fields[0]["value"]
-        # Should be sorted: AAPL before MSFT before TSLA
         aapl_pos = table_text.find("AAPL")
         msft_pos = table_text.find("MSFT")
         tsla_pos = table_text.find("TSLA")
         assert aapl_pos < msft_pos < tsla_pos, "Tickers should be sorted alphabetically"
+
+    def test_data_inputs_table_shows_availability(self):
+        """Data Inputs table should show . for available and F for missing."""
+        from modules.ai.quality_validators import QualityReport
+        
+        tracker = _make_mock_tracker()
+        tracker.action_type = "Company_Card_Update"
+        tracker.log_call(1000, True, "model", ticker="AAPL")
+        
+        qr = QualityReport(card_type="company", ticker="AAPL")
+        tracker.log_quality("AAPL", qr)
+        tracker.metrics.data_reports["AAPL"] = []
+        tracker.metrics.ticker_outcomes["AAPL"]["data_accuracy"] = "perfect"
+        # AAPL has news but no market data
+        tracker.log_data_availability("AAPL", has_news=True, has_data=False)
+        tracker.finish()
+        
+        embeds = tracker.get_discord_embeds("2026-02-23")
+        fields = embeds[0]["fields"]
+        input_fields = [f for f in fields if "Data Inputs" in f.get("name", "")]
+        assert len(input_fields) >= 1, "Data Inputs field should exist"
+        table_text = input_fields[0]["value"]
+        assert "AAPL" in table_text
+        # Should have one . (news) and one F (data)
+        ticker_rows = [r for r in table_text.split("\n") if "AAPL" in r]
+        assert "." in ticker_rows[0]
+        assert "F" in ticker_rows[0]
+
 
 

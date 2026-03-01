@@ -13,7 +13,7 @@ ACTIONS_URL = f"<https://github.com/{GITHUB_REPO}/actions>"
 STOCK_TICKERS = [
     "AAPL", "AMZN", "APP", "ABT", "PEP", "TSLA", "NVDA", "AMD",
     "SNOW", "NET", "PLTR", "MU", "ORCL", "TSM",
-    "ADBE", "AVGO", "BABA", "GOOGL", "LRCX", "META", "MSFT", 
+    "ADBE", "AVGO", "BABA", "GOOGL", "META", "MSFT", 
     "NDAQ", "PANW", "QCOM", "SHOP"
 ]
 ETF_TICKERS = [

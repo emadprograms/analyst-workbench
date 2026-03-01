@@ -22,6 +22,8 @@ class ExecutionMetrics:
     quality_reports: Dict[str, List[Dict[str, str]]] = field(default_factory=dict)
     # Per-ticker data-accuracy reports: ticker -> list of {rule, severity, field, message}
     data_reports: Dict[str, List[Dict[str, str]]] = field(default_factory=dict)
+    # Per-ticker data availability: ticker -> {has_news: bool, has_data: bool}
+    data_availability: Dict[str, Dict[str, bool]] = field(default_factory=dict)
 
 class ExecutionTracker:
     """
@@ -162,6 +164,14 @@ class ExecutionTracker:
             else:
                 outcome['data_accuracy'] = 'perfect'
             self.metrics.ticker_outcomes[ticker] = outcome
+
+    def log_data_availability(self, ticker: str, has_news: bool, has_data: bool):
+        """Records whether news context and market data were available for a ticker."""
+        with self._lock:
+            self.metrics.data_availability[ticker] = {
+                'has_news': has_news,
+                'has_data': has_data
+            }
 
     def register_artifact(self, name: str, content: str):
         """Registers a generated card (JSON) to be attached to the report."""
@@ -361,7 +371,7 @@ class ExecutionTracker:
             })
 
         # --- SECTION: 🧪 Validation Summary Tables ---
-        quality_table, data_table = self._build_validation_tables()
+        quality_table, data_table, input_table = self._build_validation_tables()
         if quality_table:
             embed["fields"].append({
                 "name": "🧪 Quality Checks",
@@ -372,6 +382,12 @@ class ExecutionTracker:
             embed["fields"].append({
                 "name": "📊 Data Accuracy",
                 "value": f"```\n{data_table}\n```",
+                "inline": False
+            })
+        if input_table:
+            embed["fields"].append({
+                "name": "📰 Data Inputs",
+                "value": f"```\n{input_table}\n```",
                 "inline": False
             })
         
@@ -423,6 +439,13 @@ class ExecutionTracker:
     ]
     DATA_LEGEND = "Bias:BiasVsPrice Trnd:PriceTrend Gaps:GapClaims HiLo:HigherLows Sup:SupportHeld Vol:Volume Date:Date/Ticker"
 
+    # ─── Data input checks ───
+    INPUT_CHECKS = [
+        ("News", "has_news"),
+        ("Data", "has_data"),
+    ]
+    INPUT_LEGEND = "News:SectorNewsContext Data:MarketDataContext"
+
     @staticmethod
     def _render_table(tickers, checks, issues_by_ticker):
         """
@@ -444,22 +467,22 @@ class ExecutionTracker:
             cols = []
             for _, rules in checks:
                 is_fail = any(r in failed_rules for r in rules)
-                # In Discord monospace, emoji + 2 spaces usually aligns with 3-4 char header
-                icon = "❌ " if is_fail else "✅ "
-                cols.append(f" {icon}")
+                marker = "  F " if is_fail else "  . "
+                cols.append(f"{marker:>4}")
             
-            rows.append(f"{ticker:<7} | " + " | ".join(cols))
+            rows.append(f"{ticker:<7} | " + " ".join(cols))
         
         return "\n".join(rows)
 
     def _build_validation_tables(self):
         """
-        Builds two separate monospace code-block tables:
-        one for Quality checks, one for Data Accuracy checks.
-        Uses ✅/❌ markers with careful alignment.
+        Builds three separate monospace code-block tables:
+        1. Quality checks
+        2. Data accuracy checks
+        3. Data input availability (news + market data)
         
         Returns:
-            (quality_table_str, data_table_str) — either may be empty.
+            (quality_table_str, data_table_str, input_table_str) — any may be empty.
         """
         outcomes = self.metrics.ticker_outcomes
         tickers = sorted([
@@ -467,7 +490,7 @@ class ExecutionTracker:
             if info.get('status') == 'success'
         ])
         if not tickers:
-            return "", ""
+            return "", "", ""
 
         # Build quality issues map
         q_issues = {}
@@ -485,13 +508,37 @@ class ExecutionTracker:
         data_table = self._render_table(tickers, self.DATA_CHECKS, d_issues)
         data_table += f"\n\nLEGEND:\n{self.DATA_LEGEND}"
 
-        # Truncate if needed (Discord 1024 char limit minus code block fences)
-        if len(quality_table) > 1010:
-            quality_table = quality_table[:1007] + "..."
-        if len(data_table) > 1010:
-            data_table = data_table[:1007] + "..."
+        # Build data input availability table
+        input_table = self._render_input_table(tickers)
+        input_table += f"\n\nLEGEND:\n{self.INPUT_LEGEND}"
 
-        return quality_table, data_table
+        # Truncate if needed (Discord 1024 char limit minus code block fences)
+        for table_name in ['quality_table', 'data_table', 'input_table']:
+            val = locals()[table_name]
+            if len(val) > 1010:
+                locals()[table_name] = val[:1007] + "..."
+
+        return quality_table, data_table, input_table
+
+    def _render_input_table(self, tickers):
+        """
+        Renders a table showing whether news and market data were available per ticker.
+        """
+        labels = [label for label, _ in self.INPUT_CHECKS]
+        header = f"{'Ticker':<7} | " + " | ".join(f"{l:^4}" for l in labels)
+        separator = "-" * (8 + len(labels) * 7)
+        
+        rows = [header, separator]
+        for ticker in tickers:
+            avail = self.metrics.data_availability.get(ticker, {})
+            cols = []
+            for _, key in self.INPUT_CHECKS:
+                has_it = avail.get(key, False)
+                marker = "  . " if has_it else "  F "
+                cols.append(f"{marker:>4}")
+            rows.append(f"{ticker:<7} | " + " ".join(cols))
+        
+        return "\n".join(rows)
 
     def _build_data_embed(self, target_date: str, summary: dict, color: int) -> dict:
         """Build the embed for non-AI actions (News, Inspect, etc.)."""

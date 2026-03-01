@@ -384,6 +384,11 @@ def update_company_card(
     else:
         logger.log("⚠️ DB Connection Failed - Skipping Impact Engine")
 
+    # --- Record data availability for the dashboard table ---
+    has_news = bool(filtered_market_news and filtered_market_news.strip())
+    has_data = context_card is not None and context_card.get("status") != "No Data"
+    TRACKER.log_data_availability(ticker, has_news=has_news, has_data=has_data)
+
     # --- FINAL Main 'Masterclass' Prompt ---
     prompt = f"""
     [Your Task for {trade_date_str}]

@@ -164,6 +164,19 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-03-01 — LRCX Removal & Dashboard Validation Tables
+
+#### LRCX Ticker Removed
+*   **Change**: Removed `LRCX` from `STOCK_TICKERS` in both `modules/core/config.py` and `discord_bot/config.py`. No longer part of the active watch list.
+
+#### Discord Dashboard Validation Tables (`modules/core/tracker.py`, `modules/ai/ai_services.py`)
+*   **Feature**: Added three per-ticker validation summary tables to the Discord Company Card Update embed:
+    1.  **🧪 Quality Checks**: Shows pass (`.`) or fail (`F`) for 9 quality categories (Schema, Placeholders, ActionLog, Confidence, Screener, Tone, Participants, Plans, Substance).
+    2.  **📊 Data Accuracy**: Shows pass/fail for 7 data accuracy categories (Bias, Trend, Gaps, HigherLows, Support, Volume, Date/Ticker).
+    3.  **📰 Data Inputs**: Shows whether each ticker had sector-filtered news context and market data available in the database.
+*   **Implementation**: `ExecutionTracker` gained `log_data_availability(ticker, has_news, has_data)` method and `data_availability` field on `ExecutionMetrics`. `update_company_card` in `ai_services.py` calls this method after loading the impact context, recording whether `filtered_market_news` was non-empty and whether the `context_card` had real data.
+*   **Table Format**: All tables render as monospace code blocks with ASCII markers (`.` = pass, `F` = fail) and a `LEGEND:` footer explaining column abbreviations.
+
 ### 2026-03-01 — Token Reduction & Data Validator Structural Alignment
 
 #### News Context Filtering (`modules/ai/ai_services.py`)
