@@ -211,17 +211,27 @@ PLACEHOLDER_PATTERNS = [
 
 # Fields where these placeholders are checked
 # (valuation is READ-ONLY so its placeholder is expected)
-PLACEHOLDER_EXEMPT_FIELDS = {"fundamentalContext.valuation"}
+# Match by suffix so nested paths like previousCard.fundamentalContext.valuation are also exempt.
+PLACEHOLDER_EXEMPT_SUFFIXES = (
+    "fundamentalContext.valuation",
+    "fundamentalContext.analystSentiment",
+    "fundamentalContext.insiderActivity",
+)
+
+# Skip entire sub-trees that are reference copies, not AI output
+PLACEHOLDER_SKIP_KEYS = {"previousCard"}
 
 
 def _check_placeholder_text(card: dict, report: QualityReport, prefix: str = ""):
     """Detect fields where AI echoed prompt instructions instead of real analysis."""
     for key, value in card.items():
+        if key in PLACEHOLDER_SKIP_KEYS:
+            continue  # Don't scan embedded reference copies
         full_path = f"{prefix}.{key}" if prefix else key
 
         if isinstance(value, dict):
             _check_placeholder_text(value, report, prefix=full_path)
-        elif isinstance(value, str) and full_path not in PLACEHOLDER_EXEMPT_FIELDS:
+        elif isinstance(value, str) and not full_path.endswith(PLACEHOLDER_EXEMPT_SUFFIXES):
             for pattern in PLACEHOLDER_PATTERNS:
                 if re.search(pattern, value, re.IGNORECASE):
                     report.issues.append(QualityIssue(
