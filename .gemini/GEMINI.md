@@ -164,6 +164,15 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-03-01 — Explicit Gap Calculation & Hallucination Prevention
+
+#### Impact Engine `gap_pct` Fix (`modules/analysis/impact_engine.py`, `modules/ai/ai_services.py`, `modules/ai/data_validators.py`)
+*   **Root cause**: The AI was suffering from "Gap Hallucination". On Feb 13th for MSFT, despite a mathematical gap down, the AI saw bullish "CPI Relief" news and a high session high ($405.67 vs previous close $402.36), causing it to falsely claim a "Gap Up". The model failed at the cognitive load of extracting the exact open price from the `value_migration` array and calculating the gap itself against the news sentiment.
+*   **Fix**: 
+    1.  **Impact Engine (`impact_engine.py`)**: Modified `analyze_market_context` to explicitly calculate and inject `session_open` and `gap_pct` directly into the top level of the `sessions.pre_market` and `sessions.regular_hours` JSON structure.
+    2.  **AI Prompt (`ai_services.py`)**: Added a strict `MANDATORY TRUTH (GAPS)` rule in the `emotionalTone` prompt instruction. The AI is now explicitly forbidden from guessing gaps or using session highs/news to justify gaps. It must strictly read the `gap_pct` field (>0.1% = Gap Up, <-0.1% = Gap Down).
+    3.  **Data Validator (`data_validators.py`)**: Updated `_check_gap_claims` to use these exact same `gap_pct` and `session_open` fields when validating the AI's claims, ensuring the validator and AI are aligned on a single mathematical source of truth.
+
 ### 2026-03-01 — LRCX Removal & Dashboard Validation Tables
 
 #### LRCX Ticker Removed
