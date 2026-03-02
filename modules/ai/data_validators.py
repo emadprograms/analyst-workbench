@@ -288,12 +288,15 @@ def _check_price_trend_direction(card: dict, context: dict, report: DataReport):
 # 2. Session Arc Validators
 # ─────────────────────────────────────────────
 
-def _check_gap_claims(card: dict, context: dict, report: DataReport):
+def _check_gap_claims(card: dict, context: dict, report: DataReport, *, narrative_text: str | None = None, field_label: str = "behavioralSentiment.emotionalTone"):
     """
     Check if "gap up" / "gap down" claims in emotionalTone correspond to
     actual pre-market or regular hours behavior vs previous close.
+
+    When *narrative_text* is supplied (e.g. from an economy index narrative),
+    it is used instead of extracting from the card's behavioralSentiment.
     """
-    tone = card.get("behavioralSentiment", {}).get("emotionalTone", "")
+    tone = narrative_text if narrative_text is not None else card.get("behavioralSentiment", {}).get("emotionalTone", "")
     if not tone:
         return
 
@@ -357,7 +360,7 @@ def _check_gap_claims(card: dict, context: dict, report: DataReport):
             report.issues.append(DataIssue(
                 rule="DATA_GAP_MISMATCH",
                 severity="critical",
-                field="behavioralSentiment.emotionalTone",
+                field=field_label,
                 message=(
                     f"Claims 'gap up' vs prev close ${prev_close:.2f}, but: " +
                     " / ".join(msg_parts) + ". No meaningful gap up detected."
@@ -382,7 +385,7 @@ def _check_gap_claims(card: dict, context: dict, report: DataReport):
             report.issues.append(DataIssue(
                 rule="DATA_GAP_MISMATCH",
                 severity="critical",
-                field="behavioralSentiment.emotionalTone",
+                field=field_label,
                 message=(
                     f"Claims 'gap down' vs prev close ${prev_close:.2f}, but: " +
                     " / ".join(msg_parts) + ". No meaningful gap down detected."
@@ -390,14 +393,19 @@ def _check_gap_claims(card: dict, context: dict, report: DataReport):
             ))
 
 
-def _check_higher_lows_claim(card: dict, context: dict, report: DataReport):
+def _check_higher_lows_claim(card: dict, context: dict, report: DataReport, *, narrative_text: str | None = None, field_label: str = "behavioralSentiment.emotionalTone"):
     """
     Verify "higher lows" claims by checking if RTH lows were actually ascending
     across value migration blocks.
+
+    When *narrative_text* is supplied, it replaces the card-derived text.
     """
-    tone = card.get("behavioralSentiment", {}).get("emotionalTone", "")
-    buyer_seller = card.get("behavioralSentiment", {}).get("buyerVsSeller", "")
-    combined_text = f"{tone} {buyer_seller}".lower()
+    if narrative_text is not None:
+        combined_text = narrative_text.lower()
+    else:
+        tone = card.get("behavioralSentiment", {}).get("emotionalTone", "")
+        buyer_seller = card.get("behavioralSentiment", {}).get("buyerVsSeller", "")
+        combined_text = f"{tone} {buyer_seller}".lower()
 
     if "higher low" not in combined_text and "higher lows" not in combined_text:
         return  # no claim to verify
@@ -432,7 +440,7 @@ def _check_higher_lows_claim(card: dict, context: dict, report: DataReport):
         report.issues.append(DataIssue(
             rule="DATA_HIGHER_LOWS_FALSE",
             severity="critical",
-            field="behavioralSentiment.emotionalTone",
+            field=field_label,
             message=(
                 f"Claims 'higher lows' but only {ascending_count}/{len(block_lows)-1} "
                 f"RTH migration blocks ({ascending_ratio:.0%}) showed ascending lows. "
@@ -441,14 +449,19 @@ def _check_higher_lows_claim(card: dict, context: dict, report: DataReport):
         ))
 
 
-def _check_held_support_claim(card: dict, context: dict, report: DataReport):
+def _check_held_support_claim(card: dict, context: dict, report: DataReport, *, narrative_text: str | None = None, field_label: str = "behavioralSentiment.emotionalTone"):
     """
     Confirm "held support" claims by checking if intraday lows stayed above
     the stated support level(s).
+
+    When *narrative_text* is supplied, it replaces the card-derived text.
     """
-    tone = card.get("behavioralSentiment", {}).get("emotionalTone", "")
-    buyer_seller = card.get("behavioralSentiment", {}).get("buyerVsSeller", "")
-    combined_text = f"{tone} {buyer_seller}"
+    if narrative_text is not None:
+        combined_text = narrative_text
+    else:
+        tone = card.get("behavioralSentiment", {}).get("emotionalTone", "")
+        buyer_seller = card.get("behavioralSentiment", {}).get("buyerVsSeller", "")
+        combined_text = f"{tone} {buyer_seller}"
 
     if not re.search(r"held\s+support|defended\s+.*\$[\d,]+", combined_text, re.IGNORECASE):
         return  # no "held support" claim
@@ -489,7 +502,7 @@ def _check_held_support_claim(card: dict, context: dict, report: DataReport):
             report.issues.append(DataIssue(
                 rule="DATA_SUPPORT_BREACHED",
                 severity="critical",
-                field="behavioralSentiment.emotionalTone",
+                field=field_label,
                 message=(
                     f"Claims support 'held' at ${claimed_support:.2f} but RTH low "
                     f"was ${rth_low:.2f} ({breach_pct:.2f}% below). "
@@ -513,7 +526,7 @@ def _check_held_support_claim(card: dict, context: dict, report: DataReport):
             report.issues.append(DataIssue(
                 rule="DATA_SUPPORT_BREACHED",
                 severity="critical",
-                field="behavioralSentiment.emotionalTone",
+                field=field_label,
                 message=(
                     f"Claims support 'held' at ${claimed_support:.2f} but value (POC) migrated below "
                     f"it for {blocks_below} time blocks ({blocks_below * 30} mins). "
@@ -832,13 +845,500 @@ def validate_economy_data(
     if trade_date:
         _check_economy_date_consistency(card, trade_date, report)
 
-    # 2. If we have SPY context, verify index-level claims
+    # 2. todaysAction date consistency
+    if trade_date:
+        _check_todays_action_date(card, trade_date, report)
+
+    # 3. If we have SPY context, verify index-level claims
     if etf_contexts and isinstance(etf_contexts, dict):
         spy_context = etf_contexts.get("SPY")
         if spy_context and isinstance(spy_context, dict) and spy_context.get("status") != "No Data":
             _check_economy_bias_vs_spy(card, spy_context, report)
 
+    # 4. Sector Rotation Audit
+    if etf_contexts and isinstance(etf_contexts, dict):
+        _check_sector_rotation(card, etf_contexts, report)
+
+    # 5. Cross-Index Consistency Audit (SPY, QQQ & IWM session arcs)
+    if etf_contexts and isinstance(etf_contexts, dict):
+        _check_index_session_arcs(card, etf_contexts, report)
+
+    # 6. Inter-Market Breadth Audit
+    if etf_contexts and isinstance(etf_contexts, dict):
+        _check_intermarket_breadth(card, etf_contexts, report)
+
+    # 7. Inter-Market Direction Claims (bonds, commodities, currencies, crypto)
+    if etf_contexts and isinstance(etf_contexts, dict):
+        _check_intermarket_direction(card, etf_contexts, report)
+
+    # 8. Quoted Return Magnitude Verification
+    if etf_contexts and isinstance(etf_contexts, dict):
+        _check_return_magnitude_claims(card, etf_contexts, report)
+
+    # 9. Multi-Index Bias Consistency
+    if etf_contexts and isinstance(etf_contexts, dict):
+        _check_economy_bias_multi_index(card, etf_contexts, report)
+
     return report
+
+
+# ─────────────────────────────────────────────
+# 5. Sector Rotation Audit
+# ─────────────────────────────────────────────
+
+# Canonical mapping: ETF ticker → sector display names the AI may use.
+# The AI outputs sector *names* (e.g. "Technology") or ETF tickers (e.g. "XLK").
+SECTOR_ETFS = ["XLK", "XLF", "XLE", "XLV", "XLI", "XLC", "XLP", "XLU", "SMH"]
+
+SECTOR_NAME_MAP: dict[str, list[str]] = {
+    "XLK": ["technology", "tech", "xlk"],
+    "XLF": ["financials", "financial", "xlf"],
+    "XLE": ["energy", "xle"],
+    "XLV": ["health care", "healthcare", "health", "xlv"],
+    "XLI": ["industrials", "industrial", "xli"],
+    "XLC": ["communication services", "communications", "communication", "xlc"],
+    "XLP": ["consumer staples", "staples", "xlp"],
+    "XLU": ["utilities", "xlu"],
+    "SMH": ["semiconductors", "semis", "chips", "smh"],
+}
+
+
+def _resolve_sector_name(name: str) -> str | None:
+    """Map a human-readable sector name to its ETF ticker, or return as-is if already a ticker."""
+    name_lower = name.strip().lower()
+    for etf, aliases in SECTOR_NAME_MAP.items():
+        if name_lower in aliases:
+            return etf
+    # Could already be a ticker
+    if name.upper() in SECTOR_ETFS:
+        return name.upper()
+    return None
+
+
+def _check_sector_rotation(card: dict, etf_contexts: dict, report: DataReport):
+    """
+    ROTATION AUDIT: Verify that leadingSectors / laggingSectors claims are
+    consistent with the actual RTH returns of sector ETFs.
+
+    A sector is flagged as a contradiction if:
+    - Claimed as "leading" but its actual return puts it in the BOTTOM 3.
+    - Claimed as "lagging" but its actual return puts it in the TOP 3.
+    """
+    rotation = card.get("sectorRotation", {})
+    if not rotation:
+        return
+
+    leading_raw = rotation.get("leadingSectors", [])
+    lagging_raw = rotation.get("laggingSectors", [])
+    if not leading_raw and not lagging_raw:
+        return
+
+    # Calculate actual returns for every available sector ETF
+    sector_returns: dict[str, float] = {}
+    for etf in SECTOR_ETFS:
+        ctx = etf_contexts.get(etf)
+        if not ctx or not isinstance(ctx, dict) or ctx.get("status") == "No Data":
+            continue
+        ret = _get_rth_return(ctx)
+        if ret is not None:
+            sector_returns[etf] = ret
+
+    if len(sector_returns) < 3:
+        return  # not enough data to rank
+
+    # Rank sectors by return (best → worst)
+    ranked = sorted(sector_returns.keys(), key=lambda e: sector_returns[e], reverse=True)
+    top_third = set(ranked[: max(len(ranked) // 3, 1)])
+    bottom_third = set(ranked[-max(len(ranked) // 3, 1):])
+
+    # Validate leading claims
+    for name in leading_raw:
+        etf = _resolve_sector_name(name)
+        if etf is None or etf not in sector_returns:
+            continue
+        if etf in bottom_third:
+            report.issues.append(DataIssue(
+                rule="DATA_SECTOR_LEADER_FALSE",
+                severity="critical",
+                field="sectorRotation.leadingSectors",
+                message=(
+                    f"Claims '{name}' is a leading sector, but {etf} returned "
+                    f"{sector_returns[etf]:+.2f}% — ranked in the BOTTOM third. "
+                    f"Actual ranking: {', '.join(f'{e} ({sector_returns[e]:+.2f}%)' for e in ranked)}."
+                ),
+            ))
+
+    # Validate lagging claims
+    for name in lagging_raw:
+        etf = _resolve_sector_name(name)
+        if etf is None or etf not in sector_returns:
+            continue
+        if etf in top_third:
+            report.issues.append(DataIssue(
+                rule="DATA_SECTOR_LAGGER_FALSE",
+                severity="critical",
+                field="sectorRotation.laggingSectors",
+                message=(
+                    f"Claims '{name}' is a lagging sector, but {etf} returned "
+                    f"{sector_returns[etf]:+.2f}% — ranked in the TOP third. "
+                    f"Actual ranking: {', '.join(f'{e} ({sector_returns[e]:+.2f}%)' for e in ranked)}."
+                ),
+            ))
+
+
+# ─────────────────────────────────────────────
+# 6. Cross-Index Session Arc Audit
+# ─────────────────────────────────────────────
+
+def _check_index_session_arcs(card: dict, etf_contexts: dict, report: DataReport):
+    """
+    INDICES AUDIT: Run the same gap / higher-lows / held-support validators
+    used for company cards against the economy card's indexAnalysis narratives
+    for SPY, QQQ, and IWM.
+    """
+    index_analysis = card.get("indexAnalysis", {})
+    if not index_analysis:
+        return
+
+    for index_ticker in ("SPY", "QQQ", "IWM"):
+        narrative = index_analysis.get(index_ticker, "")
+        if not narrative:
+            continue
+
+        ctx = etf_contexts.get(index_ticker)
+        if not ctx or not isinstance(ctx, dict) or ctx.get("status") == "No Data":
+            continue
+
+        field_label = f"indexAnalysis.{index_ticker}"
+
+        # Re-use company-level session-arc validators with the narrative text
+        _check_gap_claims(
+            card, ctx, report,
+            narrative_text=narrative, field_label=field_label,
+        )
+        _check_higher_lows_claim(
+            card, ctx, report,
+            narrative_text=narrative, field_label=field_label,
+        )
+        _check_held_support_claim(
+            card, ctx, report,
+            narrative_text=narrative, field_label=field_label,
+        )
+
+
+# ─────────────────────────────────────────────
+# 7. Inter-Market Breadth Audit
+# ─────────────────────────────────────────────
+
+# Phrases the AI may use, mapped to implied return relationships.
+_BREADTH_PATTERNS: list[tuple[str, str, str, str]] = [
+    # (regex_pattern, must_outperform_ticker, vs_ticker, human_label)
+    (r"small.?caps?\s+(?:showed?|display(?:ed|ing)?)\s+relative\s+strength", "IWM", "SPY", "Small caps relative strength"),
+    (r"small.?caps?\s+(?:outperform|led|leading)", "IWM", "SPY", "Small caps outperformance"),
+    (r"small.?caps?\s+(?:underperform|lagg(?:ed|ing)|trailed|weak)", "SPY", "IWM", "Small caps underperformance"),
+    (r"mega.?caps?\s+(?:outperform|led|leading)", "SPY", "IWM", "Mega caps outperformance"),
+    (r"mega.?caps?\s+(?:underperform|lagg(?:ed|ing)|trailed|weak)", "IWM", "SPY", "Mega caps underperformance"),
+    (r"breadth\s+(?:was|remained|stayed)?\s*(?:narrow|weak|thin)", "SPY", "IWM", "Narrow breadth (SPY > IWM)"),
+    (r"breadth\s+(?:was|remained|stayed)?\s*(?:broad|strong|wide|healthy)", "IWM", "SPY", "Broad breadth (IWM >= SPY)"),
+    (r"IWM\s+(?:outperform|led|beat)", "IWM", "SPY", "IWM outperformance"),
+    (r"IWM\s+(?:underperform|lagg(?:ed|ing)|trailed)", "SPY", "IWM", "IWM underperformance"),
+    (r"QQQ\s+(?:outperform|led|beat)", "QQQ", "SPY", "QQQ outperformance"),
+    (r"QQQ\s+(?:underperform|lagg(?:ed|ing)|trailed)", "SPY", "QQQ", "QQQ underperformance"),
+    (r"tech\s+led\s+the\s+decline", "SPY", "QQQ", "Tech led decline (QQQ weaker)"),
+]
+
+
+def _check_intermarket_breadth(card: dict, etf_contexts: dict, report: DataReport):
+    """
+    BREADTH AUDIT: Scan the economy card's narrative fields for relative-
+    strength / breadth claims and verify the implied return relationship
+    against actual ETF RTH returns.
+    """
+    # Gather all narrative text from the card
+    searchable_parts: list[str] = []
+    searchable_parts.append(card.get("marketNarrative", ""))
+    index_analysis = card.get("indexAnalysis", {})
+    searchable_parts.append(index_analysis.get("pattern", ""))
+    searchable_parts.append(index_analysis.get("SPY", ""))
+    searchable_parts.append(index_analysis.get("QQQ", ""))
+    rotation = card.get("sectorRotation", {})
+    searchable_parts.append(rotation.get("rotationAnalysis", ""))
+    inter = card.get("interMarketAnalysis", {})
+    for v in inter.values():
+        if isinstance(v, str):
+            searchable_parts.append(v)
+    searchable_parts.append(card.get("todaysAction", ""))
+
+    full_text = " ".join(p for p in searchable_parts if p)
+    if not full_text:
+        return
+
+    # Pre-compute returns for the indices we care about
+    returns_cache: dict[str, float] = {}
+    for ticker in ("SPY", "QQQ", "IWM"):
+        ctx = etf_contexts.get(ticker)
+        if ctx and isinstance(ctx, dict) and ctx.get("status") != "No Data":
+            ret = _get_rth_return(ctx)
+            if ret is not None:
+                returns_cache[ticker] = ret
+
+    for pattern, must_outperform, vs_ticker, label in _BREADTH_PATTERNS:
+        if not re.search(pattern, full_text, re.IGNORECASE):
+            continue
+
+        outperform_ret = returns_cache.get(must_outperform)
+        vs_ret = returns_cache.get(vs_ticker)
+        if outperform_ret is None or vs_ret is None:
+            continue  # can't verify without data
+
+        # The claim implies must_outperform should have a higher return
+        if outperform_ret < vs_ret:
+            report.issues.append(DataIssue(
+                rule="DATA_BREADTH_MISMATCH",
+                severity="critical",
+                field="marketNarrative",
+                message=(
+                    f"Claims '{label}' but {must_outperform} returned "
+                    f"{outperform_ret:+.2f}% vs {vs_ticker} {vs_ret:+.2f}%. "
+                    f"The data contradicts the relative-strength claim."
+                ),
+            ))
+
+
+# ─────────────────────────────────────────────
+# 8. Today's Action Date Validator
+# ─────────────────────────────────────────────
+
+def _check_todays_action_date(card: dict, trade_date: str, report: DataReport):
+    """
+    TODAYS-ACTION DATE: Verify that the todaysAction field contains the
+    correct trade date as its leading element.
+    """
+    todays_action = card.get("todaysAction", "")
+    if not todays_action or not trade_date:
+        return
+
+    if trade_date not in todays_action:
+        report.issues.append(DataIssue(
+            rule="DATA_TODAYS_ACTION_DATE",
+            severity="critical",
+            field="todaysAction",
+            message=(
+                f"todaysAction does not contain the trade date '{trade_date}'. "
+                f"First 80 chars: '{todays_action[:80]}...'"
+            ),
+        ))
+
+
+# ─────────────────────────────────────────────
+# 9. Inter-Market Direction Claims Validator
+# ─────────────────────────────────────────────
+
+# Mapping from interMarketAnalysis sub-keys to the ETF tickers in etf_contexts.
+INTERMARKET_TICKER_MAP: dict[str, list[str]] = {
+    "bonds": ["TLT"],
+    "commodities": ["CL=F", "PAXGUSDT"],
+    "currencies": ["UUP", "EURUSDT"],
+    "crypto": ["BTCUSDT"],
+}
+
+# Directional language buckets
+_UP_WORDS = [
+    "rallied", "rally", "surged", "spiked", "jumped", "gained", "rose",
+    "higher", "climbed", "up ", "bid", "rebounded", "advanced",
+    "lifted", "soared", "strengthened",
+]
+_DOWN_WORDS = [
+    "fell", "dropped", "declined", "sold off", "sell-off", "selloff",
+    "tumbled", "slid", "lost", "lower", "down ", "crashed", "retreated",
+    "sank", "plunged", "weakened", "slumped",
+]
+
+
+def _detect_direction(text: str) -> str | None:
+    """Return 'up', 'down', or None based on dominant directional language."""
+    text_lower = text.lower()
+    up_hits = sum(1 for w in _UP_WORDS if w in text_lower)
+    down_hits = sum(1 for w in _DOWN_WORDS if w in text_lower)
+    # Require a clear majority to avoid ambiguity
+    if up_hits > down_hits and up_hits >= 1:
+        return "up"
+    if down_hits > up_hits and down_hits >= 1:
+        return "down"
+    return None
+
+
+def _check_intermarket_direction(card: dict, etf_contexts: dict, report: DataReport):
+    """
+    INTER-MARKET DIRECTION AUDIT: Verify that directional claims in
+    interMarketAnalysis (bonds, commodities, currencies, crypto) match
+    the actual RTH return direction of the underlying ETFs.
+
+    E.g., if the card says "TLT rallied" but TLT actually fell, flag it.
+    """
+    inter = card.get("interMarketAnalysis", {})
+    if not inter:
+        return
+
+    for field_key, tickers in INTERMARKET_TICKER_MAP.items():
+        narrative = inter.get(field_key, "")
+        if not narrative:
+            continue
+
+        claimed_dir = _detect_direction(narrative)
+        if claimed_dir is None:
+            continue  # ambiguous or no directional language
+
+        for ticker in tickers:
+            ctx = etf_contexts.get(ticker)
+            if not ctx or not isinstance(ctx, dict) or ctx.get("status") == "No Data":
+                continue
+
+            actual_return = _get_rth_return(ctx)
+            if actual_return is None:
+                continue
+
+            actual_dir = "up" if actual_return >= 0 else "down"
+
+            # Only flag when the return is meaningful (> 0.3%) and contradicts
+            if abs(actual_return) < 0.3:
+                continue  # too flat to call a direction contradiction
+
+            if claimed_dir != actual_dir:
+                report.issues.append(DataIssue(
+                    rule="DATA_INTERMARKET_DIRECTION",
+                    severity="critical",
+                    field=f"interMarketAnalysis.{field_key}",
+                    message=(
+                        f"Claims '{field_key}' moved {claimed_dir} but {ticker} "
+                        f"returned {actual_return:+.2f}% (actually {actual_dir}). "
+                        f"Narrative: '{narrative[:100]}'"
+                    ),
+                ))
+
+
+# ─────────────────────────────────────────────
+# 10. Quoted Return Magnitude Validator
+# ─────────────────────────────────────────────
+
+# Regex to find quoted percentage returns like "SPY +1.2%" or "TLT -0.5%"
+_RETURN_QUOTE_RE = re.compile(
+    r"\b([A-Z]{2,5}(?:USDT)?(?:=F)?)\s*"       # ticker
+    r"([+-]?)\s*"                                 # optional sign
+    r"(\d+\.\d+)\s*%",                           # percentage
+    re.IGNORECASE,
+)
+
+# Tolerance for return magnitude comparison (absolute percentage points)
+RETURN_MAGNITUDE_TOLERANCE = 0.80
+
+
+def _check_return_magnitude_claims(card: dict, etf_contexts: dict, report: DataReport):
+    """
+    RETURN MAGNITUDE AUDIT: Scan all narrative fields for quoted return
+    figures like "SPY +1.2%" or "TLT -0.5%" and verify they are within
+    tolerance of the actual computed return.
+    """
+    # Gather all text fields to scan
+    searchable: list[str] = []
+    searchable.append(card.get("marketNarrative", ""))
+    searchable.append(card.get("todaysAction", ""))
+    rotation = card.get("sectorRotation", {})
+    searchable.append(rotation.get("rotationAnalysis", ""))
+    inter = card.get("interMarketAnalysis", {})
+    for v in inter.values():
+        if isinstance(v, str):
+            searchable.append(v)
+    index_analysis = card.get("indexAnalysis", {})
+    searchable.append(index_analysis.get("pattern", ""))
+    searchable.append(index_analysis.get("SPY", ""))
+    searchable.append(index_analysis.get("QQQ", ""))
+    searchable.append(index_analysis.get("IWM", ""))
+
+    full_text = " ".join(p for p in searchable if p)
+    if not full_text:
+        return
+
+    for match in _RETURN_QUOTE_RE.finditer(full_text):
+        ticker = match.group(1).upper()
+        sign = match.group(2)
+        magnitude = float(match.group(3))
+        quoted_return = magnitude if sign != "-" else -magnitude
+
+        ctx = etf_contexts.get(ticker)
+        if not ctx or not isinstance(ctx, dict) or ctx.get("status") == "No Data":
+            continue
+
+        actual_return = _get_rth_return(ctx)
+        if actual_return is None:
+            continue
+
+        diff = abs(quoted_return - actual_return)
+        if diff > RETURN_MAGNITUDE_TOLERANCE:
+            report.issues.append(DataIssue(
+                rule="DATA_RETURN_MAGNITUDE",
+                severity="critical",
+                field="marketNarrative",
+                message=(
+                    f"Quotes {ticker} at {quoted_return:+.2f}% but actual RTH "
+                    f"return was {actual_return:+.2f}% (off by {diff:.2f}pp, "
+                    f"tolerance: ±{RETURN_MAGNITUDE_TOLERANCE}pp)."
+                ),
+            ))
+
+
+# ─────────────────────────────────────────────
+# 11. Multi-Index Bias Consistency
+# ─────────────────────────────────────────────
+
+def _check_economy_bias_multi_index(card: dict, etf_contexts: dict, report: DataReport):
+    """
+    MULTI-INDEX BIAS AUDIT: If the economy card's marketBias is bullish /
+    bearish, verify that the majority of major indices (SPY, QQQ, IWM)
+    moved in the claimed direction.  If 2 out of 3 contradict, flag it.
+    """
+    bias = card.get("marketBias", "")
+    if not bias:
+        return
+
+    bias_lower = bias.lower()
+    # Check for explicit bullish/bearish — but ignore soft leans in parentheses
+    # e.g. "Neutral (Bullish Lean)" should NOT be treated as bullish.
+    # Strip parenthesised qualifiers first for the main bias determination.
+    bias_main = re.sub(r"\(.*?\)", "", bias_lower).strip()
+    is_bullish = any(w in bias_main for w in ["bullish", "risk-on"])
+    is_bearish = any(w in bias_main for w in ["bearish", "risk-off"])
+    if not is_bullish and not is_bearish:
+        return
+
+    index_returns: dict[str, float] = {}
+    for ticker in ("SPY", "QQQ", "IWM"):
+        ctx = etf_contexts.get(ticker)
+        if ctx and isinstance(ctx, dict) and ctx.get("status") != "No Data":
+            ret = _get_rth_return(ctx)
+            if ret is not None:
+                index_returns[ticker] = ret
+
+    if len(index_returns) < 2:
+        return  # need at least 2 indices to cross-check
+
+    if is_bullish:
+        contradictions = {t: r for t, r in index_returns.items() if r < -BIAS_WARNING_THRESHOLD}
+    else:  # bearish
+        contradictions = {t: r for t, r in index_returns.items() if r > BIAS_WARNING_THRESHOLD}
+
+    # Only flag if the MAJORITY of indices contradict the bias
+    if len(contradictions) >= 2:
+        parts = ", ".join(f"{t} {r:+.2f}%" for t, r in contradictions.items())
+        report.issues.append(DataIssue(
+            rule="DATA_ECON_BIAS_MULTI_INDEX",
+            severity="critical",
+            field="marketBias",
+            message=(
+                f"marketBias is '{bias}' but {len(contradictions)}/{len(index_returns)} "
+                f"major indices contradict it: {parts}."
+            ),
+        ))
 
 
 def _check_economy_bias_vs_spy(card: dict, spy_context: dict, report: DataReport):
