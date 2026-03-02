@@ -164,6 +164,17 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-03-02 — Strict Economy Bias Labels & Validator Alignment
+
+#### Economy Card Bias Hardening (`modules/ai/ai_services.py`, `modules/ai/quality_validators.py`, `modules/ai/data_validators.py`)
+*   **Root cause**: The AI was using "Risk-On" or "Risk-Off" as standalone `marketBias` labels in the economy card. This created ambiguity for downstream programmatic systems expecting the standard "Bullish", "Bearish", or "Neutral" taxonomy.
+*   **Fix**:
+    1.  **AI Prompt (`ai_services.py`)**: Updated the `update_economy_card` prompt to strictly require "Bullish", "Bearish", or "Neutral". Added a "STRICT RULE" forbidding standalone "Risk-On/Off".
+    2.  **Quality Validator (`quality_validators.py`)**: Updated `VALID_MARKET_BIASES` to remove "Risk-On/Off". Upgraded `ECON_BAD_BIAS` from a warning to a **critical** failure if the bias does not contain one of the three core labels.
+    3.  **Data Validator (`data_validators.py`)**: Refactored `is_bullish` and `is_bearish` detection logic to remove "risk-on/off" keyword matching, ensuring mathematical cross-checks only trigger for the core labels.
+    4.  **Test Suite (`tests/test_data_validators.py`)**: Updated all bias and gap test fixtures to use "Bullish/Bearish" and adjusted `yesterday_close` values to ensure clear mathematical gaps across all sessions (Pre, RTH, Post).
+*   **Result**: 100% programmatic clarity for economy bias with robust mathematical verification.
+
 ### 2026-03-01 — Discord Dashboard Split (2000-Char Limit Fix)
 
 #### Multi-Embed Reporting (`modules/core/tracker.py`, `main.py`)

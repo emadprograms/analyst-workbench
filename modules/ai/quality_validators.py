@@ -616,23 +616,25 @@ def _check_trade_plans(card: dict, report: QualityReport):
 
 VALID_MARKET_BIASES = [
     "Bullish", "Bearish", "Neutral",
-    "Cautiously Bullish", "Cautiously Bearish",
-    "Risk-On", "Risk-Off",
 ]
 
 
 def _check_economy_bias(card: dict, report: QualityReport):
-    """marketBias should be a recognized label."""
+    """marketBias MUST contain Bullish, Bearish, or Neutral."""
     bias = card.get("marketBias", "")
     if not bias:
         return
 
-    if not any(vb.lower() in bias.lower() for vb in VALID_MARKET_BIASES):
+    bias_lower = bias.lower()
+    if not any(vb.lower() in bias_lower for vb in VALID_MARKET_BIASES):
         report.issues.append(QualityIssue(
             rule="ECON_BAD_BIAS",
-            severity="warning",
+            severity="critical",
             field="marketBias",
-            message=f"marketBias '{bias}' is not a recognized bias label."
+            message=(
+                f"marketBias '{bias}' is missing required label (Bullish/Bearish/Neutral). "
+                f"Strictly avoid standalone 'Risk-On' or 'Risk-Off'."
+            )
         ))
 
 

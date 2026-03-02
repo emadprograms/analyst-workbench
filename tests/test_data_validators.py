@@ -310,28 +310,28 @@ class TestSessionArcValidation:
         assert len(gap_issues) == 0
 
     def test_gap_up_claim_false(self):
-        """Claims 'gap up' but pre-market opened flat/below → warning."""
+        """Claims 'gap up' but all sessions opened flat/below → critical."""
         card = copy.deepcopy(SAMPLE_COMPANY_CARD)
         card["behavioralSentiment"]["emotionalTone"] = (
             "Breakout (Stable) - Reasoning: **(Act I)** Pre-market gapped up strongly. "
             "**(Act II)** RTH confirmed. **(Act III)** Post-market held."
         )
         ctx = copy.deepcopy(SAMPLE_CONTEXT_CARD)
-        ctx["reference"]["yesterday_close"] = 260.00  # pre-market open ~254.80 is below 260
+        ctx["reference"]["yesterday_close"] = 270.00  # All sessions (pre/rth/post) open below 270
         report = validate_company_data(card, ctx, ticker="AAPL", trade_date="2026-02-23")
         gap_issues = [i for i in report.issues if i.rule == "DATA_GAP_MISMATCH"]
         assert len(gap_issues) == 1
         assert "gap up" in gap_issues[0].message.lower()
 
     def test_gap_down_claim_false(self):
-        """Claims 'gap down' but pre-market opened above prev close → warning."""
+        """Claims 'gap down' but all sessions opened above prev close → critical."""
         card = copy.deepcopy(SAMPLE_COMPANY_CARD)
         card["behavioralSentiment"]["emotionalTone"] = (
             "Capitulation (Unstable) - Reasoning: **(Act I)** Pre-market gapped down. "
             "**(Act II)** RTH sold off. **(Act III)** Held lows."
         )
         ctx = copy.deepcopy(SAMPLE_CONTEXT_CARD)
-        ctx["reference"]["yesterday_close"] = 250.00  # pre-market open ~254.80 is above 250
+        ctx["reference"]["yesterday_close"] = 240.00  # All sessions (pre/rth/post) open above 240
         report = validate_company_data(card, ctx, ticker="AAPL", trade_date="2026-02-23")
         gap_issues = [i for i in report.issues if i.rule == "DATA_GAP_MISMATCH"]
         assert len(gap_issues) == 1
@@ -648,9 +648,9 @@ class TestEconomyCardValidation:
         assert len(critical) == 1
 
     def test_economy_bearish_bias_spy_rally_critical(self):
-        """Bearish/Risk-Off bias but SPY rallied >5% → critical."""
+        """Bearish bias but SPY rallied >5% → critical."""
         card = copy.deepcopy(self.SAMPLE_ECONOMY_CARD)
-        card["marketBias"] = "Risk-Off"
+        card["marketBias"] = "Bearish"
         spy_ctx = copy.deepcopy(SAMPLE_CONTEXT_CARD)
         spy_ctx["meta"]["ticker"] = "SPY"
         spy_ctx["reference"]["yesterday_close"] = 240.0  # big rally from 240 to ~264
@@ -853,11 +853,11 @@ class TestIndexSessionArcAudit:
         assert len(gap_issues) == 0
 
     def test_spy_gap_up_false_flagged(self):
-        """SPY narrative says 'gapped up' but price opened flat → critical."""
+        """SPY narrative says 'gapped up' but price opened flat/below → critical."""
         spy_ctx = copy.deepcopy(SAMPLE_CONTEXT_CARD)
         spy_ctx["meta"]["ticker"] = "SPY"
-        # Make prev close ABOVE open → no gap up
-        spy_ctx["reference"]["yesterday_close"] = 260.0
+        # Make prev close 270 so all sessions (pre/rth/post) are below it
+        spy_ctx["reference"]["yesterday_close"] = 270.0
         # Replace the pre-market migration to show open below prev close
         spy_ctx["sessions"]["pre_market"]["value_migration"] = [
             {"time": "09:00", "POC": 258.0, "nature": "Red", "range": "257.50-258.50"},
@@ -1485,8 +1485,8 @@ class TestMultiIndexBias:
     def test_bullish_majority_down_flagged(self):
         """Bullish bias but 2/3 indices dropped > 2% → critical."""
         card = {
-            "marketBias": "Risk-On",
-            "keyActionLog": [{"date": "2026-02-23", "action": "Risk-on."}],
+            "marketBias": "Bullish",
+            "keyActionLog": [{"date": "2026-02-23", "action": "Bullish."}],
         }
         ctxs = self._build_index_contexts(spy_ret=-3.0, qqq_ret=-2.5, iwm_ret=0.5)
         report = validate_economy_data(card, etf_contexts=ctxs, trade_date="2026-02-23")
@@ -1499,8 +1499,8 @@ class TestMultiIndexBias:
     def test_bearish_majority_up_flagged(self):
         """Bearish bias but 2/3 indices rallied > 2% → critical."""
         card = {
-            "marketBias": "Risk-Off",
-            "keyActionLog": [{"date": "2026-02-23", "action": "Risk-off."}],
+            "marketBias": "Bearish",
+            "keyActionLog": [{"date": "2026-02-23", "action": "Bearish."}],
         }
         ctxs = self._build_index_contexts(spy_ret=3.0, qqq_ret=2.5, iwm_ret=-0.5)
         report = validate_economy_data(card, etf_contexts=ctxs, trade_date="2026-02-23")

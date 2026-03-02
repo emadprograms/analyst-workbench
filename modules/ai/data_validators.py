@@ -1306,8 +1306,8 @@ def _check_economy_bias_multi_index(card: dict, etf_contexts: dict, report: Data
     # e.g. "Neutral (Bullish Lean)" should NOT be treated as bullish.
     # Strip parenthesised qualifiers first for the main bias determination.
     bias_main = re.sub(r"\(.*?\)", "", bias_lower).strip()
-    is_bullish = any(w in bias_main for w in ["bullish", "risk-on"])
-    is_bearish = any(w in bias_main for w in ["bearish", "risk-off"])
+    is_bullish = "bullish" in bias_main
+    is_bearish = "bearish" in bias_main
     if not is_bullish and not is_bearish:
         return
 
@@ -1354,8 +1354,8 @@ def _check_economy_bias_vs_spy(card: dict, spy_context: dict, report: DataReport
         return
 
     bias_lower = bias.lower()
-    is_bullish = any(w in bias_lower for w in ["bullish", "risk-on"])
-    is_bearish = any(w in bias_lower for w in ["bearish", "risk-off"])
+    is_bullish = "bullish" in bias_lower
+    is_bearish = "bearish" in bias_lower
 
     if is_bullish and spy_return < -BIAS_CONTRADICTION_THRESHOLD:
         report.issues.append(DataIssue(

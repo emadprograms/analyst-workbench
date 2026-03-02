@@ -898,7 +898,9 @@ def update_economy_card(
         * This is the "governing theme" — e.g., "Markets are digesting Friday's PCE inflation data while bracing for next week's FOMC meeting."
 
     **2. `marketBias` (The Verdict):**
-        * Must be one of: "Bullish", "Bearish", "Neutral", "Risk-On", "Risk-Off", or a shaded variant like "Neutral (Bullish Lean)".
+        * Must be one of: **"Bullish", "Bearish", or "Neutral"**.
+        * You may include a lean in parentheses, e.g., "Neutral (Bullish Lean)" or "Bearish (Neutral Lean)".
+        * **STRICT RULE:** Do NOT use "Risk-On" or "Risk-Off" as the primary bias. Use Bullish/Bearish/Neutral instead.
         * Base this on the COMBINED evidence from index performance, sector rotation, and inter-market signals.
 
     **3. `keyEconomicEvents`:**
@@ -937,7 +939,7 @@ def update_economy_card(
 
     {{
       "marketNarrative": "Your 2-4 sentence synthesis of the macro story driving markets today.",
-      "marketBias": "Your verdict: Bullish/Bearish/Neutral/Risk-On/Risk-Off (with optional lean).",
+      "marketBias": "Strictly: Bullish, Bearish, or Neutral (e.g. 'Neutral (Bullish Lean)')",
       "keyEconomicEvents": {{
         "last_24h": "Summary of recent major data releases and their market impact.",
         "next_24h": "List of upcoming high-impact events to watch."
