@@ -1,0 +1,39 @@
+PROPOSAL: UPGRADE ECONOMY CARD DATA VALIDATORS
+==============================================
+
+### THE PROBLEM: WEAK ECONOMY CARD DATA VALIDATORS
+The current system has robust data validators for company cards (checking gaps, intraday support defense, volume profiles, and trend bias). However, the economy card data validators in `modules/ai/data_validators.py` are currently minimal and under-engineered.
+
+While the validator is fed a rich `etf_contexts` dictionary containing math data for 20 assets (SPY, QQQ, IWM, 11 Sectors, Bonds, Crypto, Commodities), it currently only performs two basic checks:
+1. Date Consistency: Does the log date match the trade date?
+2. SPY Bias: Does the AI's "Market Bias" (Bullish/Bearish) contradict SPY's actual daily return?
+
+IT FAILS TO FACT-CHECK:
+- Sector rotation claims (e.g., "Tech led, Energy lagged").
+- Index-specific session arcs for QQQ or IWM (Gaps, Support, Higher Lows).
+- Inter-market relationships (e.g., Small Caps vs. Mega Caps relative strength).
+
+This leaves the Economy Card vulnerable to AI hallucinations regarding sector leadership and relative strength.
+
+---
+
+### THE SOLUTION: IMPLEMENT A "MULTI-ASSET PERFORMANCE AUDIT"
+To bring the Economy Card validators up to the standard of the Company Card validators, the following structural upgrades must be implemented in `modules/ai/data_validators.py`:
+
+1. SECTOR LEADERSHIP VERIFICATION (THE "ROTATION AUDIT")
+- Action: Write a validator that iterates through the sector ETFs (XLK, XLF, XLE, XLV, XLI, XLC, XLP, XLU, SMH) in the `etf_contexts` payload.
+- Logic: Calculate actual RTH returns using the existing `_get_rth_return` helper and rank them.
+- Validation: Cross-reference this mathematical ranking against the AI's `sectorRotation.leadingSectors` and `laggingSectors` arrays. Flag a critical contradiction if the AI claims a sector "led" when it mathematically lagged (e.g., it was in the bottom 3 performers).
+
+2. CROSS-INDEX CONSISTENCY (THE "INDICES AUDIT")
+- Action: Refactor the existing company-level session arc validators (`_check_gap_claims`, `_check_higher_lows_claim`, `_check_held_support_claim`) so they can accept specific index ETF contexts (SPY, QQQ, IWM).
+- Validation: Run these validators against the AI's `indexAnalysis` narratives for both SPY and QQQ to ensure claims like "QQQ gapped down and defended support" are mathematically true for that specific index.
+
+3. INTER-MARKET LOGIC VERIFICATION (THE "BREADTH AUDIT")
+- Action: Implement checks that compare the mathematical returns of index pairs (e.g., SPY vs. IWM for breadth).
+- Validation: If the AI narrative claims "Small caps showed relative strength," the validator must confirm that the RTH return of IWM was mathematically higher than the RTH return of SPY.
+
+---
+
+### IMPLEMENTATION NOTE FOR THE AI:
+You will need to utilize the `_get_rth_return(context)` helper inside `modules/ai/data_validators.py` to extract real performance metrics from the `etf_contexts` dictionary passed into the `validate_economy_data()` function.
