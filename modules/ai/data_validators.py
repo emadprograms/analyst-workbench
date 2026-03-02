@@ -304,6 +304,7 @@ def _check_gap_claims(card: dict, context: dict, report: DataReport):
 
     pre = _get_session(context, "pre_market")
     rth = _get_session(context, "regular_hours")
+    post = _get_session(context, "post_market")
 
     # Helper to get gap info from a session
     def _get_gap_info(session_data):
@@ -329,9 +330,10 @@ def _check_gap_claims(card: dict, context: dict, report: DataReport):
 
     pre_open, pre_gap_pct = _get_gap_info(pre)
     rth_open, rth_gap_pct = _get_gap_info(rth)
+    post_open, post_gap_pct = _get_gap_info(post)
     
-    # If we have no gap info for either session, we can't validate
-    if pre_gap_pct is None and rth_gap_pct is None:
+    # If we have no gap info for any session, we can't validate
+    if pre_gap_pct is None and rth_gap_pct is None and post_gap_pct is None:
         return
 
     tone_lower = tone.lower()
@@ -340,14 +342,17 @@ def _check_gap_claims(card: dict, context: dict, report: DataReport):
     if "gap up" in tone_lower or "gapped up" in tone_lower or "gap open" in tone_lower:
         pre_valid = pre_gap_pct is not None and pre_gap_pct >= 0.1
         rth_valid = rth_gap_pct is not None and rth_gap_pct >= 0.1
+        post_valid = post_gap_pct is not None and post_gap_pct >= 0.1
         
-        if not pre_valid and not rth_valid:
+        if not pre_valid and not rth_valid and not post_valid:
             # Construct a helpful error message
             msg_parts = []
             if pre_gap_pct is not None:
                 msg_parts.append(f"Pre-Market: ${pre_open:.2f} ({pre_gap_pct:+.2f}%)")
             if rth_gap_pct is not None:
                 msg_parts.append(f"RTH: ${rth_open:.2f} ({rth_gap_pct:+.2f}%)")
+            if post_gap_pct is not None:
+                msg_parts.append(f"Post-Market: ${post_open:.2f} ({post_gap_pct:+.2f}%)")
                 
             report.issues.append(DataIssue(
                 rule="DATA_GAP_MISMATCH",
@@ -363,13 +368,16 @@ def _check_gap_claims(card: dict, context: dict, report: DataReport):
     if "gap down" in tone_lower or "gapped down" in tone_lower:
         pre_valid = pre_gap_pct is not None and pre_gap_pct <= -0.1
         rth_valid = rth_gap_pct is not None and rth_gap_pct <= -0.1
+        post_valid = post_gap_pct is not None and post_gap_pct <= -0.1
         
-        if not pre_valid and not rth_valid:
+        if not pre_valid and not rth_valid and not post_valid:
             msg_parts = []
             if pre_gap_pct is not None:
                 msg_parts.append(f"Pre-Market: ${pre_open:.2f} ({pre_gap_pct:+.2f}%)")
             if rth_gap_pct is not None:
                 msg_parts.append(f"RTH: ${rth_open:.2f} ({rth_gap_pct:+.2f}%)")
+            if post_gap_pct is not None:
+                msg_parts.append(f"Post-Market: ${post_open:.2f} ({post_gap_pct:+.2f}%)")
                 
             report.issues.append(DataIssue(
                 rule="DATA_GAP_MISMATCH",
