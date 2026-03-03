@@ -164,6 +164,16 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-03-03 — Discord Command Stability & Generic Testing Tool
+
+#### `!getnews` Silent Failure Prevention (`discord_bot/bot.py`)
+*   **Root cause**: The `!getnews` command was vulnerable to silent failures. If an internal error occurred (e.g., database timeout or Gemini API rejection) after the initial "Fetching..." message was sent, the bot lacked error handling to update the user, leaving the original message hanging indefinitely.
+*   **Fix**: Wrapped the entire execution and summarization logic inside a robust `try...except Exception as e:` block. The bot now catches any internal crash, dumps the full traceback to the server console, and instantly updates the Discord message with a clear `❌ An internal error occurred: [error]` message.
+
+#### Generic Testing Tool (`tools/test_getnews_feature.py`)
+*   **Root cause**: The testing tool for news summarization (`test_getnews_aapl.py`) was hardcoded to a single ticker, limiting its usefulness for debugging other assets or macro news.
+*   **Fix**: Deleted the hardcoded scripts and implemented a generic CLI tool (`test_getnews_feature.py`). It accepts `--date YYYY-MM-DD` and `--target TICKER/MACRO` arguments, automatically falling back to the latest database date and `MACRO` if omitted. It faithfully mimics the production `!getnews` flow, including Infisical secret retrieval and `KeyManager` lifecycle management.
+
 ### 2026-03-03 — Discord Message Truncation & Embed Dropping Fix
 
 #### Embed Payload Consolidation & Chunking (`discord_bot/bot.py`, `main.py`)
