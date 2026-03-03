@@ -101,11 +101,30 @@ class TargetTickerModal(discord.ui.Modal, title='Enter Company Ticker'):
     async def on_submit(self, interaction: discord.Interaction):
         await self.finish_callback(interaction, self.target_date, self.ticker_val.value.upper())
 
+class SectorSelectionSelect(discord.ui.Select):
+    def __init__(self, target_date, finish_callback, sectors):
+        self.target_date = target_date
+        self.finish_callback = finish_callback
+        
+        options = []
+        for sector, count in sectors:
+            # Discord limits option labels to 100 chars, but sectors are short
+            options.append(discord.SelectOption(label=f"{sector} ({count})", value=f"SECTOR:{sector}"))
+            
+        super().__init__(placeholder="Select a specific sector to summarize...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        await self.finish_callback(interaction, self.target_date, self.values[0])
+
 class TargetSelectionView(discord.ui.View):
-    def __init__(self, target_date, finish_callback):
+    def __init__(self, target_date, finish_callback, available_sectors=None):
         super().__init__(timeout=180)
         self.target_date = target_date
         self.finish_callback = finish_callback
+        
+        # If sectors were pre-fetched, add the dropdown directly below the buttons
+        if available_sectors:
+            self.add_item(SectorSelectionSelect(target_date, finish_callback, available_sectors))
 
     @discord.ui.button(label="🌍 Macro News", style=discord.ButtonStyle.primary)
     async def macro_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -114,6 +133,40 @@ class TargetSelectionView(discord.ui.View):
     @discord.ui.button(label="🏢 Company News", style=discord.ButtonStyle.success)
     async def company_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(TargetTickerModal(self.target_date, self.finish_callback))
+        
+    @discord.ui.button(label="🏷️ Custom Sector", style=discord.ButtonStyle.secondary)
+    async def sector_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # We need to inform the user we are fetching sectors and update the view
+        await interaction.response.edit_message(content=f"🔍 **Scanning news for {self.target_date} to find active sectors...**", view=None)
+        
+        import asyncio
+        from modules.data.db_utils import get_daily_inputs
+        from datetime import datetime
+        from modules.ai.ai_services import extract_sectors_from_news
+        
+        loop = asyncio.get_event_loop()
+        target_date_obj = datetime.strptime(self.target_date, "%Y-%m-%d").date()
+        market_news, _ = await loop.run_in_executor(None, get_daily_inputs, target_date_obj)
+        
+        if not market_news:
+            await interaction.followup.send(f"❌ **NO NEWS FOUND** for **{self.target_date}**.")
+            return
+            
+        sectors = await loop.run_in_executor(None, extract_sectors_from_news, market_news)
+        
+        if not sectors:
+            await interaction.followup.send(f"⚠️ **No explicit sector tags found** in the database for **{self.target_date}**.")
+            return
+            
+        # Update the original message with the new view that includes the dropdown
+        new_view = TargetSelectionView(self.target_date, self.finish_callback, available_sectors=sectors)
+        
+        # Disable the buttons in the new view since they're just selecting a sector now
+        for child in new_view.children:
+            if isinstance(child, discord.ui.Button):
+                child.disabled = True
+                
+        await interaction.message.edit(content=f"🗓️ Date Selected: **{self.target_date}**\nNow, select a sector from the dropdown:", view=new_view)
 
 # --- Build Cards UI ---
 

@@ -440,21 +440,29 @@ async def getnews(ctx, arg1: str = None, arg2: str = None):
                 return
                 
             # 2. Filter news
-            from modules.ai.ai_services import filter_daily_news_for_macro, filter_daily_news_for_company, summarize_news_with_gemini
+            from modules.ai.ai_services import filter_daily_news_for_macro, filter_daily_news_for_company, summarize_news_with_gemini, filter_daily_news_for_custom_sector
             from modules.core.logger import AppLogger
             logger = AppLogger()
             
+            is_custom_sector = False
             if selected_target == "MACRO":
                 filtered_news = filter_daily_news_for_macro(market_news)
+            elif selected_target.startswith("SECTOR:"):
+                # Handle custom sector selection
+                sector_name = selected_target.split(":", 1)[1]
+                filtered_news = filter_daily_news_for_custom_sector(market_news, sector_name)
+                # Overwrite selected_target to just the sector name for cleaner UI
+                selected_target = sector_name
+                is_custom_sector = True
             else:
                 filtered_news = filter_daily_news_for_company(market_news, selected_target, "")
                 
-            if "No specific company or sector news found" in filtered_news or "No macro news found" in filtered_news or not filtered_news.strip():
+            if "No specific company or sector news found" in filtered_news or "No macro news found" in filtered_news or "No specific sector news found" in filtered_news or not filtered_news.strip():
                 await interaction.followup.send(f"⚠️ **No {selected_target} news found** in the database for **{selected_date}**.")
                 return
                 
             # 3. Summarize with Gemini
-            summary = await loop.run_in_executor(None, summarize_news_with_gemini, filtered_news, selected_target, logger)
+            summary = await loop.run_in_executor(None, summarize_news_with_gemini, filtered_news, selected_target, logger, is_custom_sector)
             
             # 4. Send response
             embeds = []
@@ -498,20 +506,29 @@ async def getnews(ctx, arg1: str = None, arg2: str = None):
                 await msg.edit(content=f"❌ **NO NEWS FOUND** for **{date_str}**.")
                 return
                 
-            from modules.ai.ai_services import filter_daily_news_for_macro, filter_daily_news_for_company, summarize_news_with_gemini
+            # 2. Filter news
+            from modules.ai.ai_services import filter_daily_news_for_macro, filter_daily_news_for_company, summarize_news_with_gemini, filter_daily_news_for_custom_sector
             from modules.core.logger import AppLogger
             logger = AppLogger()
             
+            is_custom_sector = False
             if target == "MACRO":
                 filtered_news = filter_daily_news_for_macro(market_news)
+            elif target.startswith("SECTOR:"):
+                # Handle custom sector selection
+                sector_name = target.split(":", 1)[1]
+                filtered_news = filter_daily_news_for_custom_sector(market_news, sector_name)
+                # Overwrite selected_target to just the sector name for cleaner UI
+                target = sector_name
+                is_custom_sector = True
             else:
                 filtered_news = filter_daily_news_for_company(market_news, target, "")
                 
-            if "No specific company or sector news found" in filtered_news or "No macro news found" in filtered_news or not filtered_news.strip():
+            if "No specific company or sector news found" in filtered_news or "No macro news found" in filtered_news or "No specific sector news found" in filtered_news or not filtered_news.strip():
                 await msg.edit(content=f"⚠️ **No {target} news found** in the database for **{date_str}**.")
                 return
                 
-            summary = await loop.run_in_executor(None, summarize_news_with_gemini, filtered_news, target, logger)
+            summary = await loop.run_in_executor(None, summarize_news_with_gemini, filtered_news, target, logger, is_custom_sector)
             
             embeds = []
             chunks = [summary[i:i+4000] for i in range(0, len(summary), 4000)]

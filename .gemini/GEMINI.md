@@ -164,6 +164,17 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-03-03 — Custom Sector News Summarization (`!getnews`)
+
+#### Feature Addition (`discord_bot/bot.py`, `discord_bot/ui_components.py`, `modules/ai/ai_services.py`)
+*   **Purpose**: Added a "🏷️ Custom Sector" button to the `!getnews` command. This allows users to dynamically scan the day's database for all active sectors and request a targeted summary for a specific industry (e.g., Technology, Sports, Energy) without needing a specific company ticker.
+*   **Implementation**:
+    1.  **Tag Extraction (`ai_services.py`)**: Added `extract_sectors_from_news` to parse all `[SECTOR:XYZ]` tags from the day's payload using regex and `collections.Counter`, returning the top 25 most active sectors.
+    2.  **Custom Filtering (`ai_services.py`)**: Added `filter_daily_news_for_custom_sector` to exclusively isolate news blocks matching the selected sector, dropping all macro and unrelated company news.
+    3.  **Prompt Adjustment (`ai_services.py`)**: Modified `summarize_news_with_gemini` with an `is_custom_sector` flag to instruct the AI to write a sector-wide summary rather than a company-specific one.
+    4.  **Interactive UI (`ui_components.py`)**: Added `SectorSelectionSelect` (a dynamic Discord dropdown menu) to the `TargetSelectionView`. Clicking "Custom Sector" swaps the view to display the populated dropdown.
+*   **Result**: Users can now easily identify what industries are making news on any given day and generate hyper-focused summaries for them instantly.
+
 ### 2026-03-03 — Discord Command Stability & Generic Testing Tool
 
 #### `!getnews` Silent Failure Prevention (`discord_bot/bot.py`)

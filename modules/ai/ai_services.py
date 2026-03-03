@@ -200,20 +200,74 @@ def filter_daily_news_for_macro(news_text: str) -> str:
             
     return "\n\n".join(final_blocks) if final_blocks else "No macro news found for today."
 
-def summarize_news_with_gemini(news_text: str, target: str, logger: AppLogger = None) -> str:
+def extract_sectors_from_news(news_text: str) -> list[tuple[str, int]]:
+    """
+    Scans the news text, extracts all [SECTOR:XYZ] tags, and returns a list
+    of tuples sorted by frequency (e.g., [("Technology", 39), ("Sports", 12)]).
+    Limits to the top 25 sectors due to Discord dropdown limits.
+    """
+    if not news_text:
+        return []
+        
+    from collections import Counter
+    blocks = re.split(r'(?=ENTITY:)', news_text)
+    sector_counts = Counter()
+    
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+        header = block.split('\n')[0]
+        sector_match = re.search(r'\[SECTOR:(.*?)\]', header, re.IGNORECASE)
+        if sector_match:
+            sector_name = sector_match.group(1).strip()
+            sector_counts[sector_name] += 1
+            
+    return sector_counts.most_common(25)
+
+def filter_daily_news_for_custom_sector(news_text: str, target_sector: str) -> str:
+    """
+    Filters daily news to only include blocks explicitly tagged with the target sector.
+    """
+    if not news_text or not target_sector:
+        return ""
+        
+    blocks = re.split(r'(?=ENTITY:)', news_text)
+    final_blocks = []
+    target_sector_normalized = normalize_sector(target_sector)
+    
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+            
+        lines = block.split('\n')
+        header = lines[0]
+        
+        sector_match = re.search(r'\[SECTOR:(.*?)\]', header, re.IGNORECASE)
+        if sector_match:
+            block_sector = normalize_sector(sector_match.group(1))
+            if block_sector == target_sector_normalized:
+                final_blocks.append(block)
+            
+    return "\n\n".join(final_blocks) if final_blocks else "No specific sector news found for today."
+
+def summarize_news_with_gemini(news_text: str, target: str, logger: AppLogger = None, is_custom_sector: bool = False) -> str:
     """
     Summarizes raw news using Gemini for instantaneous feedback.
     """
     if not logger:
         logger = AppLogger()
         
-    if "No specific company or sector news found" in news_text or "No macro news found" in news_text or not news_text.strip():
+    if "No specific company or sector news found" in news_text or "No macro news found" in news_text or "No specific sector news found" in news_text or not news_text.strip():
         return "No news found to summarize for this target."
 
     system_prompt = "You are a professional financial analyst. Your task is to provide a concise, high-signal summary of the provided market news."
     
     if target.upper() == "MACRO":
         prompt = f"Please summarize the following global macroeconomic news, highlighting the most important catalysts, economic data, and market-moving events in a structured bulleted list.\n\n[MACRO NEWS]\n{news_text}"
+    elif is_custom_sector:
+        prompt = f"Please summarize the following news specifically related to the {target} sector. Highlight key catalysts, earnings, upgrades/downgrades, and sector headwinds/tailwinds in a structured bulleted list.\n\n[NEWS FOR {target.upper()} SECTOR]\n{news_text}"
     else:
         prompt = f"Please summarize the following news related to {target.upper()} and its sector. Highlight key catalysts, earnings, upgrades/downgrades, and sector headwinds/tailwinds in a structured bulleted list.\n\n[NEWS FOR {target.upper()}]\n{news_text}"
         
