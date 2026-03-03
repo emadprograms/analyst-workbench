@@ -517,3 +517,12 @@ class KeyManager:
             try:
                 self.db_client.execute("UPDATE gemini_key_status SET strikes = 999 WHERE key_hash = ?", [self.key_to_hash[key]])
             except: pass
+
+    def close(self):
+        """Cleanly close the database client."""
+        if self.db_client:
+            try:
+                self.db_client.close()
+                self.db_client = None
+            except:
+                pass
