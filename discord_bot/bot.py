@@ -428,46 +428,52 @@ async def getnews(ctx, arg1: str = None, arg2: str = None):
     async def finish_callback(interaction, selected_date, selected_target):
         await interaction.response.edit_message(content=f"📰 **Fetching and summarizing {selected_target} news** for **{selected_date}**... 🛰️\n*(This may take a few seconds)*", view=None)
         
-        target_date_obj = datetime.strptime(selected_date, "%Y-%m-%d").date()
-        
-        # 1. Fetch news from DB
-        loop = asyncio.get_event_loop()
-        market_news, _ = await loop.run_in_executor(None, get_daily_inputs, target_date_obj)
-        
-        if not market_news:
-            await interaction.followup.send(f"❌ **NO NEWS FOUND** for **{selected_date}**.")
-            return
+        try:
+            target_date_obj = datetime.strptime(selected_date, "%Y-%m-%d").date()
             
-        # 2. Filter news
-        from modules.ai.ai_services import filter_daily_news_for_macro, filter_daily_news_for_company, summarize_news_with_gemini
-        from modules.core.logger import AppLogger
-        logger = AppLogger()
-        
-        if selected_target == "MACRO":
-            filtered_news = filter_daily_news_for_macro(market_news)
-        else:
-            filtered_news = filter_daily_news_for_company(market_news, selected_target, "")
+            # 1. Fetch news from DB
+            loop = asyncio.get_event_loop()
+            market_news, _ = await loop.run_in_executor(None, get_daily_inputs, target_date_obj)
             
-        if "No specific company or sector news found" in filtered_news or "No macro news found" in filtered_news or not filtered_news.strip():
-            await interaction.followup.send(f"⚠️ **No {selected_target} news found** in the database for **{selected_date}**.")
-            return
+            if not market_news:
+                await interaction.followup.send(f"❌ **NO NEWS FOUND** for **{selected_date}**.")
+                return
+                
+            # 2. Filter news
+            from modules.ai.ai_services import filter_daily_news_for_macro, filter_daily_news_for_company, summarize_news_with_gemini
+            from modules.core.logger import AppLogger
+            logger = AppLogger()
             
-        # 3. Summarize with Gemini
-        summary = await loop.run_in_executor(None, summarize_news_with_gemini, filtered_news, selected_target, logger)
-        
-        # 4. Send response
-        embeds = []
-        chunks = [summary[i:i+4000] for i in range(0, len(summary), 4000)]
-        for i, chunk in enumerate(chunks):
-            title = f"📰 {selected_target} News Summary | {selected_date}"
-            if len(chunks) > 1:
-                title += f" (Part {i+1}/{len(chunks)})"
-            embed = discord.Embed(title=title, description=chunk, color=discord.Color.blue())
-            if i == len(chunks) - 1:
-                embed.set_footer(text="Powered by Gemini 3 Flash")
-            embeds.append(embed)
-        
-        await interaction.followup.send(embeds=embeds)
+            if selected_target == "MACRO":
+                filtered_news = filter_daily_news_for_macro(market_news)
+            else:
+                filtered_news = filter_daily_news_for_company(market_news, selected_target, "")
+                
+            if "No specific company or sector news found" in filtered_news or "No macro news found" in filtered_news or not filtered_news.strip():
+                await interaction.followup.send(f"⚠️ **No {selected_target} news found** in the database for **{selected_date}**.")
+                return
+                
+            # 3. Summarize with Gemini
+            summary = await loop.run_in_executor(None, summarize_news_with_gemini, filtered_news, selected_target, logger)
+            
+            # 4. Send response
+            embeds = []
+            chunks = [summary[i:i+4000] for i in range(0, len(summary), 4000)]
+            for i, chunk in enumerate(chunks):
+                title = f"📰 {selected_target} News Summary | {selected_date}"
+                if len(chunks) > 1:
+                    title += f" (Part {i+1}/{len(chunks)})"
+                embed = discord.Embed(title=title, description=chunk, color=discord.Color.blue())
+                if i == len(chunks) - 1:
+                    embed.set_footer(text="Powered by Gemini 3 Flash")
+                embeds.append(embed)
+            
+            await interaction.followup.send(embeds=embeds)
+        except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"Error in finish_callback: {error_trace}")
+            await interaction.followup.send(f"❌ **An internal error occurred:** {e}")
 
     if not date_str and not target:
         async def date_cb(interaction, selected_date):
@@ -483,41 +489,47 @@ async def getnews(ctx, arg1: str = None, arg2: str = None):
         # We have both, directly execute
         msg = await ctx.send(f"📰 **Fetching and summarizing {target} news** for **{date_str}**... 🛰️\n*(This may take a few seconds)*")
         
-        target_date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
-        loop = asyncio.get_event_loop()
-        market_news, _ = await loop.run_in_executor(None, get_daily_inputs, target_date_obj)
-        
-        if not market_news:
-            await msg.edit(content=f"❌ **NO NEWS FOUND** for **{date_str}**.")
-            return
+        try:
+            target_date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+            loop = asyncio.get_event_loop()
+            market_news, _ = await loop.run_in_executor(None, get_daily_inputs, target_date_obj)
             
-        from modules.ai.ai_services import filter_daily_news_for_macro, filter_daily_news_for_company, summarize_news_with_gemini
-        from modules.core.logger import AppLogger
-        logger = AppLogger()
-        
-        if target == "MACRO":
-            filtered_news = filter_daily_news_for_macro(market_news)
-        else:
-            filtered_news = filter_daily_news_for_company(market_news, target, "")
+            if not market_news:
+                await msg.edit(content=f"❌ **NO NEWS FOUND** for **{date_str}**.")
+                return
+                
+            from modules.ai.ai_services import filter_daily_news_for_macro, filter_daily_news_for_company, summarize_news_with_gemini
+            from modules.core.logger import AppLogger
+            logger = AppLogger()
             
-        if "No specific company or sector news found" in filtered_news or "No macro news found" in filtered_news or not filtered_news.strip():
-            await msg.edit(content=f"⚠️ **No {target} news found** in the database for **{date_str}**.")
-            return
+            if target == "MACRO":
+                filtered_news = filter_daily_news_for_macro(market_news)
+            else:
+                filtered_news = filter_daily_news_for_company(market_news, target, "")
+                
+            if "No specific company or sector news found" in filtered_news or "No macro news found" in filtered_news or not filtered_news.strip():
+                await msg.edit(content=f"⚠️ **No {target} news found** in the database for **{date_str}**.")
+                return
+                
+            summary = await loop.run_in_executor(None, summarize_news_with_gemini, filtered_news, target, logger)
             
-        summary = await loop.run_in_executor(None, summarize_news_with_gemini, filtered_news, target, logger)
-        
-        embeds = []
-        chunks = [summary[i:i+4000] for i in range(0, len(summary), 4000)]
-        for i, chunk in enumerate(chunks):
-            title = f"📰 {target} News Summary | {date_str}"
-            if len(chunks) > 1:
-                title += f" (Part {i+1}/{len(chunks)})"
-            embed = discord.Embed(title=title, description=chunk, color=discord.Color.blue())
-            if i == len(chunks) - 1:
-                embed.set_footer(text="Powered by Gemini 3 Flash")
-            embeds.append(embed)
-        
-        await msg.edit(content=None, embeds=embeds)
+            embeds = []
+            chunks = [summary[i:i+4000] for i in range(0, len(summary), 4000)]
+            for i, chunk in enumerate(chunks):
+                title = f"📰 {target} News Summary | {date_str}"
+                if len(chunks) > 1:
+                    title += f" (Part {i+1}/{len(chunks)})"
+                embed = discord.Embed(title=title, description=chunk, color=discord.Color.blue())
+                if i == len(chunks) - 1:
+                    embed.set_footer(text="Powered by Gemini 3 Flash")
+                embeds.append(embed)
+            
+            await msg.edit(content=None, embeds=embeds)
+        except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"Error in getnews: {error_trace}")
+            await msg.edit(content=f"❌ **An internal error occurred:** {e}")
 
 if __name__ == "__main__":
     if not DISCORD_TOKEN: print("❌ Error: DISCORD_BOT_TOKEN not found.")

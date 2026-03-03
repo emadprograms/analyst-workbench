@@ -77,8 +77,8 @@ class TestBotGetNews(unittest.IsolatedAsyncioTestCase):
         msg = ctx.send.return_value
         msg.edit.assert_called()
         edit_kwargs = msg.edit.call_args[1]
-        self.assertIn("embed", edit_kwargs)
-        embed = edit_kwargs["embed"]
+        self.assertIn("embeds", edit_kwargs)
+        embed = edit_kwargs["embeds"][0]
         self.assertEqual(embed.title, "📰 MACRO News Summary | 2026-03-03")
 
     @patch('discord_bot.bot.get_target_date')
