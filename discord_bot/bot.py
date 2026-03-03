@@ -23,7 +23,7 @@ from config import (
 )
 from ui_components import (
     DateSelectionView, NewsModal, BuildTypeSelectionView, TickerSelectionView,
-    ViewTypeSelectionView, EditNotesTickerSelectionView, EditNotesModal, EditNotesTriggerView
+    ViewTypeSelectionView, EditNotesTickerSelectionView, EditNotesModal, EditNotesTriggerView, TargetSelectionView
 )
 from modules.data.db_utils import (
     get_all_tickers_from_db, get_company_card_and_notes, update_ticker_notes, 
@@ -380,6 +380,114 @@ async def inputnews(ctx, date_indicator: str = None):
                     except: pass
             await ctx.send(f"✅ Target Date: **{target_date}**", view=Trigger(target_date, save_news))
         except ValueError: await ctx.send(f"❌ Error: `{target_date}` is invalid.")
+
+@bot.command()
+async def getnews(ctx, arg1: str = None, arg2: str = None):
+    """Fetches and summarizes news for Macro or a Company."""
+    date_str = None
+    target = None
+
+    def is_date_or_offset(val):
+        if not val: return False
+        if val == "0" or (val.startswith("-") and val[1:].isdigit()):
+            return True
+        try:
+            datetime.strptime(val, "%Y-%m-%d")
+            return True
+        except:
+            return False
+
+    if arg1 and arg2:
+        if is_date_or_offset(arg1):
+            date_str = get_target_date(arg1)
+            target = arg2.upper()
+        else:
+            date_str = get_target_date(arg2)
+            target = arg1.upper()
+    elif arg1:
+        if is_date_or_offset(arg1):
+            date_str = get_target_date(arg1)
+        else:
+            date_str = get_target_date("0") # Default to today
+            target = arg1.upper()
+            
+    async def finish_callback(interaction, selected_date, selected_target):
+        await interaction.response.edit_message(content=f"📰 **Fetching and summarizing {selected_target} news** for **{selected_date}**... 🛰️\n*(This may take a few seconds)*", view=None)
+        
+        target_date_obj = datetime.strptime(selected_date, "%Y-%m-%d").date()
+        
+        # 1. Fetch news from DB
+        loop = asyncio.get_event_loop()
+        market_news, _ = await loop.run_in_executor(None, get_daily_inputs, target_date_obj)
+        
+        if not market_news:
+            await interaction.followup.send(f"❌ **NO NEWS FOUND** for **{selected_date}**.")
+            return
+            
+        # 2. Filter news
+        from modules.ai.ai_services import filter_daily_news_for_macro, filter_daily_news_for_company, summarize_news_with_gemini
+        from modules.core.logger import AppLogger
+        logger = AppLogger()
+        
+        if selected_target == "MACRO":
+            filtered_news = filter_daily_news_for_macro(market_news)
+        else:
+            filtered_news = filter_daily_news_for_company(market_news, selected_target, "")
+            
+        if "No specific company or sector news found" in filtered_news or "No macro news found" in filtered_news or not filtered_news.strip():
+            await interaction.followup.send(f"⚠️ **No {selected_target} news found** in the database for **{selected_date}**.")
+            return
+            
+        # 3. Summarize with Gemini
+        summary = await loop.run_in_executor(None, summarize_news_with_gemini, filtered_news, selected_target, logger)
+        
+        # 4. Send response
+        embed = discord.Embed(title=f"📰 {selected_target} News Summary | {selected_date}", description=summary, color=discord.Color.blue())
+        embed.set_footer(text="Powered by Gemini 3 Flash")
+        
+        await interaction.followup.send(embed=embed)
+
+    if not date_str and not target:
+        async def date_cb(interaction, selected_date):
+            await interaction.response.edit_message(content=f"🗓️ Date Selected: **{selected_date}**\nNow, select target:", view=TargetSelectionView(selected_date, finish_callback))
+        await ctx.send("🗓️ **Select Date for News Summary:**", view=DateSelectionView(date_cb))
+    elif date_str and not target:
+        await ctx.send(f"🗓️ Date Selected: **{date_str}**\nNow, select target:", view=TargetSelectionView(date_str, finish_callback))
+    elif not date_str and target:
+        async def date_cb_with_target(interaction, selected_date):
+            await finish_callback(interaction, selected_date, target)
+        await ctx.send(f"🎯 Target: **{target}**\n🗓️ **Select Date:**", view=DateSelectionView(date_cb_with_target))
+    else:
+        # We have both, directly execute
+        msg = await ctx.send(f"📰 **Fetching and summarizing {target} news** for **{date_str}**... 🛰️\n*(This may take a few seconds)*")
+        
+        target_date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+        loop = asyncio.get_event_loop()
+        market_news, _ = await loop.run_in_executor(None, get_daily_inputs, target_date_obj)
+        
+        if not market_news:
+            await msg.edit(content=f"❌ **NO NEWS FOUND** for **{date_str}**.")
+            return
+            
+        from modules.ai.ai_services import filter_daily_news_for_macro, filter_daily_news_for_company, summarize_news_with_gemini
+        from modules.core.logger import AppLogger
+        logger = AppLogger()
+        
+        if target == "MACRO":
+            filtered_news = filter_daily_news_for_macro(market_news)
+        else:
+            filtered_news = filter_daily_news_for_company(market_news, target, "")
+            
+        if "No specific company or sector news found" in filtered_news or "No macro news found" in filtered_news or not filtered_news.strip():
+            await msg.edit(content=f"⚠️ **No {target} news found** in the database for **{date_str}**.")
+            return
+            
+        summary = await loop.run_in_executor(None, summarize_news_with_gemini, filtered_news, target, logger)
+        
+        embed = discord.Embed(title=f"📰 {target} News Summary | {date_str}", description=summary, color=discord.Color.blue())
+        embed.set_footer(text="Powered by Gemini 3 Flash")
+        
+        await msg.edit(content=None, embed=embed)
 
 if __name__ == "__main__":
     if not DISCORD_TOKEN: print("❌ Error: DISCORD_BOT_TOKEN not found.")

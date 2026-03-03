@@ -177,6 +177,55 @@ def filter_daily_news_for_company(news_text: str, ticker: str, fallback_sector: 
             
     return "\n\n".join(final_blocks) if final_blocks else "No specific company or sector news found for today."
 
+def filter_daily_news_for_macro(news_text: str) -> str:
+    """
+    Filters daily news to only include the macro blocks.
+    """
+    if not news_text:
+        return ""
+        
+    blocks = re.split(r'(?=ENTITY:)', news_text)
+    final_blocks = []
+    
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+            
+        lines = block.split('\n')
+        header = lines[0]
+        
+        if "[MACRO]" in header:
+            final_blocks.append(block)
+            
+    return "\n\n".join(final_blocks) if final_blocks else "No macro news found for today."
+
+def summarize_news_with_gemini(news_text: str, target: str, logger: AppLogger = None) -> str:
+    """
+    Summarizes raw news using Gemini for instantaneous feedback.
+    """
+    if not logger:
+        logger = AppLogger()
+        
+    if "No specific company or sector news found" in news_text or "No macro news found" in news_text or not news_text.strip():
+        return "No news found to summarize for this target."
+
+    system_prompt = "You are a professional financial analyst. Your task is to provide a concise, high-signal summary of the provided market news."
+    
+    if target.upper() == "MACRO":
+        prompt = f"Please summarize the following global macroeconomic news, highlighting the most important catalysts, economic data, and market-moving events in a structured bulleted list.\n\n[MACRO NEWS]\n{news_text}"
+    else:
+        prompt = f"Please summarize the following news related to {target.upper()} and its sector. Highlight key catalysts, earnings, upgrades/downgrades, and sector headwinds/tailwinds in a structured bulleted list.\n\n[NEWS FOR {target.upper()}]\n{news_text}"
+        
+    model_name = "gemini-3-flash-paid"
+    
+    # We disable response_schema here to allow raw text generation
+    response = call_gemini_api(prompt, system_prompt, logger, model_name=model_name)
+    if response:
+        return response
+    else:
+        return "❌ Failed to generate summary from AI."
+
 # --- The Robust API Caller (V8) ---
 def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_name: str, max_retries=5, **kwargs) -> str | None:
     """

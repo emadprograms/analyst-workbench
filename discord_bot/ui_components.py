@@ -85,6 +85,36 @@ class NewsModal(discord.ui.Modal, title='Market News Entry'):
         else:
             await msg.edit(content=f"❌ **Failed to save news** for **{self.target_date}** to database.")
 
+class TargetTickerModal(discord.ui.Modal, title='Enter Company Ticker'):
+    def __init__(self, target_date, finish_callback):
+        super().__init__()
+        self.target_date = target_date
+        self.finish_callback = finish_callback
+
+    ticker_val = discord.ui.TextInput(
+        label='Ticker Symbol',
+        placeholder='e.g., AAPL',
+        required=True,
+        max_length=10
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await self.finish_callback(interaction, self.target_date, self.ticker_val.value.upper())
+
+class TargetSelectionView(discord.ui.View):
+    def __init__(self, target_date, finish_callback):
+        super().__init__(timeout=180)
+        self.target_date = target_date
+        self.finish_callback = finish_callback
+
+    @discord.ui.button(label="🌍 Macro News", style=discord.ButtonStyle.primary)
+    async def macro_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.finish_callback(interaction, self.target_date, "MACRO")
+
+    @discord.ui.button(label="🏢 Company News", style=discord.ButtonStyle.success)
+    async def company_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(TargetTickerModal(self.target_date, self.finish_callback))
+
 # --- Build Cards UI ---
 
 class BuildTypeSelectionView(discord.ui.View):
