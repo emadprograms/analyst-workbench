@@ -25,3 +25,5 @@ lab/
 .env
 .vscode/
 .DS_Store
+code/
+vscode_cli.tar.gz
