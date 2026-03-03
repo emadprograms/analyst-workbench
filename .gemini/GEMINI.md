@@ -164,6 +164,16 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-03-03 — On-Demand News Summarization (`!getnews`)
+
+#### Feature Addition (`discord_bot/bot.py`, `discord_bot/ui_components.py`, `modules/ai/ai_services.py`)
+*   **Purpose**: Added the `!getnews` Discord command to provide instantaneous AI-generated summaries of raw market news for either Macro or specific Companies.
+*   **Implementation**:
+    1.  **News Filtering (`ai_services.py`)**: Implemented `filter_daily_news_for_macro` to isolate `[MACRO]` tagged news, mirroring the existing company news filter.
+    2.  **Summarization (`ai_services.py`)**: Added `summarize_news_with_gemini` which leverages `gemini-3-flash-paid` to generate structured, bulleted summaries of the filtered news.
+    3.  **Command & UI (`bot.py`, `ui_components.py`)**: Built the `!getnews` command with support for inline arguments (e.g., `!getnews 0 AAPL`, `!getnews 2026-02-03 MACRO`). Added fallback interactive UI elements (`TargetSelectionView`, `TargetTickerModal`) if arguments are omitted.
+*   **Result**: Users can now request immediate, high-signal news summaries directly within Discord without triggering a full card build.
+
 ### 2026-03-02 — Strict Economy Bias Labels & Validator Alignment
 
 #### Economy Card Bias Hardening (`modules/ai/ai_services.py`, `modules/ai/quality_validators.py`, `modules/ai/data_validators.py`)
