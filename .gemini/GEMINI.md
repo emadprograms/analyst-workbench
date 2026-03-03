@@ -179,7 +179,7 @@ This section records resolved bugs and structural changes for traceability. Newe
 *   **Fix**:
     1.  **Infisical Integration**: Updated `discord_bot/config.py` to utilize `InfisicalManager` for retrieving `DISCORD_BOT_TOKEN` and `GITHUB_PAT`, aligning it with the project's centralized secret strategy.
     2.  **Startup Validation**: Added an explicit credential check in the bot's `on_ready` event to verify Turso DB connection strings and `KeyManager` initialization at launch. 
-    3.  **Connection Lifecycle**: Added a `close()` method to `KeyManager` to allow for clean database client shutdowns, preventing hanging processes during short-lived script executions (like the `!getnews` test tool).
+    3.  **Connection Lifecycle**: Added a `close()` method to `KeyManager` to allow for clean database client shutdowns, preventing hanging processes during short-lived script executions (like the `!getnews` test tool `test_getnews_feature.py`).
 *   **Result**: The Discord bot now benefits from the full Infisical/Turso security stack, providing immediate terminal feedback on credential health during the Railway boot cycle.
 
 ### 2026-03-03 — Discord Dashboard Economy Validation Alignment
