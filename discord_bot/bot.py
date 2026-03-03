@@ -41,6 +41,20 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 @bot.event
 async def on_ready():
     print(f"✅ Major Action System Online | Logged in as: {bot.user.name}")
+    
+    # --- Startup Credential Check ---
+    from modules.core.config import TURSO_DB_URL, TURSO_AUTH_TOKEN
+    from modules.ai.ai_services import KEY_MANAGER
+    
+    if not TURSO_DB_URL or not TURSO_AUTH_TOKEN:
+        print("❌ CRITICAL: Turso DB credentials not found. DB features will fail.")
+    else:
+        print("✅ Turso DB credentials verified.")
+        
+    if not KEY_MANAGER:
+        print("❌ CRITICAL: KeyManager failed to initialize. AI features will fail.")
+    else:
+        print("✅ KeyManager initialized and ready.")
 
 # --- Logic Helpers ---
 
