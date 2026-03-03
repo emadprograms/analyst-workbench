@@ -456,10 +456,18 @@ async def getnews(ctx, arg1: str = None, arg2: str = None):
         summary = await loop.run_in_executor(None, summarize_news_with_gemini, filtered_news, selected_target, logger)
         
         # 4. Send response
-        embed = discord.Embed(title=f"📰 {selected_target} News Summary | {selected_date}", description=summary, color=discord.Color.blue())
-        embed.set_footer(text="Powered by Gemini 3 Flash")
+        embeds = []
+        chunks = [summary[i:i+4000] for i in range(0, len(summary), 4000)]
+        for i, chunk in enumerate(chunks):
+            title = f"📰 {selected_target} News Summary | {selected_date}"
+            if len(chunks) > 1:
+                title += f" (Part {i+1}/{len(chunks)})"
+            embed = discord.Embed(title=title, description=chunk, color=discord.Color.blue())
+            if i == len(chunks) - 1:
+                embed.set_footer(text="Powered by Gemini 3 Flash")
+            embeds.append(embed)
         
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embeds=embeds)
 
     if not date_str and not target:
         async def date_cb(interaction, selected_date):
@@ -498,10 +506,18 @@ async def getnews(ctx, arg1: str = None, arg2: str = None):
             
         summary = await loop.run_in_executor(None, summarize_news_with_gemini, filtered_news, target, logger)
         
-        embed = discord.Embed(title=f"📰 {target} News Summary | {date_str}", description=summary, color=discord.Color.blue())
-        embed.set_footer(text="Powered by Gemini 3 Flash")
+        embeds = []
+        chunks = [summary[i:i+4000] for i in range(0, len(summary), 4000)]
+        for i, chunk in enumerate(chunks):
+            title = f"📰 {target} News Summary | {date_str}"
+            if len(chunks) > 1:
+                title += f" (Part {i+1}/{len(chunks)})"
+            embed = discord.Embed(title=title, description=chunk, color=discord.Color.blue())
+            if i == len(chunks) - 1:
+                embed.set_footer(text="Powered by Gemini 3 Flash")
+            embeds.append(embed)
         
-        await msg.edit(content=None, embed=embed)
+        await msg.edit(content=None, embeds=embeds)
 
 if __name__ == "__main__":
     if not DISCORD_TOKEN: print("❌ Error: DISCORD_BOT_TOKEN not found.")

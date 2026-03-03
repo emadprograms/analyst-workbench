@@ -164,6 +164,14 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-03-03 — Discord Message Truncation & Embed Dropping Fix
+
+#### Embed Payload Consolidation & Chunking (`discord_bot/bot.py`, `main.py`)
+*   **Root cause 1 (`!getnews`)**: Discord enforces a strict 4,096-character limit for Embed descriptions. When Gemini generated highly detailed news summaries that exceeded this limit, Discord would reject the payload (HTTP 400), causing the message to silently fail.
+*   **Fix 1**: Implemented "Embed Chunking" in `discord_bot/bot.py`. The AI's summary string is now sliced into safe 4,000-character chunks. The bot dynamically generates a list of sequentially numbered Embeds (e.g., "Part 1/2", "Part 2/2") and sends them together in a single paginated response using the `embeds=[...]` keyword argument.
+*   **Root cause 2 (Dashboard Webhooks)**: The `send_webhook_report` function in `main.py` was looping through the three generated dashboard embeds (Summary, Quality Table, Data Table) and firing them off as individual HTTP POST requests with a 0.5s delay. This caused transient network errors or strict Discord rate-limiting to randomly drop the 2nd or 3rd messages.
+*   **Fix 2**: Replaced the fragile `for` loop in `main.py` with a single, consolidated payload: `requests.post(webhook_url, json={"embeds": embeds}, ...)`. Discord naturally supports up to 10 embeds per message, ensuring all dashboard tables arrive atomically and simultaneously.
+
 ### 2026-03-03 — Discord Bot Infisical Integration & Startup Hardening
 
 #### Bot Configuration Alignment (`discord_bot/config.py`, `discord_bot/bot.py`)

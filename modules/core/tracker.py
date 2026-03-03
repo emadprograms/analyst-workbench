@@ -565,10 +565,12 @@ class ExecutionTracker:
         input_table += f"\n\nLEGEND:\n{self.INPUT_LEGEND}"
 
         # Truncate if needed (Discord 1024 char limit minus code block fences)
-        for table_name in ['quality_table', 'data_table', 'input_table']:
-            val = locals()[table_name]
-            if len(val) > 1010:
-                locals()[table_name] = val[:1007] + "..."
+        if len(quality_table) > 1010:
+            quality_table = quality_table[:1007] + "..."
+        if len(data_table) > 1010:
+            data_table = data_table[:1007] + "..."
+        if len(input_table) > 1010:
+            input_table = input_table[:1007] + "..."
 
         return quality_table, data_table, input_table
 

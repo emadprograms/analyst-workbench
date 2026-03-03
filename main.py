@@ -56,15 +56,11 @@ def send_webhook_report(webhook_url, target_date, action, model, logger=None):
             files[name] = (f"{name}.json", content, "application/json")
     
     try:
-        # --- MESSAGES 1 to N: The Embeds (Dashboard, Quality Table, etc.) ---
-        # We send these sequentially to ensure they appear in order.
-        # Discord allows up to 10 embeds per message, but we send them separately
-        # to ensure we never hit the 2000-character-per-message limit when tables are large.
-        for i, embed in enumerate(embeds):
-            requests.post(webhook_url, json={"embeds": [embed]}, timeout=15)
-            # Brief pause to help Discord ordering
-            if len(embeds) > 1:
-                time.sleep(0.5)
+        # --- MESSAGE 1: The Embeds (Dashboard, Quality Table, Data Table) ---
+        # We send all embeds in a SINGLE payload. Discord allows up to 10 embeds per message.
+        # This prevents 1 out of 3 messages from dropping due to rate limits or transient network errors.
+        if embeds:
+            requests.post(webhook_url, json={"embeds": embeds}, timeout=15)
 
         # --- FINAL MESSAGE: The Files (Logs & Cards) ---
         # Skip sending logs for input-news and inspect to keep feed clean, but KEEP for check-news
