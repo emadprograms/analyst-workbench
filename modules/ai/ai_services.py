@@ -217,7 +217,7 @@ def summarize_news_with_gemini(news_text: str, target: str, logger: AppLogger = 
     else:
         prompt = f"Please summarize the following news related to {target.upper()} and its sector. Highlight key catalysts, earnings, upgrades/downgrades, and sector headwinds/tailwinds in a structured bulleted list.\n\n[NEWS FOR {target.upper()}]\n{news_text}"
         
-    model_name = "gemini-3-flash-paid"
+    model_name = "gemini-3-flash-free"
     
     # We disable response_schema here to allow raw text generation
     response = call_gemini_api(prompt, system_prompt, logger, model_name=model_name)
