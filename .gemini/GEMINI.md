@@ -164,6 +164,17 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-03-03 — Discord Dashboard Economy Validation Alignment
+
+#### Tracker Tables Dynamic Scaling (`modules/core/tracker.py`, `tests/test_tracker_tables.py`)
+*   **Root cause**: The Discord dashboard's Quality and Data accuracy tables were hardcoded to display column names meant exclusively for Company Cards (e.g., `HiLo`, `Sup`, `Con`, `Scr`). When an Economy Card failed validation (e.g., `ECON_BAD_BIAS` or `DATA_SECTOR_LEADER_FALSE`), the rules did not map to the UI columns, resulting in missing or misaligned feedback for Macro generation.
+*   **Fix**:
+    1.  **Tracker Setup**: Created distinct column dictionaries and mapping legends for Economy updates (`ECON_QUALITY_CHECKS` and `ECON_DATA_CHECKS`).
+    2.  **Dynamic Headers**: Modified `ExecutionTracker._build_validation_tables()` to detect if `self.action_type == "Economy_Card_Update"` and seamlessly swap out the `QUALITY_CHECKS` and `DATA_CHECKS` with their Economy-specific counterparts.
+    3.  **Dynamic Spacing**: Rebuilt the `_render_table` spacing logic to handle variable header text lengths.
+    4.  **Test Suite (`test_tracker_tables.py`)**: Added a dedicated test suite to simulate tracker data and confirm the exact spacing and table rendering logic for both Economy and Company tables.
+*   **Result**: The Discord dashboard now properly renders Economy-specific rule violations (e.g., Sector Rotation fails, Macro Bias contradictions, Breadth mismatches) during a Macro Pipeline run.
+
 ### 2026-03-03 — On-Demand News Summarization (`!getnews`)
 
 #### Feature Addition (`discord_bot/bot.py`, `discord_bot/ui_components.py`, `modules/ai/ai_services.py`)

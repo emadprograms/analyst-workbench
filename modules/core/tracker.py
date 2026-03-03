@@ -440,6 +440,18 @@ class ExecutionTracker:
     ]
     QUALITY_LEGEND = "Sch:Schema Plc:Placeholder Act:ActionLog Con:Confidence Scr:Screener Ton:Tone Par:Participants Pln:Plans Sub:Substance"
 
+    ECON_QUALITY_CHECKS = [
+        ("Sch", ["SCHEMA_MISSING", "SCHEMA_TYPE"]),
+        ("Plc", ["CONTENT_PLACEHOLDER"]),
+        ("Act", ["ACTION_LOG_MISSING", "ACTION_LOG_FORMAT", "ACTION_EMPTY",
+                 "ACTION_NO_DATE", "ACTION_TOO_LONG", "ACTION_DEGENERATION",
+                 "ACTION_CARD_DUMP"]),
+        ("Bias", ["ECON_BAD_BIAS"]),
+        ("Rot", ["ECON_NO_LEADING", "ECON_NO_LAGGING"]),
+        ("Sub", ["CONTENT_THIN"]),
+    ]
+    ECON_QUALITY_LEGEND = "Sch:Schema Plc:Placeholder Act:ActionLog Bias:MacroBias Rot:SectorRotation Sub:Substance"
+
     # ─── Data accuracy check categories ───
     DATA_CHECKS = [
         ("Bias", ["DATA_BIAS_CONTRADICTION", "DATA_BIAS_MISMATCH"]),
@@ -453,6 +465,19 @@ class ExecutionTracker:
                   "DATA_CONTEXT_TICKER_MISMATCH"]),
     ]
     DATA_LEGEND = "Bias:BiasVsPrice Trnd:PriceTrend Gaps:GapClaims HiLo:HigherLows Sup:SupportHeld Vol:Volume Date:Date/Ticker"
+
+    ECON_DATA_CHECKS = [
+        ("Bias", ["DATA_ECON_BIAS_CONTRADICTION", "DATA_ECON_BIAS_MISMATCH", "DATA_ECON_BIAS_MULTI_INDEX"]),
+        ("Sect", ["DATA_SECTOR_LEADER_FALSE", "DATA_SECTOR_LAGGER_FALSE"]),
+        ("Brdt", ["DATA_BREADTH_MISMATCH"]),
+        ("Intr", ["DATA_INTERMARKET_DIRECTION"]),
+        ("Rtn",  ["DATA_RETURN_MAGNITUDE"]),
+        ("Date", ["DATA_DATE_WRONG", "DATA_TODAYS_ACTION_DATE"]),
+        ("Gaps", ["DATA_GAP_MISMATCH"]),
+        ("HiLo", ["DATA_HIGHER_LOWS_FALSE"]),
+        ("Sup",  ["DATA_SUPPORT_BREACHED"]),
+    ]
+    ECON_DATA_LEGEND = "Bias:MacroBias Sect:SectorRot Brdt:Breadth Intr:InterMarket Rtn:ReturnMag Date:Date Gaps:IndexGaps HiLo:IndexHiLo Sup:IndexSupport"
 
     # ─── Data input checks ───
     INPUT_CHECKS = [
@@ -470,22 +495,26 @@ class ExecutionTracker:
         labels = [label for label, _ in checks]
 
         # Header row: Use fixed 4-char width for columns to fit emojis
-        header = f"{'Ticker':<7} | " + " | ".join(f"{l:^3}" for l in labels)
-        separator = "-" * len(header.replace("✅", "  ").replace("❌", "  ")) # rough estimate
-        # Real separator length needs adjustment because string len != display width
-        # But in a code block, dashes are standard. We'll just use a long enough line.
-        separator = "-" * (8 + len(labels) * 6)
+        header = f"{'Ticker':<7} | " + " | ".join(f"{l:^4}" if len(l) == 4 else f"{l:^3}" for l in labels)
+        
+        # Calculate separator dynamically based on length of formatted header
+        separator = "-" * len(header)
 
         rows = [header, separator]
         for ticker in tickers:
             failed_rules = issues_by_ticker.get(ticker, set())
             cols = []
-            for _, rules in checks:
+            for label, rules in checks:
                 is_fail = any(r in failed_rules for r in rules)
-                marker = "  F " if is_fail else "  . "
-                cols.append(f"{marker:>4}")
+                # Ensure marker aligns with the label width (3 or 4)
+                width = 4 if len(label) == 4 else 3
+                if width == 4:
+                    marker = " F  " if is_fail else " .  "
+                else:
+                    marker = " F " if is_fail else " . "
+                cols.append(marker)
 
-            rows.append(f"{ticker:<7} | " + " ".join(cols))
+            rows.append(f"{ticker:<7} | " + " | ".join(cols))
 
         return "\n".join(rows)
 
@@ -507,21 +536,29 @@ class ExecutionTracker:
         if not tickers:
             return "", "", ""
 
+        is_economy = self.action_type == "Economy_Card_Update"
+        
+        quality_checks_to_use = self.ECON_QUALITY_CHECKS if is_economy else self.QUALITY_CHECKS
+        quality_legend_to_use = self.ECON_QUALITY_LEGEND if is_economy else self.QUALITY_LEGEND
+        
+        data_checks_to_use = self.ECON_DATA_CHECKS if is_economy else self.DATA_CHECKS
+        data_legend_to_use = self.ECON_DATA_LEGEND if is_economy else self.DATA_LEGEND
+
         # Build quality issues map
         q_issues = {}
         for t in tickers:
             q_issues[t] = {i['rule'] for i in self.metrics.quality_reports.get(t, [])}
 
-        quality_table = self._render_table(tickers, self.QUALITY_CHECKS, q_issues)
-        quality_table += f"\n\nLEGEND:\n{self.QUALITY_LEGEND}"
+        quality_table = self._render_table(tickers, quality_checks_to_use, q_issues)
+        quality_table += f"\n\nLEGEND:\n{quality_legend_to_use}"
 
         # Build data issues map
         d_issues = {}
         for t in tickers:
             d_issues[t] = {i['rule'] for i in self.metrics.data_reports.get(t, [])}
 
-        data_table = self._render_table(tickers, self.DATA_CHECKS, d_issues)
-        data_table += f"\n\nLEGEND:\n{self.DATA_LEGEND}"
+        data_table = self._render_table(tickers, data_checks_to_use, d_issues)
+        data_table += f"\n\nLEGEND:\n{data_legend_to_use}"
 
         # Build data input availability table
         input_table = self._render_input_table(tickers)
