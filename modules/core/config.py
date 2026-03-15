@@ -78,8 +78,8 @@ try:
         logging.info(f"✅ TURSO_AUTH_TOKEN is set (len: {len(TURSO_AUTH_TOKEN)})")
 
     # --- External Price Database ---
-    TURSO_PRICE_DB_URL = infisical_mgr.get_secret("turso_arshademad_stockdataarchive_db_url")
-    TURSO_PRICE_AUTH_TOKEN = infisical_mgr.get_secret("turso_arshademad_stockdataarchive_auth_token")
+    TURSO_PRICE_DB_URL = infisical_mgr.get_secret("turso_hamzaarshadalam_stockdataarchivemirror1_db_url")
+    TURSO_PRICE_AUTH_TOKEN = infisical_mgr.get_secret("turso_hamzaarshadalam_stockdataarchivemirror1_auth_token")
 
     if TURSO_PRICE_DB_URL:
         logging.info(f"✅ TURSO_PRICE_DB_URL is set (len: {len(TURSO_PRICE_DB_URL)})")
