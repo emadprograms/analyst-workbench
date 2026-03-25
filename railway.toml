@@ -1,0 +1,2 @@
+[build]
+dockerfilePath = "discord_bot/Dockerfile"
