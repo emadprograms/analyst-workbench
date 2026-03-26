@@ -529,9 +529,13 @@ def get_or_compute_context(client, ticker: str, date_str: str, logger: AppLogger
     Fetches DB data and computes an Impact Context Card for the given ticker/date.
     Always queries the database to ensure fresh data.
     """
+    # Normalize ticker: the price DB stores symbols without the ^ prefix
+    # (e.g. "VIX" not "^VIX"), but config/yfinance conventions use "^VIX".
+    db_ticker = ticker.lstrip("^")
+
     # Fetch Data
-    df = get_session_bars_from_db(client, ticker, date_str, f"{date_str} 23:59:59", logger)
-    ref_stats = get_previous_session_stats(client, ticker, date_str, logger)
+    df = get_session_bars_from_db(client, db_ticker, date_str, f"{date_str} 23:59:59", logger)
+    ref_stats = get_previous_session_stats(client, db_ticker, date_str, logger)
 
     # Compute Context
     context_card = analyze_market_context(df, ref_stats, ticker, date_str=date_str)
