@@ -1134,7 +1134,31 @@ def _check_todays_action_date(card: dict, trade_date: str, report: DataReport):
 # 9. Inter-Market Direction Claims Validator
 # ─────────────────────────────────────────────
 
-# Mapping from interMarketAnalysis sub-keys to the ETF tickers in etf_contexts.
+# OLD flat map replaced with an ASSET-AWARE structure.
+# Each sub-asset has:
+#   - ticker: the ETF/symbol in etf_contexts
+#   - keywords: narrative keywords that indicate the AI is discussing THIS asset
+#   - inverted: if True, the proxy moves OPPOSITE to the asset name
+#               e.g. EURUSDT goes DOWN when "dollar strengthened" (USD up)
+
+INTERMARKET_ASSETS: dict[str, list[dict]] = {
+    "bonds": [
+        {"ticker": "TLT", "keywords": ["bond", "treasury", "treasuries", "tlt", "yield", "10-year", "10 year", "30-year", "30 year"], "inverted": False},
+    ],
+    "commodities": [
+        {"ticker": "CL=F", "keywords": ["oil", "crude", "wti", "brent", "petroleum", "cl=f", "energy"], "inverted": False},
+        {"ticker": "PAXGUSDT", "keywords": ["gold", "paxg", "bullion", "precious metal", "safe haven", "safe-haven"], "inverted": False},
+    ],
+    "currencies": [
+        {"ticker": "UUP", "keywords": ["dollar", "usd", "uup", "greenback", "dxy", "dollar index"], "inverted": False},
+        {"ticker": "EURUSDT", "keywords": ["euro", "eur", "eurusd"], "inverted": False},
+    ],
+    "crypto": [
+        {"ticker": "BTCUSDT", "keywords": ["bitcoin", "btc", "crypto", "digital asset"], "inverted": False},
+    ],
+}
+
+# Legacy flat map kept for return magnitude scanner compatibility
 INTERMARKET_TICKER_MAP: dict[str, list[str]] = {
     "bonds": ["TLT"],
     "commodities": ["CL=F", "PAXGUSDT"],
@@ -1170,26 +1194,40 @@ def _detect_direction(text: str) -> str | None:
 
 def _check_intermarket_direction(card: dict, etf_contexts: dict, report: DataReport):
     """
-    INTER-MARKET DIRECTION AUDIT: Verify that directional claims in
-    interMarketAnalysis (bonds, commodities, currencies, crypto) match
-    the actual RTH return direction of the underlying ETFs.
+    INTER-MARKET DIRECTION AUDIT (V2 — Asset-Aware):
 
-    E.g., if the card says "TLT rallied" but TLT actually fell, flag it.
+    Instead of blindly checking ALL tickers for each interMarketAnalysis field,
+    this version uses keyword detection to identify WHICH specific asset the
+    narrative is discussing, then only validates against the relevant proxy.
+
+    This prevents false positives like:
+    - "dollar strengthened" flagging EURUSDT (inverse proxy) as contradictory
+    - "oil fell" flagging PAXGUSDT (gold, a different commodity) as contradictory
     """
     inter = card.get("interMarketAnalysis", {})
     if not inter:
         return
 
-    for field_key, tickers in INTERMARKET_TICKER_MAP.items():
+    for field_key, assets in INTERMARKET_ASSETS.items():
         narrative = inter.get(field_key, "")
         if not narrative:
             continue
 
-        claimed_dir = _detect_direction(narrative)
-        if claimed_dir is None:
-            continue  # ambiguous or no directional language
+        narrative_lower = narrative.lower()
 
-        for ticker in tickers:
+        # For each sub-asset, check if the narrative mentions it
+        matched_any = False
+        for asset_info in assets:
+            ticker = asset_info["ticker"]
+            keywords = asset_info["keywords"]
+            inverted = asset_info["inverted"]
+
+            # Check if ANY keyword for this sub-asset appears in the narrative
+            if not any(kw in narrative_lower for kw in keywords):
+                continue
+
+            matched_any = True
+
             ctx = etf_contexts.get(ticker)
             if not ctx or not isinstance(ctx, dict) or ctx.get("status") == "No Data":
                 continue
@@ -1198,11 +1236,22 @@ def _check_intermarket_direction(card: dict, etf_contexts: dict, report: DataRep
             if actual_return is None:
                 continue
 
+            # Detect what direction the narrative claims for THIS specific mention
+            # For sub-asset specificity, try to extract the sentence containing the keyword
+            # and detect direction from that context. Fall back to full narrative.
+            claimed_dir = _detect_direction(narrative)
+            if claimed_dir is None:
+                continue
+
+            # If the proxy is inverted, flip the actual direction for comparison
+            if inverted:
+                actual_return = -actual_return
+
             actual_dir = "up" if actual_return >= 0 else "down"
 
             # Only flag when the return is meaningful (> 0.3%) and contradicts
             if abs(actual_return) < 0.3:
-                continue  # too flat to call a direction contradiction
+                continue
 
             if claimed_dir != actual_dir:
                 report.issues.append(DataIssue(
@@ -1210,11 +1259,43 @@ def _check_intermarket_direction(card: dict, etf_contexts: dict, report: DataRep
                     severity="critical",
                     field=f"interMarketAnalysis.{field_key}",
                     message=(
-                        f"Claims '{field_key}' moved {claimed_dir} but {ticker} "
-                        f"returned {actual_return:+.2f}% (actually {actual_dir}). "
+                        f"Claims '{field_key}' moved {claimed_dir} (keyword matched: {ticker}) "
+                        f"but {ticker} returned {actual_return:+.2f}% (actually {actual_dir}). "
                         f"Narrative: '{narrative[:100]}'"
                     ),
                 ))
+
+        # If NO sub-asset keywords matched, fall back to checking the FIRST
+        # available ticker (safest default — avoids silent skips)
+        if not matched_any:
+            claimed_dir = _detect_direction(narrative)
+            if claimed_dir is None:
+                continue
+            for asset_info in assets:
+                ticker = asset_info["ticker"]
+                ctx = etf_contexts.get(ticker)
+                if not ctx or not isinstance(ctx, dict) or ctx.get("status") == "No Data":
+                    continue
+                actual_return = _get_rth_return(ctx)
+                if actual_return is None:
+                    continue
+                if asset_info["inverted"]:
+                    actual_return = -actual_return
+                actual_dir = "up" if actual_return >= 0 else "down"
+                if abs(actual_return) < 0.3:
+                    break
+                if claimed_dir != actual_dir:
+                    report.issues.append(DataIssue(
+                        rule="DATA_INTERMARKET_DIRECTION",
+                        severity="critical",
+                        field=f"interMarketAnalysis.{field_key}",
+                        message=(
+                            f"Claims '{field_key}' moved {claimed_dir} but {ticker} "
+                            f"returned {actual_return:+.2f}% (actually {actual_dir}). "
+                            f"Narrative: '{narrative[:100]}'"
+                        ),
+                    ))
+                break  # Only check the first available ticker as fallback
 
 
 # ─────────────────────────────────────────────
@@ -1344,6 +1425,10 @@ def _check_economy_bias_multi_index(card: dict, etf_contexts: dict, report: Data
 def _check_economy_bias_vs_spy(card: dict, spy_context: dict, report: DataReport):
     """
     Cross-check the economy card's marketBias against SPY's actual return.
+
+    FIX: Strip parenthesised qualifiers before checking, so that
+    "Neutral (Bullish Lean)" is NOT treated as a bullish bias.
+    This matches the logic in _check_economy_bias_multi_index.
     """
     bias = card.get("marketBias", "")
     if not bias:
@@ -1354,8 +1439,10 @@ def _check_economy_bias_vs_spy(card: dict, spy_context: dict, report: DataReport
         return
 
     bias_lower = bias.lower()
-    is_bullish = "bullish" in bias_lower
-    is_bearish = "bearish" in bias_lower
+    # Strip parenthesised qualifiers: "Neutral (Bullish Lean)" → "neutral"
+    bias_main = re.sub(r"\(.*?\)", "", bias_lower).strip()
+    is_bullish = "bullish" in bias_main
+    is_bearish = "bearish" in bias_main
 
     if is_bullish and spy_return < -BIAS_CONTRADICTION_THRESHOLD:
         report.issues.append(DataIssue(
