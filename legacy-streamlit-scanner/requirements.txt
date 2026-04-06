@@ -1,7 +1,0 @@
-streamlit
-pandas
-numpy
-requests
-libsql-client
-yfinance
-plotly
