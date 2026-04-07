@@ -755,7 +755,7 @@ async def movers(ctx, date_indicator: str = None):
 
     msg = await ctx.send(
         f"🔍 **Scanning Pre-Market Movers** for **{target_date_str}**...\n"
-        f"📰 Step 1/4: Fetching news from database... 🛰️"
+        f"📰 Step 1/2: Fetching news from database... 🛰️"
     )
 
     try:
