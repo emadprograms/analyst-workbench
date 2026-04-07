@@ -739,6 +739,154 @@ async def viewtempcards(ctx, date_indicator: str = None):
         except ValueError:
             await ctx.send(f"❌ Error: `{target_date_str}` is invalid.")
 
+@bot.command()
+async def movers(ctx, date_indicator: str = None):
+    """Scans today's news for the most important pre-market movers.
+    Usage: !movers [date]
+    Date can be: 0 (today), -1 (yesterday), YYYY-MM-DD, or omitted (defaults to today).
+    """
+    target_date_str = get_target_date(date_indicator or "0")  # Default to today
+    
+    try:
+        datetime.strptime(target_date_str, "%Y-%m-%d")
+    except ValueError:
+        await ctx.send(f"❌ Error: `{target_date_str}` is invalid.")
+        return
+
+    msg = await ctx.send(
+        f"🔍 **Scanning Pre-Market Movers** for **{target_date_str}**...\n"
+        f"📰 Step 1/4: Fetching news from database... 🛰️"
+    )
+
+    try:
+        # --- Step 1: Fetch news from DB ---
+        target_date_obj = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+        loop = asyncio.get_event_loop()
+        market_news, _ = await loop.run_in_executor(None, get_daily_inputs, target_date_obj)
+
+        if not market_news:
+            await msg.edit(content=f"❌ **NO NEWS FOUND** for **{target_date_str}**.\n💡 Use `!inputnews {target_date_str}` to add news first.")
+            return
+
+        # --- Step 2: AI extracts and ranks tickers by importance ---
+        await msg.edit(content=(
+            f"🔍 **Scanning Pre-Market Movers** for **{target_date_str}**...\n"
+            f"✅ News found ({len(market_news):,} chars)\n"
+            f"🧠 Step 2/4: AI ranking tickers by importance..."
+        ))
+
+        from modules.ai.ai_services import extract_and_rank_movers, generate_movers_briefing
+        from modules.core.logger import AppLogger
+        logger = AppLogger()
+
+        ranked_tickers = await loop.run_in_executor(None, extract_and_rank_movers, market_news, logger)
+
+        if not ranked_tickers or len(ranked_tickers) < 2:
+            await msg.edit(content=f"⚠️ **Not enough stock movers found** in the news for **{target_date_str}**.\nAI found: `{ranked_tickers}`")
+            return
+
+        # Cap at 15 for Yahoo Finance batch
+        ranked_tickers = ranked_tickers[:15]
+
+        # --- Step 3: Batch fetch Yahoo Finance data ---
+        await msg.edit(content=(
+            f"🔍 **Scanning Pre-Market Movers** for **{target_date_str}**...\n"
+            f"✅ News found ({len(market_news):,} chars)\n"
+            f"✅ AI identified {len(ranked_tickers)} tickers: `{', '.join(ranked_tickers)}`\n"
+            f"📡 Step 3/4: Fetching market data from Yahoo Finance..."
+        ))
+
+        from modules.data.yahoo_fetcher import fetch_movers_snapshot
+        market_data = await loop.run_in_executor(None, fetch_movers_snapshot, ranked_tickers, logger)
+
+        # Build ordered dict preserving AI importance ranking, with market data merged
+        ticker_data = {}
+        for ticker in ranked_tickers:
+            if ticker in market_data:
+                ticker_data[ticker] = market_data[ticker]
+
+        if not ticker_data:
+            await msg.edit(content=f"⚠️ **Could not fetch market data** from Yahoo Finance for any of the {len(ranked_tickers)} tickers.")
+            return
+
+        # --- Step 4: AI generates catalyst summaries ---
+        await msg.edit(content=(
+            f"🔍 **Scanning Pre-Market Movers** for **{target_date_str}**...\n"
+            f"✅ News found ({len(market_news):,} chars)\n"
+            f"✅ AI identified {len(ranked_tickers)} tickers\n"
+            f"✅ Yahoo Finance data for {len(ticker_data)} tickers\n"
+            f"🧠 Step 4/4: AI generating catalyst summaries..."
+        ))
+
+        briefing = await loop.run_in_executor(
+            None, generate_movers_briefing, market_news, ticker_data, logger
+        )
+
+        # --- Step 5: Build the Discord embed ---
+        market_theme = "Market movers identified"
+        catalyst_map = {}
+
+        if briefing:
+            market_theme = briefing.get("market_theme", market_theme)
+            for pick in briefing.get("picks", []):
+                t = pick.get("ticker", "").upper()
+                catalyst_map[t] = {
+                    "direction": pick.get("direction", "neutral"),
+                    "catalyst": pick.get("catalyst", "No specific catalyst identified"),
+                }
+
+        # Build embed
+        embed = discord.Embed(
+            title=f"📊 PRE-MARKET MOVERS | {target_date_str}",
+            description=f"🎯 **Market Theme:** {market_theme}",
+            color=discord.Color.gold(),
+        )
+
+        # Rank medals
+        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣"]
+
+        lines = []
+        for i, (ticker, data) in enumerate(ticker_data.items()):
+            if i >= 7:  # Cap at 7 picks
+                break
+
+            gap = data["gap_pct"]
+            rvol = data["rvol"]
+            price = data["last_price"]
+            medal = medals[i] if i < len(medals) else f"{i+1}."
+
+            # Direction emoji from AI (fallback to gap direction)
+            ai_info = catalyst_map.get(ticker, {})
+            direction = ai_info.get("direction", "bullish" if gap >= 0 else "bearish")
+            dir_emoji = "🟢" if direction == "bullish" else "🔴"
+            catalyst = ai_info.get("catalyst", "No specific catalyst identified")
+
+            # Gap formatting with sign
+            gap_str = f"+{gap:.2f}%" if gap >= 0 else f"{gap:.2f}%"
+
+            lines.append(
+                f"{medal} **{ticker}**  {dir_emoji} {gap_str}  |  RVOL {rvol}x  |  ${price:.2f}\n"
+                f"↳ {catalyst}"
+            )
+
+        embed.add_field(
+            name="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            value="\n\n".join(lines),
+            inline=False,
+        )
+
+        embed.set_footer(
+            text=f"📈 Gap% & RVOL from Yahoo Finance (live)  •  ⚡ Powered by Gemini 3 Flash"
+        )
+
+        await msg.edit(content=None, embed=embed)
+
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Error in movers: {error_trace}")
+        await msg.edit(content=f"❌ **An internal error occurred:** {e}")
+
 if __name__ == "__main__":
     if not DISCORD_TOKEN: print("❌ Error: DISCORD_BOT_TOKEN not found.")
     else: bot.run(DISCORD_TOKEN)

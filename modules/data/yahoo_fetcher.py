@@ -312,3 +312,93 @@ def fetch_intraday_data_for_temp_card(
         logger.log(f"   ✅ Full session data available for {ticker} on {target_date}")
 
     return result
+
+
+def fetch_movers_snapshot(tickers: list[str], logger: AppLogger) -> dict[str, dict]:
+    """
+    Lightweight batch fetch of daily bars for multiple tickers.
+
+    Returns a dict keyed by ticker with programmatically calculated:
+        prev_close, last_price, gap_pct, volume, avg_volume, rvol
+
+    Uses a single yfinance batch download for speed (~2-3s for 15 tickers).
+    All numerical calculations are done in Python — never by AI.
+    """
+    import yfinance as yf
+
+    if not tickers:
+        return {}
+
+    results: dict[str, dict] = {}
+
+    try:
+        logger.log(f"   📡 Batch-fetching daily bars for {len(tickers)} tickers from Yahoo Finance...")
+
+        # Single batch download — much faster than individual calls
+        data = yf.download(
+            tickers,
+            period="5d",
+            interval="1d",
+            progress=False,
+            auto_adjust=True,
+            group_by="ticker" if len(tickers) > 1 else "column",
+        )
+
+        if data is None or data.empty:
+            logger.log("   ⚠️ Yahoo Finance returned no data for batch download")
+            return {}
+
+        for ticker in tickers:
+            try:
+                # Extract per-ticker data depending on single vs multi-ticker format
+                if len(tickers) == 1:
+                    ticker_df = data.copy()
+                else:
+                    if ticker not in data.columns.get_level_values(0):
+                        logger.log(f"   ⚠️ No data for {ticker} in batch result")
+                        continue
+                    ticker_df = data[ticker].copy()
+
+                # Handle MultiIndex columns
+                if isinstance(ticker_df.columns, pd.MultiIndex):
+                    ticker_df.columns = ticker_df.columns.get_level_values(0)
+
+                ticker_df = ticker_df.dropna(subset=["Close"])
+
+                if len(ticker_df) < 2:
+                    logger.log(f"   ⚠️ Insufficient data for {ticker} (need at least 2 days)")
+                    continue
+
+                # Last completed day's close = second-to-last row
+                # Today's / most recent data = last row
+                prev_close = float(ticker_df["Close"].iloc[-2])
+                last_price = float(ticker_df["Close"].iloc[-1])
+                today_volume = int(ticker_df["Volume"].iloc[-1]) if "Volume" in ticker_df.columns else 0
+
+                # Average volume from prior days (excluding today)
+                prior_volumes = ticker_df["Volume"].iloc[:-1] if "Volume" in ticker_df.columns else pd.Series([0])
+                avg_volume = int(prior_volumes.mean()) if len(prior_volumes) > 0 and prior_volumes.mean() > 0 else 0
+
+                # Programmatic calculations — never AI
+                gap_pct = round(((last_price - prev_close) / prev_close) * 100, 2) if prev_close > 0 else 0.0
+                rvol = round(today_volume / avg_volume, 1) if avg_volume > 0 else 0.0
+
+                results[ticker] = {
+                    "prev_close": round(prev_close, 2),
+                    "last_price": round(last_price, 2),
+                    "gap_pct": gap_pct,
+                    "volume": today_volume,
+                    "avg_volume": avg_volume,
+                    "rvol": rvol,
+                }
+
+            except Exception as e:
+                logger.log(f"   ⚠️ Error processing {ticker}: {e}")
+                continue
+
+        logger.log(f"   ✅ Got market data for {len(results)}/{len(tickers)} tickers")
+
+    except Exception as e:
+        logger.log(f"   ❌ Yahoo Finance batch error: {e}")
+
+    return results

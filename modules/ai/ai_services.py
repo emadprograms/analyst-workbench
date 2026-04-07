@@ -421,7 +421,188 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
     return None
     
 
+# ---------------------------------------------------------------------------
+# MOVERS SCANNER — AI Functions
+# ---------------------------------------------------------------------------
+
+def extract_and_rank_movers(news_text: str, logger: AppLogger = None) -> list[str]:
+    """
+    Uses AI to extract stock tickers from news and rank them by importance.
+
+    Unlike simple regex counting, this uses Gemini to judge *what matters*:
+    earnings announcements > analyst upgrades > routine mentions.
+
+    Returns an ordered list of ticker symbols (most important first).
+    """
+    if not logger:
+        logger = AppLogger()
+
+    if not news_text or not news_text.strip():
+        return []
+
+    system_prompt = (
+        "You are a pre-market trading analyst. Your job is to scan financial news "
+        "and identify which individual stocks are most likely to see significant "
+        "price movement today. You must extract ticker symbols and rank them by "
+        "trading importance."
+    )
+
+    prompt = f"""Scan the following market news and extract ALL individual stock ticker symbols mentioned.
+
+**Ranking Rules (most important → least important):**
+1. Earnings releases or earnings surprises (beat/miss)
+2. Major catalysts: M&A, FDA approvals, major partnerships, significant contract wins
+3. Analyst upgrades/downgrades with price target changes
+4. Sector-moving events that name specific stocks
+5. Routine mentions, sector commentary, or passing references
+
+**CRITICAL RULES:**
+- Return ONLY individual stock tickers (e.g., NVDA, TSLA, AAPL)
+- Do NOT include ETFs (SPY, QQQ, IWM, DIA, TLT, XLK, XLF, SMH, etc.)
+- Do NOT include indices (^VIX, ^GSPC, etc.)
+- Do NOT include forex pairs or crypto (EURUSDT, BTCUSDT, etc.)
+- Do NOT include commodities (CL=F, GC=F, etc.)
+- Maximum 15 tickers
+- Return a JSON array of ticker strings, ordered from most important to least
+- If no individual stocks are mentioned, return an empty array []
+
+**Example output:** ["NVDA", "TSLA", "PLTR", "AMD", "AAPL"]
+
+[NEWS TO SCAN]
+{news_text}
+
+Return ONLY the JSON array, nothing else."""
+
+    model_name = "gemini-3-flash-free"
+
+    response = call_gemini_api(prompt, system_prompt, logger, model_name=model_name)
+    if not response:
+        logger.log("   ⚠️ AI failed to extract movers from news")
+        return []
+
+    try:
+        parsed = _safe_parse_ai_json(response)
+        if isinstance(parsed, list):
+            # Validate: keep only clean ticker strings
+            return [t.upper().strip() for t in parsed if isinstance(t, str) and t.strip()]
+        elif isinstance(parsed, dict) and "tickers" in parsed:
+            # Handle wrapped response
+            return [t.upper().strip() for t in parsed["tickers"] if isinstance(t, str) and t.strip()]
+        else:
+            logger.log(f"   ⚠️ Unexpected AI response format: {type(parsed)}")
+            return []
+    except Exception as e:
+        logger.log(f"   ⚠️ Error parsing movers response: {e}")
+        return []
+
+
+def generate_movers_briefing(
+    news_text: str,
+    ticker_market_data: dict[str, dict],
+    logger: AppLogger = None,
+) -> dict | None:
+    """
+    AI Pass 2: Given news + programmatically calculated market data,
+    generate a market theme and 1-line catalyst per pick.
+
+    The AI is explicitly told NOT to change any numerical data — gap%, RVOL,
+    and prices are pre-calculated and final.
+
+    Returns:
+        {
+            "market_theme": "1-line summary of today's dominant theme",
+            "picks": [
+                {"ticker": "NVDA", "direction": "bullish", "catalyst": "New AI chip partnership..."},
+                ...
+            ]
+        }
+    """
+    if not logger:
+        logger = AppLogger()
+
+    if not ticker_market_data:
+        return None
+
+    # Build the data section the AI sees
+    data_lines = []
+    for ticker, data in ticker_market_data.items():
+        gap = data.get("gap_pct", 0)
+        rvol = data.get("rvol", 0)
+        price = data.get("last_price", 0)
+        data_lines.append(f"- {ticker}: Gap {gap:+.2f}%, RVOL {rvol}x, Price ${price:.2f}")
+
+    market_data_str = "\n".join(data_lines)
+
+    system_prompt = (
+        "You are a pre-market trading analyst. Your job is to provide concise, "
+        "actionable catalyst summaries for today's movers."
+    )
+
+    prompt = f"""You are given today's pre-market movers with their REAL market data (gap%, RVOL, price).
+These numbers are PRE-CALCULATED from Yahoo Finance and are FINAL. Do NOT modify, recalculate, or question them.
+
+**Your tasks:**
+1. Provide a 1-line "Market Theme" summarizing today's dominant narrative
+2. For each ticker below, provide:
+   - "direction": either "bullish" or "bearish" based on the catalyst/news sentiment
+   - "catalyst": a concise 1-line summary of WHY this stock is moving (from the news)
+
+**CRITICAL RULES:**
+- Your catalyst must be specific and factual based on the news provided
+- If you cannot find specific news for a ticker, write "No specific catalyst identified"
+- Do NOT invent or fabricate news catalysts
+- Keep each catalyst under 100 characters
+- Return ONLY valid JSON
+
+[PRE-CALCULATED MARKET DATA — DO NOT MODIFY]
+{market_data_str}
+
+[TODAY'S RAW NEWS]
+{news_text[:8000]}
+
+**Output this exact JSON format:**
+{{
+    "market_theme": "Your 1-line market theme",
+    "picks": [
+        {{"ticker": "NVDA", "direction": "bullish", "catalyst": "Specific catalyst from news"}},
+        ...
+    ]
+}}
+
+Return ONLY the JSON object."""
+
+    model_name = "gemini-3-flash-free"
+
+    response = call_gemini_api(
+        prompt, system_prompt, logger, model_name=model_name,
+        response_schema={"type": "OBJECT", "properties": {
+            "market_theme": {"type": "STRING"},
+            "picks": {"type": "ARRAY", "items": {"type": "OBJECT", "properties": {
+                "ticker": {"type": "STRING"},
+                "direction": {"type": "STRING"},
+                "catalyst": {"type": "STRING"},
+            }}}
+        }}
+    )
+
+    if not response:
+        logger.log("   ⚠️ AI failed to generate movers briefing")
+        return None
+
+    try:
+        result = _safe_parse_ai_json(response)
+        if isinstance(result, dict) and "picks" in result:
+            return result
+        else:
+            logger.log(f"   ⚠️ Unexpected briefing format: {type(result)}")
+            return None
+    except Exception as e:
+        logger.log(f"   ⚠️ Error parsing movers briefing: {e}")
+        return None
+
+
 # --- REFACTORED: update_company_card (PROMPT IS GOOD) ---
+
 def update_company_card(
     ticker: str, 
     previous_card_json: str, 
