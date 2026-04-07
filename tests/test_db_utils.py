@@ -158,3 +158,85 @@ def test_get_data_archive(mock_db_client):
 
     content = get_data_archive(date(2023, 10, 27), "AAPL")
     assert content == 'Archived Content'
+
+# --- TEMP COMPANY CARD TESTS ---
+
+from modules.data.db_utils import (
+    upsert_temp_company_card,
+    get_archived_temp_company_card,
+    get_temp_card_tickers_for_date
+)
+
+def test_upsert_temp_company_card(mock_db_client):
+    mock_db_client.execute.return_value = None
+    result = upsert_temp_company_card(date(2023, 10, 27), "SOFI", "Temp summary", '{"card": "data"}')
+    assert result is True
+    mock_db_client.execute.assert_called_once()
+    sql = mock_db_client.execute.call_args[0][0]
+    assert "INSERT INTO aw_temp_company_cards" in sql
+    assert "ON CONFLICT(date, ticker)" in sql
+
+def test_upsert_temp_company_card_params(mock_db_client):
+    """Verify correct parameters are passed to the SQL query."""
+    mock_db_client.execute.return_value = None
+    upsert_temp_company_card(date(2026, 4, 3), "RIVN", "Summary text", '{"test": true}')
+    params = mock_db_client.execute.call_args[0][1]
+    assert params == ("2026-04-03", "RIVN", "Summary text", '{"test": true}')
+
+def test_get_archived_temp_company_card(mock_db_client):
+    mock_row = {'company_card_json': '{"ticker": "SOFI"}', 'raw_text_summary': 'Temp raw'}
+    mock_rs = MagicMock()
+    mock_rs.rows = [mock_row]
+    mock_db_client.execute.return_value = mock_rs
+
+    card, raw = get_archived_temp_company_card(date(2023, 10, 27), "SOFI")
+    assert card == '{"ticker": "SOFI"}'
+    assert raw == 'Temp raw'
+
+def test_get_archived_temp_company_card_not_found(mock_db_client):
+    """Should return (None, None) when no temp card exists."""
+    mock_rs = MagicMock()
+    mock_rs.rows = []
+    mock_db_client.execute.return_value = mock_rs
+
+    card, raw = get_archived_temp_company_card(date(2023, 10, 27), "SOFI")
+    assert card is None
+    assert raw is None
+
+def test_get_temp_card_tickers_for_date(mock_db_client):
+    mock_rs = MagicMock()
+    mock_rs.rows = [{'ticker': 'RIVN'}, {'ticker': 'SOFI'}]
+    mock_db_client.execute.return_value = mock_rs
+
+    tickers = get_temp_card_tickers_for_date(date(2023, 10, 27))
+    assert tickers == ['RIVN', 'SOFI']
+
+def test_get_temp_card_tickers_for_date_empty(mock_db_client):
+    """Should return empty list when no temp cards exist for date."""
+    mock_rs = MagicMock()
+    mock_rs.rows = []
+    mock_db_client.execute.return_value = mock_rs
+
+    tickers = get_temp_card_tickers_for_date(date(2023, 10, 27))
+    assert tickers == []
+
+# --- TEMP CARD DB DOWN TESTS ---
+
+@patch('modules.data.db_utils.get_db_connection')
+def test_temp_card_db_connection_failed(mock_conn):
+    """Test temp card functions when DB connection returns None."""
+    mock_conn.return_value = None
+
+    # 1. Upsert should return False
+    result = upsert_temp_company_card(date(2023, 10, 27), "SOFI", "Summary", "{}")
+    assert result is False
+
+    # 2. Get archived should return (None, None)
+    card, raw = get_archived_temp_company_card(date(2023, 10, 27), "SOFI")
+    assert card is None
+    assert raw is None
+
+    # 3. Get tickers should return []
+    tickers = get_temp_card_tickers_for_date(date(2023, 10, 27))
+    assert tickers == []
+

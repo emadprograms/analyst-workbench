@@ -307,32 +307,128 @@ class TestRunUpdateCompany:
 
 
 # ==========================================
-# TEST: ALL Ticker Expansion
+# TEST: run_update_temp_company
 # ==========================================
 
-class TestAllTickerExpansion:
-    """Tests for the 'all' keyword in --tickers argument."""
+class TestRunUpdateTempCompany:
 
-    def test_all_expands_to_stock_tickers(self):
-        """Passing --tickers all should expand to all stock tickers from DB."""
-        raw = "all"
-        raw_tickers = [t.strip().upper() for t in raw.split(",") if t.strip()]
-        assert raw_tickers == ["ALL"]
+    @patch('modules.ai.ai_services.KEY_MANAGER')
+    @patch('main.upsert_temp_company_card')
+    @patch('main.update_temp_company_card')
+    @patch('main.fetch_intraday_data_for_temp_card')
+    @patch('main.get_archived_economy_card')
+    @patch('main.get_daily_inputs')
+    def test_single_ticker_success(self, mock_news, mock_eco, mock_yahoo, mock_ai, mock_upsert, mock_km):
+        """Full successful temp card build for one ticker."""
+        from main import run_update_temp_company
 
-    def test_all_not_treated_as_ticker_symbol(self):
-        """The literal ticker 'ALL' (Allstate) should not be used when user means 'all stocks'."""
-        # When raw_tickers == ["ALL"], the code should expand rather than 
-        # treat it as the Allstate ticker symbol
-        raw_tickers = ["ALL"]
-        is_expansion = raw_tickers == ["ALL"]
-        assert is_expansion is True
+        mock_news.return_value = ("Market news", None)
+        mock_eco.return_value = ('{"economyCard": "data"}', None)
+        mock_yahoo.return_value = {
+            "today_impact_card": {"status": "Active"},
+            "historical_summary": [{"date": "2026-04-02", "close": 10.5}],
+            "is_partial": False,
+            "data_range": "2026-03-31 → 2026-04-04"
+        }
+        mock_ai.return_value = '{"marketNote": "Temp SOFI card"}'
+        mock_upsert.return_value = True
+        mock_km.get_tier_key_count.return_value = 3
 
-    def test_mixed_tickers_not_expanded(self):
-        """Passing 'AAPL,ALL,MSFT' should NOT trigger expansion — only solo 'all'."""
-        raw = "AAPL,ALL,MSFT"
-        raw_tickers = [t.strip().upper() for t in raw.split(",") if t.strip()]
-        is_expansion = raw_tickers == ["ALL"]
-        assert is_expansion is False  # Should NOT expand
+        logger = AppLogger("test")
+        result = run_update_temp_company(date(2026, 4, 4), "gemini-3-flash-free", ["SOFI"], logger)
+
+        assert result is True
+        mock_yahoo.assert_called_once()
+        mock_ai.assert_called_once()
+        mock_upsert.assert_called_once()
+
+    @patch('modules.ai.ai_services.KEY_MANAGER')
+    @patch('main.fetch_intraday_data_for_temp_card')
+    @patch('main.get_archived_economy_card')
+    @patch('main.get_daily_inputs')
+    def test_yahoo_fetch_failure(self, mock_news, mock_eco, mock_yahoo, mock_km):
+        """Should fail gracefully when Yahoo Finance returns no data."""
+        from main import run_update_temp_company
+
+        mock_news.return_value = ("News", None)
+        mock_eco.return_value = ('{"eco": "card"}', None)
+        mock_yahoo.return_value = None  # Yahoo fetch failed
+        mock_km.get_tier_key_count.return_value = 3
+
+        logger = AppLogger("test")
+        result = run_update_temp_company(date(2026, 4, 4), "gemini-3-flash-free", ["SOFI"], logger)
+
+        assert result is False
+
+    @patch('modules.ai.ai_services.KEY_MANAGER')
+    @patch('main.update_temp_company_card')
+    @patch('main.fetch_intraday_data_for_temp_card')
+    @patch('main.get_archived_economy_card')
+    @patch('main.get_daily_inputs')
+    def test_ai_failure(self, mock_news, mock_eco, mock_yahoo, mock_ai, mock_km):
+        """Should fail gracefully when AI returns None."""
+        from main import run_update_temp_company
+
+        mock_news.return_value = ("News", None)
+        mock_eco.return_value = ('{"eco": "card"}', None)
+        mock_yahoo.return_value = {"today_impact_card": {}, "historical_summary": [], "is_partial": False, "data_range": "N/A"}
+        mock_ai.return_value = None  # AI failed
+        mock_km.get_tier_key_count.return_value = 3
+
+        logger = AppLogger("test")
+        result = run_update_temp_company(date(2026, 4, 4), "gemini-3-flash-free", ["SOFI"], logger)
+
+        assert result is False
+
+    @patch('modules.ai.ai_services.KEY_MANAGER')
+    @patch('main.upsert_temp_company_card')
+    @patch('main.update_temp_company_card')
+    @patch('main.fetch_intraday_data_for_temp_card')
+    @patch('main.get_daily_inputs')
+    def test_continues_without_news_and_economy(self, mock_news, mock_yahoo, mock_ai, mock_upsert, mock_km):
+        """Temp cards should continue even without news or economy card."""
+        from main import run_update_temp_company
+
+        mock_news.return_value = (None, None)  # No news
+        mock_yahoo.return_value = {"today_impact_card": {}, "historical_summary": [], "is_partial": False, "data_range": "N/A"}
+        mock_ai.return_value = '{"marketNote": "Card without context"}'
+        mock_upsert.return_value = True
+        mock_km.get_tier_key_count.return_value = 3
+
+        logger = AppLogger("test")
+        with patch('main.get_archived_economy_card') as mock_eco:
+            mock_eco.return_value = (None, None)  # No economy card
+            result = run_update_temp_company(date(2026, 4, 4), "gemini-3-flash-free", ["SOFI"], logger)
+
+        assert result is True  # Should still succeed
+        full_log = logger.get_full_log()
+        assert "without news context" in full_log
+        assert "without macro context" in full_log
+
+    @patch('modules.ai.ai_services.KEY_MANAGER')
+    @patch('main.upsert_temp_company_card')
+    @patch('main.update_temp_company_card')
+    @patch('main.fetch_intraday_data_for_temp_card')
+    @patch('main.get_archived_economy_card')
+    @patch('main.get_daily_inputs')
+    def test_max_workers_capped_at_3(self, mock_news, mock_eco, mock_yahoo, mock_ai, mock_upsert, mock_km):
+        """Temp cards should cap max_workers at 3 (Yahoo rate limit protection)."""
+        from main import run_update_temp_company
+
+        mock_news.return_value = ("News", None)
+        mock_eco.return_value = ('{"eco": "card"}', None)
+        mock_yahoo.return_value = {"today_impact_card": {}, "historical_summary": [], "is_partial": False, "data_range": "N/A"}
+        mock_ai.return_value = '{"marketNote": "Card"}'
+        mock_upsert.return_value = True
+        # Even with 10 keys, max_workers should cap at 3
+        mock_km.get_tier_key_count.return_value = 10
+
+        logger = AppLogger("test")
+        result = run_update_temp_company(date(2026, 4, 4), "gemini-3-flash-free", ["SOFI", "RIVN", "LCID"], logger)
+
+        assert result is True
+        assert "max_workers=3" in logger.get_full_log()
+
 
 
 # ==========================================

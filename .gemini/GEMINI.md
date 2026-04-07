@@ -13,6 +13,7 @@ The **Analyst Workbench** is a Streamlit-based Python application designed to ac
 *   **Database (Turso/SQLite)**:
     *   `market_data`: Stores raw OHLCV price bars. (Sources: Yahoo Finance)
     *   `aw_company_cards`: Stores the JSON output of the AI analysis (The "living memory" of the stock).
+    *   `aw_temp_company_cards`: Stores temp company cards for non-tracked movers (same schema as `aw_company_cards`).
     *   `aw_economy_cards`: Stores the JSON output of the Global Macro analysis.
     *   `aw_daily_inputs`: Stores the daily raw news/macro context provided by the user.
     *   `aw_ticker_notes`: Stores per-ticker historical level notes (user-managed).
@@ -20,13 +21,15 @@ The **Analyst Workbench** is a Streamlit-based Python application designed to ac
 
 *   **Computation Layer (Python)**:
     *   `modules/analysis/impact_engine.py`: The quantitative heart. Slices price action into 3 sessions (Pre, RTH, Post), detects "Impact Levels" (Support/Resistance), tracks "Value Migration" (30min blocks), and calculates **Volume Profiles** (POC, VAH, VAL) and Key Volume Events. Also provides `get_latest_price_details` for market-data validation.
-    *   `modules/ai/ai_services.py`: The logic layer. Constructs the massive "Masterclass" prompts, manages API keys (`KeyManager`), and parses the AI's JSON response.
-    *   `main.py`: The CLI entry point. Handles argument parsing, pipeline orchestration (`run_update_economy`, `run_update_company`, `run_pipeline`), and multi-message Discord webhook reporting.
+    *   `modules/data/yahoo_fetcher.py`: Yahoo Finance data bridge for temp cards. Downloads 5-min intraday bars, splits into 4-day historical context + today's session, and builds Impact Context Card-compatible structures using the Impact Engine's algorithms. Includes 1.5s rate-limit delay between requests.
+    *   `modules/ai/ai_services.py`: The logic layer. Constructs the massive "Masterclass" prompts, manages API keys (`KeyManager`), and parses the AI's JSON response. Includes `update_temp_company_card` for non-tracked ticker card generation.
+    *   `main.py`: The CLI entry point. Handles argument parsing, pipeline orchestration (`run_update_economy`, `run_update_company`, `run_update_temp_company`, `run_pipeline`), and multi-message Discord webhook reporting.
     *   **Discord Bot (`discord_bot/bot.py`)**: The Command & Control layer.
         *   **Orchestration**: Dispatches heavy compute tasks (Card Building) to GitHub Actions to maintain a serverless architecture and keep Railway costs near zero.
         *   **Local Ingestion**: Directly handles `!inputnews` to save news context to the database without GitHub Actions. Supports manual text entry, file attachments (.txt, .log), and URL fetching (with auto-conversion of Pastebin links to raw format).
         *   **Direct Interaction**: Performs lightweight, low-compute tasks (Retrieving Cards, Editing Historical Notes, Checking News Ingestion, DB Inspection) directly against the database for instantaneous user feedback.
         *   **Dynamic Discovery**: Fetches the active stock watch list directly from `aw_ticker_notes`, eliminating hardcoded lists in the UI.
+        *   **Temp Cards**: `!buildtempcards SOFI, RIVN [date]` dispatches GitHub Actions to build cards for non-tracked tickers using Yahoo Finance data. `!viewtempcards [date]` retrieves and displays the generated temp cards.
 
 *   **Impact Context Computation**:
     *   `get_or_compute_context(client, ticker, date_str, logger)` always fetches fresh data from the database and computes the context card. No local caching — every call goes to the DB to ensure data freshness.
@@ -163,6 +166,20 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 ## 8. Engineering Log
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
+
+### 2026-04-07 — Temporary Stock Cards Feature (Non-Tracked Movers)
+
+#### Full Feature Implementation (`modules/data/yahoo_fetcher.py` [NEW], `modules/ai/ai_services.py`, `modules/data/setup_db.py`, `modules/data/db_utils.py`, `main.py`, `discord_bot/bot.py`, `.github/workflows/manual_run.yml`)
+*   **Purpose**: Added the ability to generate analyst cards for non-tracked "mover" stocks using data fetched directly from Yahoo Finance instead of the internal Turso price database.
+*   **Database**: New `aw_temp_company_cards` table in Turso (mirrors `aw_company_cards` schema: `date`, `ticker`, `raw_text_summary`, `company_card_json` with composite PK). Three new CRUD functions in `db_utils.py`: `upsert_temp_company_card`, `get_archived_temp_company_card`, `get_temp_card_tickers_for_date`.
+*   **Yahoo Finance Fetcher (`yahoo_fetcher.py`)**: Downloads 5-minute intraday bars for the past 5 trading days via `yfinance.download()`. Splits data into 4-day historical context (with per-day OHLCV, detected key levels, volume profiles) and today's session. Builds Impact Context Card-compatible structures using existing Impact Engine algorithms (`_calculate_volume_profile`, `_analyze_slice_migration`, `_detect_impact_levels`). Includes 1.5s delay between requests for Yahoo rate limiting. Detects and reports partial intraday data when market hasn't closed.
+*   **AI Generator (`ai_services.py`)**: New `update_temp_company_card()` function — simplified version of `update_company_card` using the same 4-Participant Model framework. Key differences: no previous card (first-ever card), no historical notes (S/R derived from 5-day intraday data), no key action log history. Includes `⚠️ PARTIAL DATA WARNING` in prompt when market hasn't closed. Uses same JSON schema and quality validation as regular cards.
+*   **CLI (`main.py`)**: New `update-temp-company` action. `run_update_temp_company()` fetches optional news/economy context (warns but doesn't halt if missing), downloads Yahoo data, generates cards via AI, and saves to `aw_temp_company_cards`. Max concurrent workers capped at 3 (vs 5 for regular cards) for Yahoo rate limit protection.
+*   **Discord Bot (`bot.py`)**: Two new commands:
+    *   `!buildtempcards SOFI, RIVN [date]`: Parses comma-separated tickers and optional date indicator (0, -1, -2, YYYY-MM-DD), dispatches GitHub Action with `action: update-temp-company`.
+    *   `!viewtempcards [date]`: Queries `aw_temp_company_cards` for all tickers on the given date, uploads cards as JSON files. Supports date picker fallback when no date provided.
+*   **GitHub Actions**: Updated `manual_run.yml` action description to include `update-temp-company`.
+*   **Tests**: 14 new tests across `test_db_utils.py` (8 tests: CRUD + DB-down scenarios) and `test_main_pipeline.py` (6 tests: success flow, Yahoo failure, AI failure, missing context, worker capping).
 
 ### 2026-04-07 — `ai_services.py` Code Cleanup (Warning Fixes)
 
