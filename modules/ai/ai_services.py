@@ -454,9 +454,9 @@ def extract_and_rank_movers(news_text: str, logger: AppLogger = None) -> list[st
 2. Major catalysts: M&A, FDA approvals, major partnerships, significant contract wins
 3. Analyst upgrades/downgrades with price target changes
 4. Sector-moving events that name specific stocks
-5. Routine mentions, sector commentary, or passing references
 
 **CRITICAL RULES:**
+- Do NOT extract a ticker if it is just a passing mention without any specific news catalyst. If it has no actionable news, EXCLUDE it.
 - Return ONLY individual stock tickers (e.g., NVDA, TSLA, AAPL)
 - Do NOT include ETFs (SPY, QQQ, IWM, DIA, TLT, XLK, XLF, SMH, etc.)
 - Do NOT include indices (^VIX, ^GSPC, etc.)
@@ -558,7 +558,7 @@ These numbers are PRE-CALCULATED from Yahoo Finance and are FINAL. Do NOT modify
 {market_data_str}
 
 [TODAY'S RAW NEWS]
-{news_text[:8000]}
+{news_text}
 
 **Output this exact JSON format:**
 {{
