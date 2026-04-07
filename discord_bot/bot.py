@@ -4,6 +4,8 @@ import discord
 from discord.ext import commands
 import aiohttp
 import asyncio
+import json
+import io
 from datetime import datetime, timedelta, timezone
 
 # Add bot directory to sys.path so plain imports (config, ui_components) always resolve,
@@ -28,7 +30,7 @@ from ui_components import (
 from modules.data.db_utils import (
     get_all_tickers_from_db, get_company_card_and_notes, update_ticker_notes, 
     get_daily_inputs, get_archived_economy_card, get_archived_company_card, get_ticker_stats,
-    upsert_daily_inputs
+    upsert_daily_inputs, get_archived_temp_company_card, get_temp_card_tickers_for_date
 )
 from modules.data.inspect_db import inspect as db_inspect_func
 import re
@@ -547,6 +549,195 @@ async def getnews(ctx, arg1: str = None, arg2: str = None):
             error_trace = traceback.format_exc()
             print(f"Error in getnews: {error_trace}")
             await msg.edit(content=f"❌ **An internal error occurred:** {e}")
+
+@bot.command()
+async def buildtempcards(ctx, *, args_str: str = None):
+    """Build temp company cards for non-tracked tickers.
+    Usage: !buildtempcards SOFI, RIVN [date]
+    Date can be: 0 (today), -1 (yesterday), -2, YYYY-MM-DD, or omitted (defaults to today).
+    """
+    if not args_str:
+        await ctx.send("❌ **Usage:** `!buildtempcards SOFI, RIVN [date]`\n"
+                       "Example: `!buildtempcards SOFI, RIVN 0` (today)\n"
+                       "Example: `!buildtempcards SOFI, RIVN -1` (yesterday)")
+        return
+
+    # Parse: split into tokens, identify tickers vs date indicator
+    # Tickers are comma-separated (possibly with spaces), date is the last token if it looks like a date
+    parts = [p.strip() for p in args_str.split(",")]
+    
+    # The last part might contain the date indicator after the last ticker
+    # e.g. "RIVN 0" or "RIVN -1" or "RIVN 2026-04-03"
+    last_part_tokens = parts[-1].strip().split()
+    date_indicator = None
+    
+    if len(last_part_tokens) > 1:
+        potential_date = last_part_tokens[-1]
+        # Check if last token is a date indicator
+        if potential_date == "0" or (potential_date.startswith("-") and potential_date[1:].isdigit()):
+            date_indicator = potential_date
+            parts[-1] = " ".join(last_part_tokens[:-1])
+        elif len(potential_date) == 10 and potential_date.count("-") == 2:
+            try:
+                datetime.strptime(potential_date, "%Y-%m-%d")
+                date_indicator = potential_date
+                parts[-1] = " ".join(last_part_tokens[:-1])
+            except ValueError:
+                pass
+    
+    # Extract tickers
+    tickers = [p.strip().upper() for p in parts if p.strip()]
+    if not tickers:
+        await ctx.send("❌ **No tickers provided.** Usage: `!buildtempcards SOFI, RIVN [date]`")
+        return
+    
+    # Resolve date
+    target_date = get_target_date(date_indicator or "0")  # Default to today
+    
+    tickers_str = ",".join(tickers)
+    await ctx.send(
+        f"🚀 **Building TEMP Cards** for **{len(tickers)}** ticker(s): `{tickers_str}`\n"
+        f"📅 **Date:** {target_date}\n"
+        f"📡 Dispatching GitHub Action..."
+    )
+    msg = await ctx.channel.fetch_message(ctx.channel.last_message_id)
+    
+    inputs = {
+        "target_date": target_date,
+        "action": "update-temp-company",
+        "tickers": tickers_str
+    }
+    success, message, run_url = await dispatch_github_action(inputs)
+    monitor_link = run_url or ACTIONS_URL
+    if success:
+        await msg.edit(
+            content=f"🚀 **TEMP Cards Dispatched!** ({len(tickers)} tickers: `{tickers_str}`)\n"
+                    f"📅 **Date:** {target_date}\n"
+                    f"✅ **Dispatched!** (ETA: ~3-5 mins)\n"
+                    f"🔗 [Monitor Progress](<{monitor_link}>) 📡⏱️\n"
+                    f"💡 Use `!viewtempcards {target_date}` to view results when done."
+        )
+    else:
+        await msg.edit(
+            content=f"❌ **TEMP Card Build Failed:** {message}"
+        )
+
+@bot.command()
+async def viewtempcards(ctx, date_indicator: str = None):
+    """View previously generated temp company cards.
+    Usage: !viewtempcards [date]
+    Date can be: 0 (today), -1, -2, YYYY-MM-DD, or omitted (triggers date picker).
+    """
+    target_date_str = get_target_date(date_indicator)
+
+    async def fetch_and_show(interaction_or_ctx, selected_date_str, is_interaction=True):
+        """Core logic to fetch and display temp cards."""
+        if is_interaction:
+            await interaction_or_ctx.response.edit_message(
+                content=f"🔍 **Fetching TEMP cards** for **{selected_date_str}**... 🛰️", view=None
+            )
+        
+        target_date_obj = datetime.strptime(selected_date_str, "%Y-%m-%d").date()
+        loop = asyncio.get_event_loop()
+        
+        # Get all temp tickers for this date
+        temp_tickers = await loop.run_in_executor(
+            None, get_temp_card_tickers_for_date, target_date_obj
+        )
+        
+        if not temp_tickers:
+            msg_text = f"❌ **No TEMP cards found** for **{selected_date_str}**.\n💡 Use `!buildtempcards TICKER1, TICKER2 {selected_date_str}` to create some."
+            if is_interaction:
+                await interaction_or_ctx.followup.send(msg_text)
+            else:
+                await interaction_or_ctx.edit(content=msg_text)
+            return
+        
+        # Fetch all cards
+        files = []
+        for ticker in temp_tickers:
+            card_json, _ = await loop.run_in_executor(
+                None, get_archived_temp_company_card, target_date_obj, ticker
+            )
+            if card_json:
+                try:
+                    formatted = json.dumps(json.loads(card_json), indent=2)
+                    file_data = io.BytesIO(formatted.encode("utf-8"))
+                    files.append(discord.File(file_data, filename=f"TEMP_{ticker}_Card_{selected_date_str}.json"))
+                except:
+                    pass
+        
+        if files:
+            header = f"✅ **TEMP Company Cards ({selected_date_str})** — {len(files)} ticker(s): `{', '.join(temp_tickers)}`"
+            # Discord limit is 10 files per message
+            chunks = [files[i:i + 10] for i in range(0, len(files), 10)]
+            for i, chunk in enumerate(chunks):
+                msg_text = f"{header} — Part {i+1}" if len(chunks) > 1 else header
+                if is_interaction:
+                    await interaction_or_ctx.followup.send(msg_text, files=chunk)
+                else:
+                    await interaction_or_ctx.edit(content=msg_text)
+                    # For subsequent chunks, send new messages
+                    if len(chunks) > 1 and i < len(chunks) - 1:
+                        await interaction_or_ctx.channel.send(files=chunks[i+1])
+        else:
+            msg_text = f"⚠️ **Cards exist but could not be loaded** for **{selected_date_str}**."
+            if is_interaction:
+                await interaction_or_ctx.followup.send(msg_text)
+            else:
+                await interaction_or_ctx.edit(content=msg_text)
+
+    if not target_date_str:
+        # Show date picker
+        async def view_temp_callback(interaction, selected_date):
+            await fetch_and_show(interaction, selected_date, is_interaction=True)
+        await ctx.send("🗓️ **Select Date to View TEMP Cards:**", view=DateSelectionView(view_temp_callback))
+    else:
+        try:
+            datetime.strptime(target_date_str, "%Y-%m-%d")
+            msg = await ctx.send(f"🔍 **Fetching TEMP cards** for **{target_date_str}**... 🛰️")
+            
+            target_date_obj = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+            loop = asyncio.get_event_loop()
+            
+            temp_tickers = await loop.run_in_executor(
+                None, get_temp_card_tickers_for_date, target_date_obj
+            )
+            
+            if not temp_tickers:
+                await msg.edit(
+                    content=f"❌ **No TEMP cards found** for **{target_date_str}**.\n"
+                            f"💡 Use `!buildtempcards TICKER1, TICKER2 {target_date_str}` to create some."
+                )
+                return
+            
+            files = []
+            for ticker in temp_tickers:
+                card_json, _ = await loop.run_in_executor(
+                    None, get_archived_temp_company_card, target_date_obj, ticker
+                )
+                if card_json:
+                    try:
+                        formatted = json.dumps(json.loads(card_json), indent=2)
+                        file_data = io.BytesIO(formatted.encode("utf-8"))
+                        files.append(discord.File(file_data, filename=f"TEMP_{ticker}_Card_{target_date_str}.json"))
+                    except:
+                        pass
+            
+            if files:
+                header = f"✅ **TEMP Company Cards ({target_date_str})** — {len(files)} ticker(s): `{', '.join(temp_tickers)}`"
+                chunks = [files[i:i + 10] for i in range(0, len(files), 10)]
+                for i, chunk in enumerate(chunks):
+                    chunk_msg = f"{header} — Part {i+1}" if len(chunks) > 1 else header
+                    if i == 0:
+                        await msg.edit(content=chunk_msg)
+                        await ctx.send(files=chunk)
+                    else:
+                        await ctx.send(chunk_msg, files=chunk)
+            else:
+                await msg.edit(content=f"⚠️ **Cards exist but could not be loaded** for **{target_date_str}**.")
+        except ValueError:
+            await ctx.send(f"❌ Error: `{target_date_str}` is invalid.")
 
 if __name__ == "__main__":
     if not DISCORD_TOKEN: print("❌ Error: DISCORD_BOT_TOKEN not found.")

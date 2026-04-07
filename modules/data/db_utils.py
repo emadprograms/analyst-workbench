@@ -459,6 +459,79 @@ def upsert_company_card(selected_date: date, ticker: str, raw_text_summary: str,
         if conn:
             conn.close()
 
+# --- Temp Company Card Functions ---
+
+def upsert_temp_company_card(selected_date: date, ticker: str, raw_text_summary: str, company_card_json: str) -> bool:
+    """Saves or updates a temp company card for a non-tracked ticker."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            logging.error("Database connection failed.")
+            return False
+
+        conn.execute(
+            """
+            INSERT INTO aw_temp_company_cards (date, ticker, raw_text_summary, company_card_json)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(date, ticker) DO UPDATE SET
+                raw_text_summary = excluded.raw_text_summary,
+                company_card_json = excluded.company_card_json
+            """,
+            (selected_date.isoformat(), ticker, raw_text_summary, company_card_json)
+        )
+        return True
+    except LibsqlError as e:
+        logging.error(f"Error in upsert_temp_company_card: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def get_archived_temp_company_card(selected_date: date, ticker: str) -> tuple[str | None, str | None]:
+    """Gets a specific temp company card and its raw summary from a specific date."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            logging.error("Database connection failed.")
+            return None, None
+
+        rs = conn.execute(
+            "SELECT company_card_json, raw_text_summary FROM aw_temp_company_cards WHERE date = ? AND ticker = ?",
+            (selected_date.isoformat(), ticker)
+        )
+        row = rs.rows[0] if rs.rows else None
+        if row:
+            return row['company_card_json'], row['raw_text_summary']
+    except LibsqlError as e:
+        logging.error(f"Error in get_archived_temp_company_card: {e}")
+    finally:
+        if conn:
+            conn.close()
+    return None, None
+
+def get_temp_card_tickers_for_date(selected_date: date) -> list[str]:
+    """Returns all tickers that have a temp card on a given date."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            logging.error("Database connection failed.")
+            return []
+
+        rs = conn.execute(
+            "SELECT DISTINCT ticker FROM aw_temp_company_cards WHERE date = ? ORDER BY ticker ASC",
+            (selected_date.isoformat(),)
+        )
+        return [row['ticker'] for row in rs.rows]
+    except LibsqlError as e:
+        logging.error(f"Error in get_temp_card_tickers_for_date: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
 # --- Functions for DB_VIEWER ---
 
 def get_all_table_names() -> list[str]:

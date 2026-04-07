@@ -83,6 +83,17 @@ def create_tables():
                 raw_text_summary TEXT,
                 PRIMARY KEY (date, ticker)
             );
+            """,
+
+            # --- 6. Temp Company Cards Table (Movers / Non-Tracked Stocks) ---
+            """
+            CREATE TABLE IF NOT EXISTS aw_temp_company_cards (
+                date TEXT NOT NULL,
+                ticker TEXT NOT NULL,
+                raw_text_summary TEXT,
+                company_card_json TEXT,
+                PRIMARY KEY (date, ticker)
+            );
             """
         ]
         

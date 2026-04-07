@@ -1227,3 +1227,338 @@ def update_economy_card(
     except Exception as e:
         logger.log(f"An unexpected error occurred during economy card update: {e}")
         return None
+
+
+# --- TEMP COMPANY CARD GENERATOR ---
+def update_temp_company_card(
+    ticker: str,
+    new_eod_date: date,
+    model_name: str,
+    market_context_summary: str,
+    economy_card_json: str = None,
+    intraday_data: dict = None,
+    logger: AppLogger = None,
+):
+    """
+    Generates a company card for a non-tracked (temp) ticker using Yahoo Finance data.
+    
+    Unlike update_company_card, this function:
+    - Has NO previous card (first-ever card for this ticker)
+    - Has NO historical notes (S/R levels derived from intraday data)
+    - Has NO key action log history
+    - Uses Yahoo Finance data instead of Turso price DB
+    """
+    if logger is None:
+        logger = AppLogger()
+
+    logger.log(f"--- Starting TEMP Company Card AI update for {ticker} ---")
+
+    # Use default template as the base
+    default_card = json.loads(DEFAULT_COMPANY_OVERVIEW_JSON.replace("TICKER", ticker))
+
+    # Filter news for this ticker
+    filtered_market_news = filter_daily_news_for_company(market_context_summary or "", ticker, "")
+
+    trade_date_str = new_eod_date.isoformat()
+
+    # Build Impact Context from Yahoo Finance data
+    if intraday_data:
+        today_impact_json = json.dumps(intraday_data.get("today_impact_card", {}), indent=2, default=_numpy_safe_serializer)
+        historical_summary_json = json.dumps(intraday_data.get("historical_summary", []), indent=2, default=_numpy_safe_serializer)
+        is_partial = intraday_data.get("is_partial", False)
+        data_range = intraday_data.get("data_range", "N/A")
+    else:
+        today_impact_json = "No Data Available"
+        historical_summary_json = "No Data Available"
+        is_partial = False
+        data_range = "N/A"
+
+    # Record data availability
+    has_news = bool(filtered_market_news and filtered_market_news.strip() and "No specific company" not in filtered_market_news)
+    has_data = intraday_data is not None
+    TRACKER.log_data_availability(ticker, has_news=has_news, has_data=has_data)
+
+    # --- System Prompt (same analytical framework) ---
+    system_prompt = (
+        "You are an expert market structure analyst. Your *only* job is to apply the specific 4-Participant Trading Model provided below. "
+        "Your logic must *strictly* follow this model. "
+        "IMPORTANT CONTEXT: This is a TEMPORARY card for a stock that is NOT regularly tracked. "
+        "You have NO previous card, NO historical notes, and NO key action log. "
+        "You MUST derive ALL support/resistance levels and structural analysis from the provided 5-day intraday data alone. "
+        "Do not use any of your own default logic. Your sole purpose is to be a processor for the user's provided framework."
+    )
+
+    # --- Partial data notice ---
+    partial_notice = ""
+    if is_partial:
+        partial_notice = (
+            "\n\n⚠️ PARTIAL DATA WARNING: The market has NOT closed for today's session. "
+            "The intraday data below is INCOMPLETE. Acknowledge this in your analysis and note that "
+            "the session is still in progress. Do NOT make definitive conclusions about today's outcome."
+        )
+
+    # --- Main Prompt (simplified version of company card prompt) ---
+    prompt = f"""
+    [Your Task for {trade_date_str}]
+    You are building the FIRST-EVER card for {ticker}. There is no previous card, no historical notes, and no key action log.
+    You must derive ALL your structural analysis from the provided 5-day intraday data.{partial_notice}
+
+    --- START MASTERCLASS: THE 4-PARTICIPANT MODEL ---
+
+    **Part 1: The Core Philosophy (Exhaustion & Absence)**
+    Price moves are driven by the *absence* or *exhaustion* of one side, not just the *presence* of the other.
+    * **Price falls because:** Committed Buyers are **absent** (they are competing for a better, lower price).
+    * **Price rises because:** Committed Sellers are **absent** or **exhausted** (they have finished selling at a level).
+
+    **Part 2: The Two Market States (Stable vs. Unstable)**
+    * **1. Stable Market:** (Default) Driven by **Committed Participants**. A rational market focused on "exhaustion" at key levels.
+    * **2. Unstable Market:** (Exception) Driven by **Desperate Participants**. An emotional market, a *reaction* to a catalyst (news, panic, FOMO).
+
+    **Part 3: The Four Participant Types**
+    * **Committed Buyers:** Patiently accumulate at or below support.
+    * **Committed Sellers:** Patiently distribute at or above resistance.
+    * **Desperate Buyers:** (FOMO / Panic) Buy *aggressively* at *any* price.
+    * **Desperate Sellers:** (Panic / Capitulation) Sell *aggressively* at *any* price.
+
+    **Part 4: The 5 Key Patterns**
+    1.  **Accumulation (Stable):** A *slow* fight at support, marked by **higher lows** as sellers become exhausted.
+    2.  **Capitulation (Unstable):** A *fast* vacuum, as **Desperate Sellers** sell and **Committed Buyers step away**.
+    3.  **Stable Uptrend (Stable):** Caused by **Absent/Exhausted Committed Sellers** at resistance.
+    4.  **Washout & Reclaim (Hybrid -> Unstable):** **Committed Buyers** let support break, then turn into **Desperate Buyers**.
+    5.  **Chop (Stable):** Equilibrium. **Committed Buyers** defend the low, **Committed Sellers** defend the high.
+
+    **Part 5: The 3 Levels of Story Confidence**
+    * **High:** Today's action was **decisive and confirming** at a key level.
+    * **Medium:** Today's action was **mixed or indecisive**.
+    * **Low:** Today's action was a **failure or reversal** at a key level.
+
+    --- END MASTERCLASS ---
+
+    **YOUR EXECUTION TASK (Filling the JSON):**
+
+    **1. `technicalStructure` (DERIVE FROM DATA):**
+        * Since there are NO historical notes, you MUST identify support and resistance levels from:
+            a) The [Multi-Day Historical Context] — look for recurring levels where price bounced or rejected over the past 4 days.
+            b) The [Today's Impact Context Card] — use the volume profile (POC, VAH, VAL) and key levels.
+        * Set `majorSupport` and `majorResistance` from the strongest levels you find.
+        * Set `pattern` to describe the multi-day structural story.
+
+    **2. `confidence`:**
+        * Format: "Trend_Bias: [Bullish/Bearish/Neutral] (Story_Confidence: [High/Medium/Low]) - Reasoning: [justification]"
+
+    **3. `behavioralSentiment`:**
+        * `emotionalTone`: Analyze the 3-Act Session Arc (Pre-Market → RTH → Post-Market) using the Impact Context Card.
+        * `newsReaction`: Compare the news theme vs. RTH price response.
+        * `buyerVsSeller`: Final synthesis.
+
+    **4. `todaysAction` (MAX 3 SENTENCES):**
+        * Format: "{trade_date_str}: [Pattern]. [Brief narrative of the session]."
+
+    **5. `openingTradePlan` & `alternativePlan`:** Create plans for TOMORROW based on the levels you identified.
+
+    **6. `screener_briefing` (Data Packet):**
+        Setup_Bias: [Bullish/Bearish/Neutral]
+        Justification: [Proof]
+        Catalyst: [One-line summary]
+        Pattern: [Structural narrative]
+        Plan_A: [Primary plan name]
+        Plan_A_Level: [Price level]
+        Plan_B: [Alternative plan name]
+        Plan_B_Level: [Price level]
+        S_Levels: [Support levels]
+        R_Levels: [Resistance levels]
+
+    [Output Format]
+    Output ONLY a single, valid JSON object matching this exact structure:
+
+    {{
+      "marketNote": "Executor's Battle Card: {ticker}",
+      "confidence": "Your Trend_Bias + Story_Confidence + Reasoning",
+      "screener_briefing": "Your 10-Part Data Packet",
+      "basicContext": {{
+        "tickerDate": "{ticker} | {trade_date_str}",
+        "sector": "Determine from context or state 'Unknown'",
+        "companyDescription": "Brief 1-line company description based on your knowledge",
+        "priceTrend": "Current trend summary based on the 5-day data",
+        "recentCatalyst": "Any relevant catalyst from today's news, or 'N/A - First card'"
+      }},
+      "technicalStructure": {{
+        "majorSupport": "Your derived support levels from the 5-day data",
+        "majorResistance": "Your derived resistance levels from the 5-day data",
+        "pattern": "Your structural narrative from the multi-day data",
+        "volumeMomentum": "Volume analysis at key levels"
+      }},
+      "fundamentalContext": {{
+        "analystSentiment": "From news if available, otherwise 'N/A - First card'",
+        "insiderActivity": "From news if available, otherwise 'N/A - First card'",
+        "peerPerformance": "Relative performance vs sector/market"
+      }},
+      "behavioralSentiment": {{
+        "buyerVsSeller": "Your conclusion",
+        "emotionalTone": "Your Pattern + 3-Act Proof",
+        "newsReaction": "Your headwind/tailwind analysis"
+      }},
+      "todaysAction": "2-3 sentence daily log entry",
+      "openingTradePlan": {{
+        "planName": "Primary plan for next open",
+        "knownParticipant": "EXACTLY ONE: [Committed Buyers, Committed Sellers, Desperate Buyers, Desperate Sellers]",
+        "expectedParticipant": "EXACTLY ONE: [Committed Buyers, Committed Sellers, Desperate Buyers, Desperate Sellers]",
+        "trigger": "Specific price action",
+        "invalidation": "What proves this wrong"
+      }},
+      "alternativePlan": {{
+        "planName": "Competing plan",
+        "scenario": "When does this activate?",
+        "knownParticipant": "EXACTLY ONE: [Committed Buyers, Committed Sellers, Desperate Buyers, Desperate Sellers]",
+        "expectedParticipant": "EXACTLY ONE: [Committed Buyers, Committed Sellers, Desperate Buyers, Desperate Sellers]",
+        "trigger": "Specific price action",
+        "invalidation": "What proves this wrong"
+      }}
+    }}
+    
+    --- START OF DATA ---
+
+    [Today's Global Economy Card]
+    (Macro context — if available. Use it to judge the broader headwind/tailwind.)
+    <macro_economy_card>
+    {economy_card_json or "No economy card available — this is a temp card build without macro context."}
+    </macro_economy_card>
+
+    [Raw Market Context for Today]
+    (News headlines relevant to {ticker} and its sector.)
+    <market_context>
+    {filtered_market_news or "No raw market news was provided."}
+    </market_context>
+
+    [Multi-Day Historical Context (Prior 4 Trading Days)]
+    (CRITICAL: Use these daily OHLCV summaries and detected levels to identify recurring support/resistance. The first 4 days of data are SEPARATE historical context.)
+    <historical_context>
+    {historical_summary_json}
+    </historical_context>
+
+    [Today's New Price Action Summary (IMPACT CONTEXT CARD)]
+    (Today's data is SEPARATE. Use this structured Value Migration Log and Impact Levels to determine the Nature of today's session.)
+    <today_price_action_summary>
+    {today_impact_json}
+    </today_price_action_summary>
+
+    [Data Source: Yahoo Finance | Range: {data_range}]
+
+    --- END OF DATA ---
+    Begin your JSON output now.    """
+
+    logger.log(f"2. Calling EOD AI Analyst for TEMP card: {ticker}...")
+
+    # --- Schema (same as regular company cards) ---
+    company_card_schema = {
+        "type": "OBJECT",
+        "properties": {
+            "marketNote": {"type": "STRING"},
+            "confidence": {"type": "STRING"},
+            "screener_briefing": {"type": "STRING"},
+            "basicContext": {"type": "OBJECT", "properties": {"tickerDate": {"type": "STRING"}, "sector": {"type": "STRING"}, "companyDescription": {"type": "STRING"}, "priceTrend": {"type": "STRING"}, "recentCatalyst": {"type": "STRING"}}},
+            "technicalStructure": {"type": "OBJECT", "properties": {"majorSupport": {"type": "STRING"}, "majorResistance": {"type": "STRING"}, "pattern": {"type": "STRING"}, "volumeMomentum": {"type": "STRING"}}},
+            "fundamentalContext": {"type": "OBJECT", "properties": {"analystSentiment": {"type": "STRING"}, "insiderActivity": {"type": "STRING"}, "peerPerformance": {"type": "STRING"}}},
+            "behavioralSentiment": {"type": "OBJECT", "properties": {"buyerVsSeller": {"type": "STRING"}, "emotionalTone": {"type": "STRING"}, "newsReaction": {"type": "STRING"}}},
+            "todaysAction": {"type": "STRING"},
+            "openingTradePlan": {"type": "OBJECT", "properties": {"planName": {"type": "STRING"}, "knownParticipant": {"type": "STRING"}, "expectedParticipant": {"type": "STRING"}, "trigger": {"type": "STRING"}, "invalidation": {"type": "STRING"}}},
+            "alternativePlan": {"type": "OBJECT", "properties": {"planName": {"type": "STRING"}, "scenario": {"type": "STRING"}, "knownParticipant": {"type": "STRING"}, "expectedParticipant": {"type": "STRING"}, "trigger": {"type": "STRING"}, "invalidation": {"type": "STRING"}}}
+        },
+        "required": ["marketNote", "confidence", "screener_briefing", "basicContext", "technicalStructure", "fundamentalContext", "behavioralSentiment", "todaysAction", "openingTradePlan", "alternativePlan"]
+    }
+
+    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name, response_schema=company_card_schema, tracker_ticker=ticker)
+    if not ai_response_text:
+        logger.log(f"Error: No AI response for temp card {ticker}.")
+        return None
+
+    logger.log(f"3. Received TEMP Card for {ticker}. Parsing...")
+
+    try:
+        ai_data = _safe_parse_ai_json(ai_response_text)
+        if ai_data is None:
+            raise json.JSONDecodeError(
+                "_safe_parse_ai_json could not extract a valid JSON object", ai_response_text, 0
+            )
+
+        if isinstance(ai_data, list) and len(ai_data) == 1 and isinstance(ai_data[0], dict):
+            ai_data = ai_data[0]
+        elif not isinstance(ai_data, dict):
+            logger.log(f"Error: AI returned {type(ai_data).__name__} instead of dict.")
+            return None
+
+        new_action = ai_data.pop("todaysAction", None)
+
+        if not new_action:
+            logger.log("Error: AI response is missing 'todaysAction'.")
+            return None
+
+        # Build the final card from default template + AI data
+        import copy
+        final_card = copy.deepcopy(default_card)
+
+        def deep_update(d, u):
+            for k, v in u.items():
+                if isinstance(v, dict):
+                    d[k] = deep_update(d.get(k, {}), v)
+                else:
+                    d[k] = v
+            return d
+
+        final_card = deep_update(final_card, ai_data)
+
+        # Set the date
+        final_card['basicContext']['tickerDate'] = f"{ticker} | {trade_date_str}"
+
+        # Initialize keyActionLog with today's action
+        if "technicalStructure" not in final_card:
+            final_card['technicalStructure'] = {}
+        final_card['technicalStructure']['keyActionLog'] = [{
+            "date": trade_date_str,
+            "action": new_action
+        }]
+
+        # Strip deprecated fields
+        if "fundamentalContext" in final_card and "valuation" in final_card["fundamentalContext"]:
+            del final_card["fundamentalContext"]["valuation"]
+
+        logger.log(f"--- Success: TEMP AI card for {ticker} complete. ---")
+        final_json = json.dumps(final_card, indent=4)
+
+        # Quality validation (skip data accuracy since we don't have regular Impact Engine data)
+        try:
+            qr = validate_company_card(final_card, ticker=ticker, previous_card=default_card)
+            TRACKER.log_quality(ticker, qr)
+            if not qr.passed:
+                logger.warning(f"⚠️ QUALITY FAIL ({ticker}): {qr.critical_count} critical, {qr.warning_count} warnings")
+                for issue in qr.issues:
+                    if issue.severity == 'critical':
+                        logger.warning(f"   🔴 [{issue.rule}] {issue.field}: {issue.message}")
+            elif qr.warning_count > 0:
+                logger.log(f"   📊 Quality: PASS with {qr.warning_count} warnings for {ticker}")
+            else:
+                logger.log(f"   📊 Quality: PERFECT for {ticker}")
+        except Exception as qe:
+            logger.warning(f"   ⚠️ Quality validator error: {qe}")
+
+        return final_json
+
+    except json.JSONDecodeError as e:
+        logger.log(f"Error: Failed to decode AI response JSON for temp card {ticker}. Details: {e}")
+        logger.log_code(ai_response_text, language='text')
+        return None
+    except Exception as e:
+        logger.log(f"Unexpected error validating AI response for temp card {ticker}: {e}")
+        return None
+
+
+def _numpy_safe_serializer(obj):
+    """JSON serializer for numpy types used in temp card data."""
+    import numpy as np
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")

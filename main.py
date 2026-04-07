@@ -25,6 +25,7 @@ def send_webhook_report(webhook_url, target_date, action, model, logger=None):
     action_map = {
         "update-economy": "Economy_Card_Update",
         "update-company": "Company_Card_Update",
+        "update-temp-company": "Temp_Company_Card_Update",
         "view-economy": "View_Economy_Card",
         "view-company": "View_Company_Card",
         "input-news": "Market_News_Input",
@@ -36,7 +37,7 @@ def send_webhook_report(webhook_url, target_date, action, model, logger=None):
     desc_action = action_map.get(action, action).replace("-", "_")
     
     # Only show model if it's an AI-heavy action
-    ai_actions = ["update-economy", "update-company"]
+    ai_actions = ["update-economy", "update-company", "update-temp-company"]
     model_display = model if action in ai_actions else "No_AI_Used"
     
     timestamp = time.strftime("%H%M%S")
@@ -89,10 +90,12 @@ from modules.data.db_utils import (
     get_company_card_and_notes,
     upsert_company_card,
     get_all_tickers_from_db,
-    get_archived_economy_card
+    get_archived_economy_card,
+    upsert_temp_company_card
 )
-from modules.ai.ai_services import update_economy_card, update_company_card
+from modules.ai.ai_services import update_economy_card, update_company_card, update_temp_company_card
 from modules.analysis.impact_engine import get_latest_price_details
+from modules.data.yahoo_fetcher import fetch_intraday_data_for_temp_card
 
 def run_update_economy(selected_date: date, model_name: str, logger: AppLogger) -> bool:
     logger.log(f"🧠 Updating Economy Card for {selected_date}...")
@@ -209,6 +212,69 @@ def run_update_company(selected_date: date, model_name: str, tickers: list[str],
     logger.log(f"✅ Company Card updates complete. Success: {success_count}/{len(tickers)}")
     return success_count > 0
 
+def run_update_temp_company(selected_date: date, model_name: str, tickers: list[str], logger: AppLogger) -> bool:
+    logger.log(f"🧠 Updating TEMP Company Cards for {len(tickers)} tickers on {selected_date}...")
+
+    # 1. Get Market News (optional for temp cards — warn but don't halt)
+    market_news, _ = get_daily_inputs(selected_date)
+    if not market_news:
+        logger.warning(f"⚠️ No market news found for {selected_date}. Building temp cards without news context.")
+
+    # 2. Get Economy Card (optional for temp cards — warn but don't halt)
+    economy_card_json, _ = get_archived_economy_card(selected_date)
+    if not economy_card_json:
+        logger.warning(f"⚠️ No Economy Card found for {selected_date}. Building temp cards without macro context.")
+
+    def process_temp_ticker(ticker):
+        logger.log(f"Processing TEMP: {ticker}...")
+        
+        # Fetch Yahoo Finance intraday data
+        intraday_data = fetch_intraday_data_for_temp_card(ticker, selected_date, logger)
+        if not intraday_data:
+            logger.error(f"❌ Failed to fetch Yahoo Finance data for {ticker}")
+            return False
+        
+        # Generate the temp card via AI
+        new_card = update_temp_company_card(
+            ticker=ticker,
+            new_eod_date=selected_date,
+            model_name=model_name,
+            market_context_summary=market_news or "",
+            economy_card_json=economy_card_json,
+            intraday_data=intraday_data,
+            logger=logger
+        )
+        
+        if new_card:
+            summary = f"Temp Card for {ticker} on {selected_date} (Yahoo Finance)"
+            if upsert_temp_company_card(selected_date, ticker, summary, new_card):
+                return True
+            else:
+                logger.error(f"❌ Failed to save temp {ticker} card to DB")
+                return False
+        else:
+            logger.error(f"❌ AI update failed for temp {ticker}")
+            return False
+
+    # Determine max_workers
+    from modules.ai.ai_services import KEY_MANAGER
+    from modules.core.key_manager import KeyManager
+    
+    max_concurrent = 3  # Lower default for temp cards (Yahoo rate limits)
+    if KEY_MANAGER:
+        tier = KeyManager.MODELS_CONFIG.get(model_name, {}).get('tier', 'free')
+        key_count = KEY_MANAGER.get_tier_key_count(tier)
+        max_concurrent = max(1, min(key_count, 3))
+        logger.log(f"🔑 {key_count} {tier}-tier key(s) available → max_workers={max_concurrent}")
+
+    success_count = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(tickers), max_concurrent)) as executor:
+        results = list(executor.map(process_temp_ticker, tickers))
+        success_count = sum(1 for r in results if r)
+    
+    logger.log(f"✅ TEMP Company Card updates complete. Success: {success_count}/{len(tickers)}")
+    return success_count > 0
+
 def main():
     parser = argparse.ArgumentParser(description="Analyst Workbench CLI")
     parser.add_argument("--date", type=str, help="Target date (YYYY-MM-DD)")
@@ -218,7 +284,7 @@ def main():
         default="gemini-3-flash-free",
         choices=list(AVAILABLE_MODELS.keys())
     )
-    parser.add_argument("--action", choices=["update-economy", "update-company", "input-news", "inspect", "setup", "test-webhook", "check-news"], default="update-economy", help="Action to perform")
+    parser.add_argument("--action", choices=["update-economy", "update-company", "update-temp-company", "input-news", "inspect", "setup", "test-webhook", "check-news"], default="update-economy", help="Action to perform")
     parser.add_argument("--tickers", type=str, help="Comma-separated list of tickers (used with --action update-company)")
     parser.add_argument("--text", type=str, help="Market news text (used with --action input-news)")
     
@@ -249,6 +315,7 @@ def main():
         action_map = {
             "update-economy": "Economy_Card_Update",
             "update-company": "Company_Card_Update",
+            "update-temp-company": "Temp_Company_Card_Update",
             "input-news": "Market_News_Input",
             "inspect": "DB_Inspection",
             "setup": "DB_Setup",
@@ -283,6 +350,14 @@ def main():
             else:
                 ticker_list = raw_tickers
             if not run_update_company(target_date, args.model, ticker_list, logger):
+                exit_code = 1
+        elif args.action == "update-temp-company":
+            if not args.tickers:
+                logger.error("🛑 Action 'update-temp-company' requires --tickers.")
+                exit_code = 1
+                return
+            temp_tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
+            if not run_update_temp_company(target_date, args.model, temp_tickers, logger):
                 exit_code = 1
         elif args.action == "input-news":
             news_content = None
