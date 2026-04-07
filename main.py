@@ -214,16 +214,19 @@ def run_update_company(selected_date: date, model_name: str, tickers: list[str],
 
 def run_update_temp_company(selected_date: date, model_name: str, tickers: list[str], logger: AppLogger) -> bool:
     logger.log(f"🧠 Updating TEMP Company Cards for {len(tickers)} tickers on {selected_date}...")
+    from modules.ai.ai_services import TRACKER
 
     # 1. Get Market News (optional for temp cards — warn but don't halt)
     market_news, _ = get_daily_inputs(selected_date)
     if not market_news:
         logger.warning(f"⚠️ No market news found for {selected_date}. Building temp cards without news context.")
+        TRACKER.metrics.details.append("⚠️ Built without Market News Context")
 
     # 2. Get Economy Card (optional for temp cards — warn but don't halt)
     economy_card_json, _ = get_archived_economy_card(selected_date)
     if not economy_card_json:
         logger.warning(f"⚠️ No Economy Card found for {selected_date}. Building temp cards without macro context.")
+        TRACKER.metrics.details.append("⚠️ Built without Macro Context")
 
     def process_temp_ticker(ticker):
         logger.log(f"Processing TEMP: {ticker}...")
@@ -232,6 +235,7 @@ def run_update_temp_company(selected_date: date, model_name: str, tickers: list[
         intraday_data = fetch_intraday_data_for_temp_card(ticker, selected_date, logger)
         if not intraday_data:
             logger.error(f"❌ Failed to fetch Yahoo Finance data for {ticker}")
+            TRACKER.log_error(ticker, "Yahoo Finance Fetch Failed")
             return False
         
         # Generate the temp card via AI
@@ -251,6 +255,7 @@ def run_update_temp_company(selected_date: date, model_name: str, tickers: list[
                 return True
             else:
                 logger.error(f"❌ Failed to save temp {ticker} card to DB")
+                TRACKER.log_error(ticker, "DB Save Failed")
                 return False
         else:
             logger.error(f"❌ AI update failed for temp {ticker}")
