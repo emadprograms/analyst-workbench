@@ -97,6 +97,7 @@ Use these commands in your Discord server to trigger the automation remotely.
 *   **`!viewcards [date]`**: Instantly retrieves and uploads previously generated Economy or Company Cards as JSON files directly from the bot.
 *   **`!listcards`**: Displays a status table of all tracked companies and their latest available card dates.
 *   **`!checknews [date]`**: Verifies if news has been successfully ingested for a specific date.
+*   **`!movers [date]`**: Scans the day's news for the most important stock movers. Combines AI news analysis with programmatic Yahoo Finance data (Gap%, RVOL) to provide a ranked Top 7 list of actionable picks. Runs bot-side for near-instant results.
 *   **`!inspect [date]`**: Triggers a database health check and reports back via webhook.
 *   **`!editnotes [ticker]`**: Opens a Discord dialog box to edit the historical level notes for a specific company.
 
