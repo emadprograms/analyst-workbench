@@ -835,6 +835,15 @@ async def movers(ctx, date_indicator: str = None):
                     "catalyst": pick.get("catalyst", "No specific catalyst identified"),
                 }
 
+        # --- Step 5a: Fact-check each catalyst against source news ---
+        from modules.ai.ai_services import verify_catalyst_against_news
+        verification_map = {}
+        for ticker_sym, ai_info in catalyst_map.items():
+            verified = verify_catalyst_against_news(
+                ticker_sym, ai_info["catalyst"], market_news
+            )
+            verification_map[ticker_sym] = verified
+
         # Build embed
         embed = discord.Embed(
             title=f"📊 PRE-MARKET MOVERS | {target_date_str}",
@@ -861,12 +870,16 @@ async def movers(ctx, date_indicator: str = None):
             dir_emoji = "🟢" if direction == "bullish" else "🔴"
             catalyst = ai_info.get("catalyst", "No specific catalyst identified")
 
+            # Fact-check icon: ✅ verified against news, ⚠️ unverified
+            verified = verification_map.get(ticker, False)
+            verify_icon = "✅" if verified else "⚠️"
+
             # Gap formatting with sign
             gap_str = f"+{gap:.2f}%" if gap >= 0 else f"{gap:.2f}%"
 
             lines.append(
                 f"{medal} **{ticker}**  {dir_emoji} {gap_str}  |  RVOL {rvol}x  |  ${price:.2f}\n"
-                f"↳ {catalyst}"
+                f"↳ {verify_icon} {catalyst}"
             )
 
         embed.add_field(
@@ -876,7 +889,7 @@ async def movers(ctx, date_indicator: str = None):
         )
 
         embed.set_footer(
-            text=f"📈 Gap% & RVOL from Yahoo Finance (live)  •  ⚡ Powered by Gemini 3 Flash"
+            text=f"✅ = Verified in news  ⚠️ = Unverified  •  📈 Gap% & RVOL from Yahoo Finance"
         )
 
         await msg.edit(content=None, embed=embed)

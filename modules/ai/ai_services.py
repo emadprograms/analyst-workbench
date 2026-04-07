@@ -601,7 +601,75 @@ Return ONLY the JSON object."""
         return None
 
 
+# Stop words to ignore when extracting keywords from catalyst text
+_CATALYST_STOP_WORDS = {
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "shall", "can", "need", "must", "to", "of",
+    "in", "for", "on", "with", "at", "by", "from", "as", "into", "about",
+    "between", "through", "during", "before", "after", "and", "but", "or",
+    "not", "no", "so", "if", "than", "that", "this", "it", "its", "new",
+    "up", "down", "out", "over", "more", "most", "very", "also", "just",
+    "stock", "shares", "company", "market", "trading", "price", "due",
+    "amid", "report", "reports", "reported", "following", "based",
+    "specific", "catalyst", "identified", "concerns", "potential",
+}
+
+
+def verify_catalyst_against_news(ticker: str, catalyst: str, news_text: str) -> bool:
+    """
+    Verifies an AI-generated catalyst claim against the raw news text.
+
+    Uses keyword extraction + co-location matching:
+    1. Extracts meaningful keywords from the catalyst (excludes stop words)
+    2. Splits news into paragraphs/blocks
+    3. Checks if the ticker AND at least 2 keywords appear in the same block
+
+    Returns True if the catalyst is verified, False if unverified.
+    No AI calls — pure Python string matching.
+    """
+    if not catalyst or not news_text or not ticker:
+        return False
+
+    # "No specific catalyst" is inherently unverifiable
+    if "no specific" in catalyst.lower():
+        return False
+
+    # Extract keywords from catalyst (3+ chars, not stop words)
+    words = re.findall(r'[A-Za-z]+', catalyst)
+    keywords = [
+        w.lower() for w in words
+        if len(w) >= 3 and w.lower() not in _CATALYST_STOP_WORDS
+    ]
+
+    if not keywords:
+        return False
+
+    # Split news into blocks (paragraphs or ENTITY sections)
+    news_lower = news_text.lower()
+    ticker_lower = ticker.lower()
+
+    # Split by double newlines or ENTITY markers
+    blocks = re.split(r'\n\n+|\bENTITY:', news_lower)
+
+    for block in blocks:
+        # Block must mention the ticker
+        if ticker_lower not in block and ticker not in block:
+            continue
+
+        # Count how many catalyst keywords appear in this block
+        matched = sum(1 for kw in keywords if kw in block)
+
+        # Verified if at least 2 keywords (or 1 if only 1 keyword extracted)
+        threshold = min(2, len(keywords))
+        if matched >= threshold:
+            return True
+
+    return False
+
+
 # --- REFACTORED: update_company_card (PROMPT IS GOOD) ---
+
 
 def update_company_card(
     ticker: str, 
