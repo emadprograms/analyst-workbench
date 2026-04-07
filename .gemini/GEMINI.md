@@ -21,8 +21,10 @@ The **Analyst Workbench** is a Streamlit-based Python application designed to ac
 
 *   **Computation Layer (Python)**:
     *   `modules/analysis/impact_engine.py`: The quantitative heart. Slices price action into 3 sessions (Pre, RTH, Post), detects "Impact Levels" (Support/Resistance), tracks "Value Migration" (30min blocks), and calculates **Volume Profiles** (POC, VAH, VAL) and Key Volume Events. Also provides `get_latest_price_details` for market-data validation.
-    *   `modules/data/yahoo_fetcher.py`: Yahoo Finance data bridge for temp cards. Downloads 5-min intraday bars, splits into 4-day historical context + today's session, and builds Impact Context Card-compatible structures using the Impact Engine's algorithms. Includes 1.5s rate-limit delay between requests.
-    *   `modules/ai/ai_services.py`: The logic layer. Constructs the massive "Masterclass" prompts, manages API keys (`KeyManager`), and parses the AI's JSON response. Includes `update_temp_company_card` for non-tracked ticker card generation.
+    *   `modules/data/yahoo_fetcher.py`: Yahoo Finance data bridge. Two main capabilities:
+        *   **Temp Cards** (`fetch_intraday_data_for_temp_card`): Downloads 5-min intraday bars, splits into 4-day historical context + today's session, and builds Impact Context Card-compatible structures.
+        *   **Movers Scanner** (`fetch_movers_snapshot`): Lightweight batch fetch of daily bars for up to 15 tickers in a single `yf.download()` call. Programmatically calculates `gap_pct`, `rvol`, `last_price`, `prev_close`, `volume`, `avg_volume`. Designed for speed (~2-3s for 15 tickers).
+    *   `modules/ai/ai_services.py`: The logic layer. Constructs the massive "Masterclass" prompts, manages API keys (`KeyManager`), and parses the AI's JSON response. Includes `update_temp_company_card` for non-tracked ticker card generation, and the **Movers Scanner** AI functions (`extract_and_rank_movers`, `generate_movers_briefing`).
     *   `main.py`: The CLI entry point. Handles argument parsing, pipeline orchestration (`run_update_economy`, `run_update_company`, `run_update_temp_company`, `run_pipeline`), and multi-message Discord webhook reporting.
     *   **Discord Bot (`discord_bot/bot.py`)**: The Command & Control layer.
         *   **Orchestration**: Dispatches heavy compute tasks (Card Building) to GitHub Actions to maintain a serverless architecture and keep Railway costs near zero.
@@ -30,6 +32,7 @@ The **Analyst Workbench** is a Streamlit-based Python application designed to ac
         *   **Direct Interaction**: Performs lightweight, low-compute tasks (Retrieving Cards, Editing Historical Notes, Checking News Ingestion, DB Inspection) directly against the database for instantaneous user feedback.
         *   **Dynamic Discovery**: Fetches the active stock watch list directly from `aw_ticker_notes`, eliminating hardcoded lists in the UI.
         *   **Temp Cards**: `!buildtempcards SOFI, RIVN [date]` dispatches GitHub Actions to build cards for non-tracked tickers using Yahoo Finance data. `!viewtempcards [date]` retrieves and displays the generated temp cards.
+        *   **Movers Scanner**: `!movers [date]` scans daily news for the most important pre-market movers. Runs bot-side (like `!getnews`): AI ranks tickers by news importance → Yahoo Finance batch fetch → Python calculates gap%/RVOL → AI generates 1-line catalyst summaries → rich Discord embed with top 7 picks. All numerical data (gap%, RVOL, price) is programmatically calculated — AI only provides text (catalyst, direction, market theme).
 
 *   **Impact Context Computation**:
     *   `get_or_compute_context(client, ticker, date_str, logger)` always fetches fresh data from the database and computes the context card. No local caching — every call goes to the DB to ensure data freshness.
@@ -167,7 +170,21 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-04-07 — Pre-Market Movers Scanner (`!movers`)
+
+#### Feature Addition (`modules/data/yahoo_fetcher.py`, `modules/ai/ai_services.py`, `discord_bot/bot.py`)
+*   **Purpose**: New Discord command `!movers [date]` that identifies the top 5-7 pre-market movers by combining AI news analysis with programmatic Yahoo Finance data.
+*   **Design Principle**: Strict separation — all numerical data (gap%, RVOL, price) is programmatically calculated from Yahoo Finance; AI only provides text (ticker importance ranking, catalyst summaries, direction, market theme).
+*   **Implementation**:
+    1.  **Yahoo Fetcher (`yahoo_fetcher.py`)**: Added `fetch_movers_snapshot(tickers, logger)` — lightweight batch fetch using a single `yf.download()` call for up to 15 tickers. Calculates `prev_close`, `last_price`, `gap_pct`, `volume`, `avg_volume`, `rvol` in Python.
+    2.  **AI Pass 1 (`ai_services.py`)**: Added `extract_and_rank_movers(news_text, logger)` — sends full news to Gemini to extract and rank stock tickers by trading importance (earnings > major catalysts > analyst upgrades > routine mentions). Filters out ETFs, indices, crypto, commodities. Returns ordered list capped at 15.
+    3.  **AI Pass 2 (`ai_services.py`)**: Added `generate_movers_briefing(news_text, ticker_data, logger)` — receives news + pre-calculated market data, returns JSON with `market_theme` (1-line) and per-ticker `direction` (bullish/bearish) + `catalyst` (1-line). AI explicitly told: "Do NOT modify the numerical data."
+    4.  **Discord Command (`bot.py`)**: `!movers [date]` with 4-step progress updates. Defaults to today. Outputs a rich embed with medal rankings (🥇🥈🥉), gap% with sign, RVOL, price, and catalyst per pick.
+*   **Execution Model**: Runs entirely bot-side (like `!getnews`), NOT via GitHub Actions. ~15-30s total execution.
+*   **Tests**: 429 tests pass, 0 regressions.
+
 ### 2026-04-07 — Temporary Stock Cards Feature (Non-Tracked Movers)
+
 
 #### Full Feature Implementation (`modules/data/yahoo_fetcher.py` [NEW], `modules/ai/ai_services.py`, `modules/data/setup_db.py`, `modules/data/db_utils.py`, `main.py`, `discord_bot/bot.py`, `.github/workflows/manual_run.yml`)
 *   **Purpose**: Added the ability to generate analyst cards for non-tracked "mover" stocks using data fetched directly from Yahoo Finance instead of the internal Turso price database.
