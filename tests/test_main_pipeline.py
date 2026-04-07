@@ -1090,7 +1090,8 @@ class TestMainCLIEdgeCases:
     def test_target_date_initialized_before_try(self):
         """Verify target_date is initialized to None before try block (bug fix)."""
         import main
-        source = open(main.__file__).read()
+        with open(main.__file__) as f:
+            source = f.read()
         # Check that target_date = None appears before the try block
         target_init_pos = source.find("target_date = None")
         try_pos = source.find("target_date = None")
@@ -1099,7 +1100,8 @@ class TestMainCLIEdgeCases:
     def test_webhook_guarded_against_none_target_date(self):
         """Verify webhook report is guarded against None target_date (bug fix)."""
         import main
-        source = open(main.__file__).read()
+        with open(main.__file__) as f:
+            source = f.read()
         assert "target_date is not None" in source, "Webhook should check target_date is not None"
 
 
