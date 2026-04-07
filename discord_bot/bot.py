@@ -798,22 +798,24 @@ async def movers(ctx, date_indicator: str = None):
         # Rank medals
         medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
 
-        lines = []
-        for i, mover in enumerate(movers_list):
-            ticker = mover["ticker"]
-            reason = mover["reason"]
-            medal = medals[i] if i < len(medals) else f"{i+1}."
-
-            lines.append(
-                f"{medal} **{ticker}**\n"
-                f"↳ {reason}"
+        # Split into chunks of 5 to avoid 1024 char limit per field
+        chunk_size = 5
+        for i in range(0, len(movers_list), chunk_size):
+            chunk = movers_list[i : i + chunk_size]
+            lines = []
+            for j, mover in enumerate(chunk):
+                idx = i + j
+                ticker = mover["ticker"]
+                reason = mover["reason"]
+                medal = medals[idx] if idx < len(medals) else f"{idx+1}."
+                lines.append(f"{medal} **{ticker}**\n↳ {reason}")
+            
+            field_name = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" if i == 0 else "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ (cont.)"
+            embed.add_field(
+                name=field_name,
+                value="\n\n".join(lines),
+                inline=False,
             )
-
-        embed.add_field(
-            name="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            value="\n\n".join(lines),
-            inline=False,
-        )
 
         embed.set_footer(text=f"Analyzed via Gemini-3-Flash • {len(movers_list)} movers identified")
 
