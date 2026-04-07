@@ -772,114 +772,41 @@ async def movers(ctx, date_indicator: str = None):
         await msg.edit(content=(
             f"🔍 **Scanning Pre-Market Movers** for **{target_date_str}**...\n"
             f"✅ News found ({len(market_news):,} chars)\n"
-            f"🧠 Step 2/4: AI ranking tickers by importance..."
+            f"🧠 Step 2/2: AI ranking tickers and identifying catalysts..."
         ))
 
-        from modules.ai.ai_services import extract_and_rank_movers, generate_movers_briefing
+        from modules.ai.ai_services import extract_and_rank_movers
         from modules.core.logger import AppLogger
         logger = AppLogger()
 
-        ranked_tickers = await loop.run_in_executor(None, extract_and_rank_movers, market_news, logger)
+        movers_list = await loop.run_in_executor(None, extract_and_rank_movers, market_news, logger)
 
-        if not ranked_tickers or len(ranked_tickers) < 2:
-            await msg.edit(content=f"⚠️ **Not enough stock movers found** in the news for **{target_date_str}**.\nAI found: `{ranked_tickers}`")
+        if not movers_list:
+            await msg.edit(content=f"⚠️ **No stock movers found** in the news for **{target_date_str}**.")
             return
 
-        # Cap at 15 for Yahoo Finance batch
-        ranked_tickers = ranked_tickers[:15]
+        # Cap at 15
+        movers_list = movers_list[:15]
 
-        # --- Step 3: Batch fetch Yahoo Finance data ---
-        await msg.edit(content=(
-            f"🔍 **Scanning Pre-Market Movers** for **{target_date_str}**...\n"
-            f"✅ News found ({len(market_news):,} chars)\n"
-            f"✅ AI identified {len(ranked_tickers)} tickers: `{', '.join(ranked_tickers)}`\n"
-            f"📡 Step 3/4: Fetching market data from Yahoo Finance..."
-        ))
-
-        from modules.data.yahoo_fetcher import fetch_movers_snapshot
-        market_data = await loop.run_in_executor(None, fetch_movers_snapshot, ranked_tickers, logger)
-
-        # Build ordered dict preserving AI importance ranking, with market data merged
-        ticker_data = {}
-        for ticker in ranked_tickers:
-            if ticker in market_data:
-                ticker_data[ticker] = market_data[ticker]
-
-        if not ticker_data:
-            await msg.edit(content=f"⚠️ **Could not fetch market data** from Yahoo Finance for any of the {len(ranked_tickers)} tickers.")
-            return
-
-        # --- Step 4: AI generates catalyst summaries ---
-        await msg.edit(content=(
-            f"🔍 **Scanning Pre-Market Movers** for **{target_date_str}**...\n"
-            f"✅ News found ({len(market_news):,} chars)\n"
-            f"✅ AI identified {len(ranked_tickers)} tickers\n"
-            f"✅ Yahoo Finance data for {len(ticker_data)} tickers\n"
-            f"🧠 Step 4/4: AI generating catalyst summaries..."
-        ))
-
-        briefing = await loop.run_in_executor(
-            None, generate_movers_briefing, market_news, ticker_data, logger
-        )
-
-        # --- Step 5: Build the Discord embed ---
-        market_theme = "Market movers identified"
-        catalyst_map = {}
-
-        if briefing:
-            market_theme = briefing.get("market_theme", market_theme)
-            for pick in briefing.get("picks", []):
-                t = pick.get("ticker", "").upper()
-                catalyst_map[t] = {
-                    "direction": pick.get("direction", "neutral"),
-                    "catalyst": pick.get("catalyst", "No specific catalyst identified"),
-                }
-
-        # --- Step 5a: Fact-check each catalyst against source news ---
-        from modules.ai.ai_services import verify_catalyst_against_news
-        verification_map = {}
-        for ticker_sym, ai_info in catalyst_map.items():
-            verified = verify_catalyst_against_news(
-                ticker_sym, ai_info["catalyst"], market_news
-            )
-            verification_map[ticker_sym] = verified
-
-        # Build embed
+        # --- Step 3: Build the Discord embed ---
         embed = discord.Embed(
             title=f"📊 PRE-MARKET MOVERS | {target_date_str}",
-            description=f"🎯 **Market Theme:** {market_theme}",
+            description=f"AI-identified top movers based on news catalysts.",
             color=discord.Color.gold(),
         )
 
         # Rank medals
-        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣"]
+        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
 
         lines = []
-        for i, (ticker, data) in enumerate(ticker_data.items()):
-            if i >= 7:  # Cap at 7 picks
-                break
-
-            gap = data["gap_pct"]
-            rvol = data["rvol"]
-            price = data["last_price"]
+        for i, mover in enumerate(movers_list):
+            ticker = mover["ticker"]
+            reason = mover["reason"]
             medal = medals[i] if i < len(medals) else f"{i+1}."
 
-            # Direction emoji from AI (fallback to gap direction)
-            ai_info = catalyst_map.get(ticker, {})
-            direction = ai_info.get("direction", "bullish" if gap >= 0 else "bearish")
-            dir_emoji = "🟢" if direction == "bullish" else "🔴"
-            catalyst = ai_info.get("catalyst", "No specific catalyst identified")
-
-            # Fact-check icon: ✅ verified against news, ⚠️ unverified
-            verified = verification_map.get(ticker, False)
-            verify_icon = "✅" if verified else "⚠️"
-
-            # Gap formatting with sign
-            gap_str = f"+{gap:.2f}%" if gap >= 0 else f"{gap:.2f}%"
-
             lines.append(
-                f"{medal} **{ticker}**  {dir_emoji} {gap_str}  |  RVOL {rvol}x  |  ${price:.2f}\n"
-                f"↳ {verify_icon} {catalyst}"
+                f"{medal} **{ticker}**\n"
+                f"↳ {reason}"
             )
 
         embed.add_field(
@@ -888,9 +815,7 @@ async def movers(ctx, date_indicator: str = None):
             inline=False,
         )
 
-        embed.set_footer(
-            text=f"✅ = Verified in news  ⚠️ = Unverified  •  📈 Gap% & RVOL from Yahoo Finance"
-        )
+        embed.set_footer(text=f"Analyzed via Gemini-3-Flash • {len(movers_list)} movers identified")
 
         await msg.edit(content=None, embed=embed)
 

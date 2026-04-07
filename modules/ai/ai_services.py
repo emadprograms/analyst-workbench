@@ -425,14 +425,10 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
 # MOVERS SCANNER — AI Functions
 # ---------------------------------------------------------------------------
 
-def extract_and_rank_movers(news_text: str, logger: AppLogger = None) -> list[str]:
+def extract_and_rank_movers(news_text: str, logger: AppLogger = None) -> list[dict]:
     """
     Uses AI to extract stock tickers from news and rank them by importance.
-
-    Unlike simple regex counting, this uses Gemini to judge *what matters*:
-    earnings announcements > analyst upgrades > routine mentions.
-
-    Returns an ordered list of ticker symbols (most important first).
+    Returns a list of dicts: [{"ticker": "AAPL", "reason": "Beat earnings by 10%"}, ...]
     """
     if not logger:
         logger = AppLogger()
@@ -443,8 +439,8 @@ def extract_and_rank_movers(news_text: str, logger: AppLogger = None) -> list[st
     system_prompt = (
         "You are a pre-market trading analyst. Your job is to scan financial news "
         "and identify which individual stocks are most likely to see significant "
-        "price movement today. You must extract ticker symbols and rank them by "
-        "trading importance."
+        "price movement today. You must extract ticker symbols, provide a brief "
+        "reason for their selection, and rank them by trading importance."
     )
 
     prompt = f"""Scan the following market news and extract ALL individual stock ticker symbols mentioned.
@@ -463,10 +459,14 @@ def extract_and_rank_movers(news_text: str, logger: AppLogger = None) -> list[st
 - Do NOT include forex pairs or crypto (EURUSDT, BTCUSDT, etc.)
 - Do NOT include commodities (CL=F, GC=F, etc.)
 - Maximum 15 tickers
-- Return a JSON array of ticker strings, ordered from most important to least
-- If no individual stocks are mentioned, return an empty array []
+- For each ticker, provide a 1-sentence "reason" why it was selected (the news catalyst).
+- Return a JSON array of objects, ordered from most important to least.
 
-**Example output:** ["NVDA", "TSLA", "PLTR", "AMD", "AAPL"]
+**Example output:** 
+[
+  {{"ticker": "NVDA", "reason": "Reporting record earnings beat and raising guidance."}},
+  {{"ticker": "TSLA", "reason": "Upgraded to Buy at Goldman Sachs with $300 price target."}}
+]
 
 [NEWS TO SCAN]
 {news_text}
@@ -483,11 +483,12 @@ Return ONLY the JSON array, nothing else."""
     try:
         parsed = _safe_parse_ai_json(response)
         if isinstance(parsed, list):
-            # Validate: keep only clean ticker strings
-            return [t.upper().strip() for t in parsed if isinstance(t, str) and t.strip()]
-        elif isinstance(parsed, dict) and "tickers" in parsed:
-            # Handle wrapped response
-            return [t.upper().strip() for t in parsed["tickers"] if isinstance(t, str) and t.strip()]
+            # Validate: keep only dicts with ticker and reason
+            return [
+                {"ticker": d["ticker"].upper().strip(), "reason": d["reason"].strip()}
+                for d in parsed 
+                if isinstance(d, dict) and "ticker" in d and "reason" in d
+            ]
         else:
             logger.log(f"   ⚠️ Unexpected AI response format: {type(parsed)}")
             return []
