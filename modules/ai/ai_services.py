@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-import requests
+import copy
 import json
+import logging
 import re
 import time
-import logging
+from collections import Counter
 from datetime import date
-from deepdiff import DeepDiff
+
+import requests
 
 # --- Core Module Imports ---
 # 1. FIX: Removed API_KEYS. 
@@ -44,8 +46,17 @@ except Exception as e:
 
 
 # ---------------------------------------------------------------------------
-# JSON PARSING UTILITIES
+# SHARED HELPERS
 # ---------------------------------------------------------------------------
+
+def _deep_update(d: dict, u: dict) -> dict:
+    """Recursively merge *u* into *d*, mutating *d* in place."""
+    for k, v in u.items():
+        if isinstance(v, dict):
+            d[k] = _deep_update(d.get(k, {}), v)
+        else:
+            d[k] = v
+    return d
 
 def _safe_parse_ai_json(text: str) -> dict | None:
     r"""
@@ -209,7 +220,7 @@ def extract_sectors_from_news(news_text: str) -> list[tuple[str, int]]:
     if not news_text:
         return []
         
-    from collections import Counter
+
     blocks = re.split(r'(?=ENTITY:)', news_text)
     sector_counts = Counter()
     
@@ -777,20 +788,11 @@ def update_company_card(
         # --- FIX: Rebuild the full card in Python ---
         
         # 1. Get a deep copy of the *previous* card to avoid mutating it
-        import copy
         final_card = copy.deepcopy(previous_overview_card_dict)
         
         # 2. **Deeply update** the card with the new AI data
         # This merges the new data (plans, sentiment) while preserving read-only fields
-        def deep_update(d, u):
-            for k, v in u.items():
-                if isinstance(v, dict):
-                    d[k] = deep_update(d.get(k, {}), v)
-                else:
-                    d[k] = v
-            return d
-        
-        final_card = deep_update(final_card, ai_data)
+        final_card = _deep_update(final_card, ai_data)
         
         # --- STRIP DEPRECATED FIELDS ---
         # Ensure 'valuation' is removed even if it exists in the previous database record
@@ -1149,19 +1151,10 @@ def update_economy_card(
             return None
 
         # --- FIX: Rebuild the full card in Python ---
-        import copy
         final_card = copy.deepcopy(previous_economy_card_dict)
         
         # 2. **Deeply update** the card with the new AI data
-        def deep_update(d, u):
-            for k, v in u.items():
-                if isinstance(v, dict):
-                    d[k] = deep_update(d.get(k, {}), v)
-                else:
-                    d[k] = v
-            return d
-            
-        final_card = deep_update(final_card, ai_data)
+        final_card = _deep_update(final_card, ai_data)
         
         # 3. Programmatically append to the log
         if "keyActionLog" not in final_card or not isinstance(final_card['keyActionLog'], list):

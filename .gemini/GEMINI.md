@@ -164,6 +164,15 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-04-07 — `ai_services.py` Code Cleanup (Warning Fixes)
+
+#### Import & Helper Hygiene (`modules/ai/ai_services.py`)
+*   **Unused import removed**: `from deepdiff import DeepDiff` was imported at the module level but never used anywhere in the file. Removed to silence linter warnings and eliminate loading an unnecessary dependency at import time.
+*   **Function-scoped imports hoisted**: `import copy` (used in both `update_company_card` and `update_economy_card`) and `from collections import Counter` (used in `extract_sectors_from_news`) were imported inside their respective function bodies. Moved to top-level module imports following Python best practices.
+*   **Import ordering**: Reorganised top-level imports into standard library → third-party grouping (stdlib `copy`, `json`, `logging`, `re`, `time`, `collections.Counter`, `datetime.date` first, then third-party `requests`).
+*   **Deduplicated `deep_update` helper**: An identical `deep_update(d, u)` nested function was defined independently inside both `update_company_card` and `update_economy_card`. Extracted to a single module-level `_deep_update(d, u)` function with a docstring, and both call sites now reference it.
+*   **Tests**: All 420 tests pass. No behavioural changes.
+
 ### 2026-03-03 — Custom Sector News Summarization (`!getnews`)
 
 #### Feature Addition (`discord_bot/bot.py`, `discord_bot/ui_components.py`, `modules/ai/ai_services.py`)
