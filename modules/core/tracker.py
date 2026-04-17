@@ -274,8 +274,8 @@ class ExecutionTracker:
                 issues = self.metrics.quality_reports.get(t, [])
                 for issue in issues:
                     msg = issue['message']
-                    if len(msg) > 120:
-                        msg = msg[:117] + "..."
+                    if len(msg) > 500:
+                        msg = msg[:497] + "..."
                     lines.append(f"   🟡 `{issue['rule']}` → {msg}")
             for t in no_quality:
                 lines.append(f"✅ **{t}**")
@@ -302,13 +302,13 @@ class ExecutionTracker:
                 for issue in issues:
                     if issue['severity'] == 'critical':
                         msg = issue['message']
-                        if len(msg) > 120:
-                            msg = msg[:117] + "..."
+                        if len(msg) > 500:
+                            msg = msg[:497] + "..."
                         lines.append(f"   🔴 `{issue['rule']}` → {msg}")
                     elif issue['severity'] == 'warning':
                         msg = issue['message']
-                        if len(msg) > 120:
-                            msg = msg[:117] + "..."
+                        if len(msg) > 500:
+                            msg = msg[:497] + "..."
                         lines.append(f"   🟡 `{issue['rule']}` → {msg}")
 
             text = "\n".join(lines)
@@ -336,8 +336,8 @@ class ExecutionTracker:
                 data_issues = self.metrics.data_reports.get(ticker, [])
                 for issue in data_issues:
                     msg = issue['message']
-                    if len(msg) > 120:
-                        msg = msg[:117] + "..."
+                    if len(msg) > 500:
+                        msg = msg[:497] + "..."
                     lines.append(f"   🔴 `{issue['rule']}` → {msg}")
 
             text = "\n".join(lines)

@@ -170,6 +170,14 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-04-17 — Discord Dashboard Truncation Fix
+
+#### Feature Fix (`modules/core/tracker.py`)
+*   **Root Cause**: Individual validation issue messages (Quality/Data checks) were hard-truncated at 120 characters in the Discord dashboard. This caused critical "evidence" quotes from AI cards to be cut off, making it difficult to understand check failures.
+*   **Fix**: Increased the per-issue truncation limit from **120 to 500 characters**.
+*   **Safety**: Maintained the 1024-character safety cap for the entire Discord field to prevent payload rejection, ensuring that even with longer individual messages, the bot remains stable.
+*   **Result**: Validation reports on Discord now show the full "quoted" text from the cards, allowing for immediate fact-checking without needing to open log files.
+
 ### 2026-04-17 — Discord Card Viewing Reform (JSON to Multi-Part Embeds)
 
 #### Feature Reform (`discord_bot/formatters.py` [NEW], `discord_bot/ui_components.py`, `discord_bot/bot.py`)
