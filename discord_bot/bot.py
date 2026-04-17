@@ -27,6 +27,7 @@ from ui_components import (
     DateSelectionView, NewsModal, BuildTypeSelectionView, TickerSelectionView,
     ViewTypeSelectionView, EditNotesTickerSelectionView, EditNotesModal, EditNotesTriggerView, TargetSelectionView
 )
+from formatters import format_economy_card, format_company_card
 from modules.data.db_utils import (
     get_all_tickers_from_db, get_company_card_and_notes, update_ticker_notes, 
     get_daily_inputs, get_archived_economy_card, get_archived_company_card, get_ticker_stats,
@@ -177,7 +178,9 @@ async def fetch_company_card(date_str, ticker):
     target_date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
     loop = asyncio.get_event_loop()
     card_json, _ = await loop.run_in_executor(None, get_archived_company_card, target_date_obj, ticker)
-    return card_json
+    # Also fetch notes for better context in the formatted card
+    _, current_notes, _ = await loop.run_in_executor(None, get_company_card_and_notes, ticker)
+    return card_json, current_notes
 
 async def fetch_notes(ticker):
     loop = asyncio.get_event_loop()
@@ -653,39 +656,26 @@ async def viewtempcards(ctx, date_indicator: str = None):
                 await interaction_or_ctx.edit(content=msg_text)
             return
         
-        # Fetch all cards
-        files = []
+        # Fetch and format all cards
         for ticker in temp_tickers:
             card_json, _ = await loop.run_in_executor(
                 None, get_archived_temp_company_card, target_date_obj, ticker
             )
             if card_json:
                 try:
-                    formatted = json.dumps(json.loads(card_json), indent=2)
-                    file_data = io.BytesIO(formatted.encode("utf-8"))
-                    files.append(discord.File(file_data, filename=f"TEMP_{ticker}_Card_{selected_date_str}.json"))
-                except:
-                    pass
+                    # Also fetch notes for temp card if they exist
+                    _, current_notes, _ = await loop.run_in_executor(None, get_company_card_and_notes, ticker)
+                    embeds = format_company_card(card_json, ticker, selected_date_str, historical_notes=current_notes)
+                    for embed in embeds:
+                        if is_interaction:
+                            await interaction_or_ctx.followup.send(embed=embed)
+                        else:
+                            await interaction_or_ctx.channel.send(content=f"✅ **TEMP Company Card ({selected_date_str})**: {ticker}", embed=embed)
+                except Exception as e:
+                    print(f"Error formatting temp card for {ticker}: {e}")
         
-        if files:
-            header = f"✅ **TEMP Company Cards ({selected_date_str})** — {len(files)} ticker(s): `{', '.join(temp_tickers)}`"
-            # Discord limit is 10 files per message
-            chunks = [files[i:i + 10] for i in range(0, len(files), 10)]
-            for i, chunk in enumerate(chunks):
-                msg_text = f"{header} — Part {i+1}" if len(chunks) > 1 else header
-                if is_interaction:
-                    await interaction_or_ctx.followup.send(msg_text, files=chunk)
-                else:
-                    await interaction_or_ctx.edit(content=msg_text)
-                    # For subsequent chunks, send new messages
-                    if len(chunks) > 1 and i < len(chunks) - 1:
-                        await interaction_or_ctx.channel.send(files=chunks[i+1])
-        else:
-            msg_text = f"⚠️ **Cards exist but could not be loaded** for **{selected_date_str}**."
-            if is_interaction:
-                await interaction_or_ctx.followup.send(msg_text)
-            else:
-                await interaction_or_ctx.edit(content=msg_text)
+        # Done
+        return
 
     if not target_date_str:
         # Show date picker
@@ -711,31 +701,21 @@ async def viewtempcards(ctx, date_indicator: str = None):
                 )
                 return
             
-            files = []
+            # Fetch and format all cards
             for ticker in temp_tickers:
                 card_json, _ = await loop.run_in_executor(
                     None, get_archived_temp_company_card, target_date_obj, ticker
                 )
                 if card_json:
                     try:
-                        formatted = json.dumps(json.loads(card_json), indent=2)
-                        file_data = io.BytesIO(formatted.encode("utf-8"))
-                        files.append(discord.File(file_data, filename=f"TEMP_{ticker}_Card_{target_date_str}.json"))
-                    except:
-                        pass
-            
-            if files:
-                header = f"✅ **TEMP Company Cards ({target_date_str})** — {len(files)} ticker(s): `{', '.join(temp_tickers)}`"
-                chunks = [files[i:i + 10] for i in range(0, len(files), 10)]
-                for i, chunk in enumerate(chunks):
-                    chunk_msg = f"{header} — Part {i+1}" if len(chunks) > 1 else header
-                    if i == 0:
-                        await msg.edit(content=chunk_msg)
-                        await ctx.send(files=chunk)
-                    else:
-                        await ctx.send(chunk_msg, files=chunk)
-            else:
-                await msg.edit(content=f"⚠️ **Cards exist but could not be loaded** for **{target_date_str}**.")
+                        _, current_notes, _ = await loop.run_in_executor(None, get_company_card_and_notes, ticker)
+                        embeds = format_company_card(card_json, ticker, target_date_str, historical_notes=current_notes)
+                        for embed in embeds:
+                            await ctx.send(embed=embed)
+                    except Exception as e:
+                        print(f"Error formatting temp card for {ticker}: {e}")
+
+            await msg.edit(content=f"✅ **Finished retrieving {len(temp_tickers)} TEMP Cards for {target_date_str}**")
         except ValueError:
             await ctx.send(f"❌ Error: `{target_date_str}` is invalid.")
 

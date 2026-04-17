@@ -29,7 +29,7 @@ The **Analyst Workbench** is a Streamlit-based Python application designed to ac
     *   **Discord Bot (`discord_bot/bot.py`)**: The Command & Control layer.
         *   **Orchestration**: Dispatches heavy compute tasks (Card Building) to GitHub Actions to maintain a serverless architecture and keep Railway costs near zero.
         *   **Local Ingestion**: Directly handles `!inputnews` to save news context to the database without GitHub Actions. Supports manual text entry, file attachments (.txt, .log), and URL fetching (with auto-conversion of Pastebin links to raw format).
-        *   **Direct Interaction**: Performs lightweight, low-compute tasks (Retrieving Cards, Editing Historical Notes, Checking News Ingestion, DB Inspection) directly against the database for instantaneous user feedback.
+        *   **Direct Interaction**: Performs lightweight, low-compute tasks (Retrieving Cards, Editing Historical Notes, Checking News Ingestion, DB Inspection) directly against the database for instantaneous user feedback. Cards are rendered as well-formatted multi-part Discord Embeds for mobile accessibility.
         *   **Dynamic Discovery**: Fetches the active stock watch list directly from `aw_ticker_notes`, eliminating hardcoded lists in the UI.
         *   **Temp Cards**: `!buildtempcards SOFI, RIVN [date]` dispatches GitHub Actions to build cards for non-tracked tickers using Yahoo Finance data. `!viewtempcards [date]` retrieves and displays the generated temp cards.
         *   **Movers Scanner**: `!movers [date]` scans daily news for the most important pre-market movers. Runs bot-side (like `!getnews`): AI ranks tickers by news importance → Yahoo Finance batch fetch → Python calculates gap%/RVOL → AI generates 1-line catalyst summaries → rich Discord embed with top 7 picks. All numerical data (gap%, RVOL, price) is programmatically calculated — AI only provides text (catalyst, direction, market theme).
@@ -169,6 +169,17 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 ## 8. Engineering Log
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
+
+### 2026-04-17 — Discord Card Viewing Reform (JSON to Multi-Part Embeds)
+
+#### Feature Reform (`discord_bot/formatters.py` [NEW], `discord_bot/ui_components.py`, `discord_bot/bot.py`)
+*   **Purpose**: Replaced the previous JSON file attachments for Economy and Company cards with well-formatted Discord Embeds. This ensures cards are readable on mobile devices where opening JSON files is cumbersome.
+*   **Implementation**:
+    1.  **Text Formatters (`formatters.py`)**: New module dedicated to converting complex card JSON into a list of sequential `discord.Embed` objects. Uses bold headers, emojis, and inline fields to organize market narratives, technical levels, and trade plans.
+    2.  **Part Logic**: Follows the "Part X/Y" pattern established by `!getnews` to handle long descriptions and ensure a logical flow (e.g., Part 1: Context, Part 2: Sentiment, Part 3: Trade Plans).
+    3.  **UI Integration (`ui_components.py`)**: Updated `ViewTypeSelectionView` and `ViewTickerSelectionView` to iterate through generated embeds and send them as follow-up messages instead of creating `discord.File` objects.
+    4.  **Temp Card Support (`bot.py`)**: Updated the `viewtempcards` command to use the same formatter, ensuring consistency between tracked and non-tracked ticker analysis.
+*   **Result**: Cards are now native Discord messages rather than attachments, significantly improving the mobile user experience.
 
 ### 2026-04-07 — Pre-Market Movers Scanner (`!movers`)
 

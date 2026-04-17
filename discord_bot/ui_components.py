@@ -3,6 +3,7 @@ import asyncio
 import json
 import io
 from datetime import datetime, timedelta, timezone
+from formatters import format_economy_card, format_company_card
 
 # --- Reusable UI Components ---
 
@@ -290,10 +291,9 @@ class ViewTypeSelectionView(discord.ui.View):
         
         if card_json:
             try:
-                formatted = json.dumps(json.loads(card_json), indent=2)
-                file_data = io.BytesIO(formatted.encode("utf-8"))
-                file = discord.File(file_data, filename=f"Economy_Card_{self.target_date}.json")
-                await interaction.followup.send(f"✅ **Economy Card for {self.target_date}**:", file=file)
+                embeds = format_economy_card(card_json, self.target_date)
+                for embed in embeds:
+                    await interaction.followup.send(embed=embed)
             except Exception as e:
                 await interaction.followup.send(f"❌ Failed to process card: {e}")
         else:
@@ -339,10 +339,17 @@ class ViewTickerSelectionView(discord.ui.View):
             card_json = await self.fetch_callback(self.target_date, ticker)
             if card_json:
                 try:
-                    formatted = json.dumps(json.loads(card_json), indent=2)
-                    file_data = io.BytesIO(formatted.encode("utf-8"))
-                    files.append(discord.File(file_data, filename=f"{ticker}_Card_{self.target_date}.json"))
-                except:
+                    # Fetch notes if possible (this callback in bot.py now returns a tuple)
+                    # For compatibility, we'll check if it's a tuple or just json
+                    notes = ""
+                    if isinstance(card_json, tuple):
+                        card_json, notes = card_json
+
+                    embeds = format_company_card(card_json, ticker, self.target_date, historical_notes=notes)
+                    for embed in embeds:
+                        await interaction.followup.send(embed=embed)
+                except Exception as e:
+                    print(f"Error formatting card for {ticker}: {e}")
                     not_found.append(ticker)
             else:
                 not_found.append(ticker)
