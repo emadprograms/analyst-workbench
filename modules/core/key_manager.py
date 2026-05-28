@@ -17,7 +17,6 @@ CREATE_KEYS_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS gemini_api_keys (
     key_name TEXT PRIMARY KEY NOT NULL,
     key_value TEXT NOT NULL,
-    priority INTEGER DEFAULT 10,
     tier TEXT DEFAULT 'free', 
     added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -68,7 +67,7 @@ class KeyManager:
             'model_id': 'gemini-3-pro-preview',
             'tier': 'paid',
             'display': 'Gemini 3 Pro (Paid)',
-            'limits': {'rpm': 25, 'tpm': 1000000, 'rpd': 250} # RPD ADDED
+            'limits': {'rpm': 25, 'tpm': 1000000, 'rpd': 250}
         },
         'gemini-3-flash-paid': {
             'model_id': 'gemini-3-flash-preview', 
@@ -88,8 +87,26 @@ class KeyManager:
             'display': 'Gemini 2.5 Flash (Paid)',
             'limits': {'rpm': 1000, 'tpm': 4000000, 'rpd': 10000}
         },
+        'gemini-2.5-flash-lite-paid': {
+            'model_id': 'gemini-2.5-flash-lite',
+            'tier': 'paid',
+            'display': 'Gemini 2.5 Flash Lite (Paid)',
+            'limits': {'rpm': 4000, 'tpm': 4000000, 'rpd': 1000000}
+        },
 
         # --- FREE TIER (Standard Limits) ---
+        'gemini-3.5-flash-free': {
+             'model_id': 'gemini-3.5-flash',
+             'tier': 'free',
+             'display': 'Gemini 3.5 Flash (Free)',
+             'limits': {'rpm': 5, 'tpm': 250000, 'rpd': 20}
+        },
+        'gemini-3.1-flash-lite-free': {
+             'model_id': 'gemini-3.1-flash-lite',
+             'tier': 'free',
+             'display': 'Gemini 3.1 Flash Lite (Free)',
+             'limits': {'rpm': 15, 'tpm': 250000, 'rpd': 500}
+        },
         'gemini-3-flash-free': {
              'model_id': 'gemini-3-flash-preview',
              'tier': 'free',
@@ -107,6 +124,20 @@ class KeyManager:
              'tier': 'free',
              'display': 'Gemini 2.5 Flash Lite (Free)',
              'limits': {'rpm': 10, 'tpm': 250000, 'rpd': 20}
+        },
+        
+        # --- GEMMA FAMILY ---
+        'gemma-3-27b': {
+            'model_id': 'gemma-3-27b-it',
+            'tier': 'free', 
+            'display': 'Gemma 3 27B',
+            'limits': {'rpm': 30, 'tpm': 15000, 'rpd': 20}
+        },
+         'gemma-3-12b': {
+            'model_id': 'gemma-3-12b-it',
+            'tier': 'free',
+            'display': 'Gemma 3 12B',
+            'limits': {'rpm': 30, 'tpm': 15000, 'rpd': 20}
         }
     }
 
@@ -166,11 +197,12 @@ class KeyManager:
     def _row_to_dict(self, columns, row):
         return dict(zip(columns, row))
         
-    def add_key(self, name: str, value: str, tier: str = 'free', display_order: int = 10):
+    def add_key(self, name: str, value: str, tier: str = 'free'):
         try:
-            self.db_client.execute(
-                "INSERT INTO gemini_api_keys (key_name, key_value, priority, tier) VALUES (?, ?, ?, ?)", 
-                [name, value, display_order, tier]
+            # Use Raw HTTP to avoid libsql_client write bug
+            self._raw_http_execute(
+                "INSERT INTO gemini_api_keys (key_name, key_value, tier) VALUES (?, ?, ?)", 
+                [name, value, tier]
             )
             self._refresh_keys_from_db()
             return True, "Key added."
@@ -178,20 +210,22 @@ class KeyManager:
 
     def update_key_tier(self, name: str, new_tier: str):
         try:
-            self.db_client.execute("UPDATE gemini_api_keys SET tier = ? WHERE key_name = ?", [new_tier, name])
+            # Use Raw HTTP to avoid libsql_client write bug
+            self._raw_http_execute("UPDATE gemini_api_keys SET tier = ? WHERE key_name = ?", [new_tier, name])
             self._refresh_keys_from_db()
             return True, "Updated Tier."
         except Exception as e: return False, str(e)
 
     def delete_key(self, name: str):
         try:
-            self.db_client.execute("DELETE FROM gemini_api_keys WHERE key_name = ?", [name])
+            # Use Raw HTTP to avoid libsql_client write bug
+            self._raw_http_execute("DELETE FROM gemini_api_keys WHERE key_name = ?", [name])
             self._refresh_keys_from_db()
             return True, "Deleted."
         except Exception as e: return False, str(e)
 
     def get_all_managed_keys(self):
-        rs = self.db_client.execute("SELECT key_name, key_value, priority, tier, added_at FROM gemini_api_keys ORDER BY priority ASC, key_name ASC")
+        rs = self.db_client.execute("SELECT key_name, key_value, tier, added_at FROM gemini_api_keys ORDER BY key_name ASC")
         if not rs.rows: return []
         return [self._row_to_dict(rs.columns, row) for row in rs.rows]
 

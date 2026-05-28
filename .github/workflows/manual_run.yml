@@ -10,7 +10,7 @@ on:
       model:
         description: 'Gemini Model'
         required: true
-        default: 'gemini-3-flash-free'
+        default: 'gemini-3.5-flash-free'
       action:
         description: 'Action to perform (update-economy, update-company, update-temp-company, input-news, inspect)'
         required: true

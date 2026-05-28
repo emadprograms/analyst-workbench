@@ -282,7 +282,7 @@ def summarize_news_with_gemini(news_text: str, target: str, logger: AppLogger = 
     else:
         prompt = f"Please summarize the following news related to {target.upper()} and its sector. Highlight key catalysts, earnings, upgrades/downgrades, and sector headwinds/tailwinds in a structured bulleted list.\n\n[NEWS FOR {target.upper()}]\n{news_text}"
         
-    model_name = "gemini-3-flash-free"
+    model_name = "gemini-3.5-flash-free"
     
     # We disable response_schema here to allow raw text generation
     response = call_gemini_api(prompt, system_prompt, logger, model_name=model_name)
@@ -473,7 +473,7 @@ def extract_and_rank_movers(news_text: str, logger: AppLogger = None) -> list[di
 
 Return ONLY the JSON array, nothing else."""
 
-    model_name = "gemini-3-flash-free"
+    model_name = "gemini-3.5-flash-free"
 
     response = call_gemini_api(prompt, system_prompt, logger, model_name=model_name)
     if not response:
@@ -572,7 +572,7 @@ These numbers are PRE-CALCULATED from Yahoo Finance and are FINAL. Do NOT modify
 
 Return ONLY the JSON object."""
 
-    model_name = "gemini-3-flash-free"
+    model_name = "gemini-3.5-flash-free"
 
     response = call_gemini_api(
         prompt, system_prompt, logger, model_name=model_name,

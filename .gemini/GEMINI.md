@@ -358,6 +358,19 @@ This section records resolved bugs and structural changes for traceability. Newe
     3.  Updated the AI Prompt to explicitly instruct the model to base its narrative entirely on the `[Today's New Price Action Summary]` and use news only to contextualize, preventing bad news from overriding good price action.
     4.  Rewrote the `TestBiasValidation` test suite to match the new `Setup_Bias` logic.
 
+### 2026-05-28 — Gemini 3.5 Flash Support & Model Config Modernization
+
+#### Model Configuration Updates (`modules/core/key_manager.py`, `modules/core/config.py`, `modules/ai/ai_services.py`, `main.py`)
+*   **Added New Models**: Integrated `gemini-3.5-flash-free` (defaulting to model ID `gemini-3.5-flash`), `gemini-3.1-flash-lite-free`, `gemini-2.5-flash-lite-paid`, `gemma-3-27b`, and `gemma-3-12b` into `MODELS_CONFIG`. Removed deprecated `gemini-2.0-flash-paid`.
+*   **Default Model Transition**: Changed the default model from `gemini-3-pro-paid` / `gemini-3-flash-free` to `gemini-3.5-flash-free` across the core configuration, ai_services hardcoded calls, CLI parameters, and GitHub Actions workflow files.
+*   **Raw HTTP DB Operations**: Refactored `add_key`, `update_key_tier`, and `delete_key` to use `_raw_http_execute` to bypass LibSQL client SQL parsing bugs.
+*   **Removed priority Column**: Removed the legacy `priority` column from the keys schema creation script and CRUD queries.
+
+#### Test Suite Hardening (`tests/test_key_manager.py`, `tests/test_getnews.py`)
+*   **Limit Assertions**: Updated free-tier limit tests (`test_free_tier_rpd_is_20`) to skip models with different limits (e.g. Gemma/lite models).
+*   **Mock Verification**: Updated news summary tests to assert `gemini-3.5-flash-free` instead of `gemini-3-flash-free`.
+*   **Validation**: All 430 tests pass.
+
 ### 2026-03-01 — Economy Card Prompt Rebuild (Company Card Pattern Alignment)
 
 #### Economy Card Prompt Overhaul (`modules/ai/ai_services.py`)

@@ -286,7 +286,7 @@ def main():
     parser.add_argument("--model", 
         type=str, 
         help=f"Gemini model name. Options: {', '.join(AVAILABLE_MODELS.keys())}", 
-        default="gemini-3-flash-free",
+        default="gemini-3.5-flash-free",
         choices=list(AVAILABLE_MODELS.keys())
     )
     parser.add_argument("--action", choices=["update-economy", "update-company", "update-temp-company", "input-news", "inspect", "setup", "test-webhook", "check-news"], default="update-economy", help="Action to perform")

@@ -66,7 +66,7 @@ class TestGetNewsFeatures(unittest.TestCase):
         self.assertTrue(mock_call.called)
         args, kwargs = mock_call.call_args
         self.assertIn("[MACRO NEWS]", args[0])
-        self.assertEqual(kwargs['model_name'], "gemini-3-flash-free")
+        self.assertEqual(kwargs['model_name'], "gemini-3.5-flash-free")
 
     @patch('modules.ai.ai_services.call_gemini_api')
     def test_summarize_news_with_gemini_company(self, mock_call):
@@ -79,7 +79,7 @@ class TestGetNewsFeatures(unittest.TestCase):
         # Verify call_gemini_api was called correctly
         args, kwargs = mock_call.call_args
         self.assertIn("[NEWS FOR AAPL]", args[0])
-        self.assertEqual(kwargs['model_name'], "gemini-3-flash-free")
+        self.assertEqual(kwargs['model_name'], "gemini-3.5-flash-free")
 
     @patch('modules.ai.ai_services.call_gemini_api')
     def test_summarize_news_with_gemini_custom_sector(self, mock_call):
@@ -92,7 +92,7 @@ class TestGetNewsFeatures(unittest.TestCase):
         # Verify call_gemini_api was called correctly
         args, kwargs = mock_call.call_args
         self.assertIn("[NEWS FOR SPORTS SECTOR]", args[0])
-        self.assertEqual(kwargs['model_name'], "gemini-3-flash-free")
+        self.assertEqual(kwargs['model_name'], "gemini-3.5-flash-free")
 
     def test_summarize_news_with_gemini_no_news(self):
         logger = AppLogger("test")
