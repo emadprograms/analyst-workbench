@@ -27,6 +27,10 @@ on:
         description: 'URL to news text file'
         required: false
         default: ''
+      thinking_level:
+        description: 'AI thinking depth (minimal, low, medium, high)'
+        required: false
+        default: 'high'
 
 jobs:
   run-pipeline:
@@ -57,6 +61,7 @@ jobs:
           INPUT_TICKERS: ${{ github.event.inputs.tickers }}
           INPUT_TEXT: ${{ github.event.inputs.text }}
           INPUT_URL: ${{ github.event.inputs.news_url }}
+          INPUT_THINKING_LEVEL: ${{ github.event.inputs.thinking_level }}
         run: |
           DATE_ARG=""
           if [ "$INPUT_DATE" != "today" ] && [ "$INPUT_DATE" != "" ]; then
@@ -70,9 +75,9 @@ jobs:
           
           # Prioritize URL over text if both are present
           if [ "$INPUT_URL" != "" ]; then
-            python main.py --action "$INPUT_ACTION" $DATE_ARG --model "$INPUT_MODEL" --url "$INPUT_URL" $TICKER_ARG
+            python main.py --action "$INPUT_ACTION" $DATE_ARG --model "$INPUT_MODEL" --thinking-level "$INPUT_THINKING_LEVEL" --url "$INPUT_URL" $TICKER_ARG
           elif [ "$INPUT_TEXT" != "" ]; then
-            python main.py --action "$INPUT_ACTION" $DATE_ARG --model "$INPUT_MODEL" --text "$INPUT_TEXT" $TICKER_ARG
+            python main.py --action "$INPUT_ACTION" $DATE_ARG --model "$INPUT_MODEL" --thinking-level "$INPUT_THINKING_LEVEL" --text "$INPUT_TEXT" $TICKER_ARG
           else
-            python main.py --action "$INPUT_ACTION" $DATE_ARG --model "$INPUT_MODEL" $TICKER_ARG
+            python main.py --action "$INPUT_ACTION" $DATE_ARG --model "$INPUT_MODEL" --thinking-level "$INPUT_THINKING_LEVEL" $TICKER_ARG
           fi

@@ -170,6 +170,17 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-05-28 — Thinking Level Option & Custom Reasoning Depth
+
+#### Feature Addition (`modules/ai/ai_services.py`, `main.py`, `discord_bot/ui_components.py`, `tests/test_bot_model_selection.py`, `.github/workflows/manual_run.yml`)
+*   **Purpose**: Added support for configuring the `thinking_level` (reasoning depth) when generating cards via Gemini 3 and Gemini 3.5 series models.
+*   **Parameters**: Supports values `minimal`, `low`, `medium`, and `high` (defaulting to `high`).
+*   **API Implementation**: Updated `call_gemini_api` to automatically inject `thinkingConfig: {"thinking_level": <level>}` under `generationConfig` when a Gemini 3 series model is selected. Also updated the card generation logic and pipeline signatures (`update_company_card`, `update_economy_card`, `update_temp_company_card`, `run_update_*`).
+*   **CLI Support**: Added a new `--thinking-level` argument to `main.py` CLI parser.
+*   **GitHub Actions Workflow**: Extended `manual_run.yml` to accept `thinking_level` as an optional manual workflow dispatch input, passing it directly down to the CLI.
+*   **Discord UI Component (`ThinkingLevelDropdown`)**: Added a dropdown select menu (`ThinkingLevelDropdown` in `ui_components.py`) allowing users to choose the thinking level dynamically in `BuildTypeSelectionView` and `TempCardDispatchView`, propagating it to GitHub Actions.
+*   **Test Coverage**: Rewrote `tests/test_bot_model_selection.py` to cover both model selection and thinking level dropdowns, view callbacks, and dispatch payloads. All 437 tests pass perfectly.
+
 ### 2026-05-28 — Discord Bot Card Generation Model Selection
 
 #### Feature Addition (`discord_bot/ui_components.py`, `discord_bot/bot.py`)

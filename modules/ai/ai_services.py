@@ -338,13 +338,20 @@ def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_na
                 "systemInstruction": {"parts": [{"text": system_prompt}]}
             }
             
-            # --- NEW: Inject JSON mime type and hardware guardrails (No Schema to prevent Flash model cognitive overload) ---
+            # --- NEW: Inject JSON mime type, hardware guardrails, and thinkingConfig for Gemini 3 series ---
+            generation_config = {}
             if "response_schema" in kwargs:
-                payload["generationConfig"] = {
-                    "responseMimeType": "application/json",
-                    "temperature": 0.1,  # Force deterministic, robotic output to prevent hallucinations
-                    
+                generation_config["responseMimeType"] = "application/json"
+                generation_config["temperature"] = 0.1  # Force deterministic, robotic output to prevent hallucinations
+                
+            if "gemini-3" in real_model_id:
+                thinking_level = kwargs.get("thinking_level", "high")
+                generation_config["thinkingConfig"] = {
+                    "thinkingLevel": thinking_level
                 }
+                
+            if generation_config:
+                payload["generationConfig"] = generation_config
                 
             headers = {'Content-Type': 'application/json'}
             
@@ -681,7 +688,8 @@ def update_company_card(
     model_name:str,
     market_context_summary: str, 
     economy_card_json: str = None,
-    logger: AppLogger = None
+    logger: AppLogger = None,
+    thinking_level: str = "high"
 ):
     """
     Generates an updated company overview card using AI.
@@ -1002,7 +1010,7 @@ def update_company_card(
         "required": ["marketNote", "confidence", "screener_briefing", "basicContext", "technicalStructure", "fundamentalContext", "behavioralSentiment", "todaysAction", "openingTradePlan", "alternativePlan"]
     }
     
-    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name, response_schema=company_card_schema, tracker_ticker=ticker)
+    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name, response_schema=company_card_schema, tracker_ticker=ticker, thinking_level=thinking_level)
     if not ai_response_text: 
         logger.log(f"Error: No AI response for {ticker}."); 
         return None
@@ -1137,7 +1145,8 @@ def update_economy_card(
     daily_market_news: str, 
     model_name: str,
     selected_date: date, 
-    logger: AppLogger = None
+    logger: AppLogger = None,
+    thinking_level: str = "high"
 ):
     """
     Updates the global Economy Card in the database using AI.
@@ -1368,7 +1377,7 @@ def update_economy_card(
         "required": ["marketNarrative", "marketBias", "keyEconomicEvents", "sectorRotation", "indexAnalysis", "interMarketAnalysis", "marketInternals", "todaysAction"]
     }
     
-    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name, response_schema=economy_card_schema, tracker_ticker="ECONOMY")
+    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name, response_schema=economy_card_schema, tracker_ticker="ECONOMY", thinking_level=thinking_level)
     if not ai_response_text:
         logger.log("Error: No response from AI for economy card update.")
         return None
@@ -1488,6 +1497,7 @@ def update_temp_company_card(
     economy_card_json: str = None,
     intraday_data: dict = None,
     logger: AppLogger = None,
+    thinking_level: str = "high"
 ):
     """
     Generates a company card for a non-tracked (temp) ticker using Yahoo Finance data.
@@ -1717,7 +1727,7 @@ def update_temp_company_card(
         "required": ["marketNote", "confidence", "screener_briefing", "basicContext", "technicalStructure", "fundamentalContext", "behavioralSentiment", "todaysAction", "openingTradePlan", "alternativePlan"]
     }
 
-    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name, response_schema=company_card_schema, tracker_ticker=ticker)
+    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name, response_schema=company_card_schema, tracker_ticker=ticker, thinking_level=thinking_level)
     if not ai_response_text:
         logger.log(f"Error: No AI response for temp card {ticker}.")
         return None

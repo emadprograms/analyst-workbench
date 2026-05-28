@@ -97,7 +97,7 @@ from modules.ai.ai_services import update_economy_card, update_company_card, upd
 from modules.analysis.impact_engine import get_latest_price_details
 from modules.data.yahoo_fetcher import fetch_intraday_data_for_temp_card
 
-def run_update_economy(selected_date: date, model_name: str, logger: AppLogger) -> bool:
+def run_update_economy(selected_date: date, model_name: str, logger: AppLogger, thinking_level: str = "high") -> bool:
     logger.log(f"🧠 Updating Economy Card for {selected_date}...")
     
     # 1. Get Market News
@@ -129,7 +129,8 @@ def run_update_economy(selected_date: date, model_name: str, logger: AppLogger) 
         daily_market_news=market_news,
         model_name=model_name,
         selected_date=selected_date,
-        logger=logger
+        logger=logger,
+        thinking_level=thinking_level
     )
     
     # 5. Save
@@ -148,7 +149,7 @@ def run_update_economy(selected_date: date, model_name: str, logger: AppLogger) 
         logger.error("❌ AI failed to generate new Economy Card")
         return False
 
-def run_update_company(selected_date: date, model_name: str, tickers: list[str], logger: AppLogger) -> bool:
+def run_update_company(selected_date: date, model_name: str, tickers: list[str], logger: AppLogger, thinking_level: str = "high") -> bool:
     logger.log(f"🧠 Updating Company Cards for {len(tickers)} tickers on {selected_date}...")
 
     # 1. Get Market News for context
@@ -179,7 +180,8 @@ def run_update_company(selected_date: date, model_name: str, tickers: list[str],
             model_name=model_name,
             market_context_summary=market_news,
             economy_card_json=economy_card_json,
-            logger=logger
+            logger=logger,
+            thinking_level=thinking_level
         )        
         if new_card:
             if upsert_company_card(selected_date, ticker, ticker_summary, new_card):
@@ -212,7 +214,7 @@ def run_update_company(selected_date: date, model_name: str, tickers: list[str],
     logger.log(f"✅ Company Card updates complete. Success: {success_count}/{len(tickers)}")
     return success_count > 0
 
-def run_update_temp_company(selected_date: date, model_name: str, tickers: list[str], logger: AppLogger) -> bool:
+def run_update_temp_company(selected_date: date, model_name: str, tickers: list[str], logger: AppLogger, thinking_level: str = "high") -> bool:
     logger.log(f"🧠 Updating TEMP Company Cards for {len(tickers)} tickers on {selected_date}...")
     from modules.ai.ai_services import TRACKER
 
@@ -246,7 +248,8 @@ def run_update_temp_company(selected_date: date, model_name: str, tickers: list[
             market_context_summary=market_news or "",
             economy_card_json=economy_card_json,
             intraday_data=intraday_data,
-            logger=logger
+            logger=logger,
+            thinking_level=thinking_level
         )
         
         if new_card:
@@ -288,6 +291,12 @@ def main():
         help=f"Gemini model name. Options: {', '.join(AVAILABLE_MODELS.keys())}", 
         default="gemini-3.5-flash-free",
         choices=list(AVAILABLE_MODELS.keys())
+    )
+    parser.add_argument("--thinking-level", 
+        type=str, 
+        choices=["minimal", "low", "medium", "high"], 
+        default="high",
+        help="Gemini thinking level (minimal, low, medium, high)"
     )
     parser.add_argument("--action", choices=["update-economy", "update-company", "update-temp-company", "input-news", "inspect", "setup", "test-webhook", "check-news"], default="update-economy", help="Action to perform")
     parser.add_argument("--tickers", type=str, help="Comma-separated list of tickers (used with --action update-company)")
@@ -338,7 +347,7 @@ def main():
              return
 
         if args.action == "update-economy":
-            if not run_update_economy(target_date, args.model, logger):
+            if not run_update_economy(target_date, args.model, logger, thinking_level=args.thinking_level):
                 exit_code = 1
         elif args.action == "update-company":
             if not args.tickers:
@@ -354,7 +363,7 @@ def main():
                 logger.log(f"📋 Expanded 'all' to {len(ticker_list)} stock tickers: {', '.join(ticker_list)}")
             else:
                 ticker_list = raw_tickers
-            if not run_update_company(target_date, args.model, ticker_list, logger):
+            if not run_update_company(target_date, args.model, ticker_list, logger, thinking_level=args.thinking_level):
                 exit_code = 1
         elif args.action == "update-temp-company":
             if not args.tickers:
@@ -362,7 +371,7 @@ def main():
                 exit_code = 1
                 return
             temp_tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
-            if not run_update_temp_company(target_date, args.model, temp_tickers, logger):
+            if not run_update_temp_company(target_date, args.model, temp_tickers, logger, thinking_level=args.thinking_level):
                 exit_code = 1
         elif args.action == "input-news":
             news_content = None

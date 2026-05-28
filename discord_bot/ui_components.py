@@ -205,8 +205,47 @@ class ModelSelectionDropdown(discord.ui.Select):
         
         await interaction.response.edit_message(content=content, view=self.parent_view)
 
+class ThinkingLevelDropdown(discord.ui.Select):
+    def __init__(self, parent_view, selected_level="high"):
+        options = [
+            discord.SelectOption(
+                label="High", 
+                value="high", 
+                description="Max reasoning depth (default)",
+                default=(selected_level == "high")
+            ),
+            discord.SelectOption(
+                label="Medium", 
+                value="medium", 
+                description="Balanced reasoning",
+                default=(selected_level == "medium")
+            ),
+            discord.SelectOption(
+                label="Low", 
+                value="low", 
+                description="Faster, less reasoning",
+                default=(selected_level == "low")
+            ),
+            discord.SelectOption(
+                label="Minimal", 
+                value="minimal", 
+                description="Fastest, minimal reasoning",
+                default=(selected_level == "minimal")
+            )
+        ]
+        super().__init__(placeholder="🧠 Thinking Level...", min_values=1, max_values=1, options=options, row=2)
+        self.parent_view = parent_view
+
+    async def callback(self, interaction: discord.Interaction):
+        self.parent_view.selected_thinking_level = self.values[0]
+        for option in self.options:
+            option.default = (option.value == self.parent_view.selected_thinking_level)
+        
+        content = interaction.message.content
+        await interaction.response.edit_message(content=content, view=self.parent_view)
+
 class BuildTypeSelectionView(discord.ui.View):
-    def __init__(self, target_date, dispatch_callback, actions_url, stock_tickers, ticker_view_class, selected_model="gemini-3.5-flash-free"):
+    def __init__(self, target_date, dispatch_callback, actions_url, stock_tickers, ticker_view_class, selected_model="gemini-3.5-flash-free", selected_thinking_level="high"):
         super().__init__(timeout=180)
         self.target_date = target_date
         self.dispatch_callback = dispatch_callback
@@ -214,23 +253,27 @@ class BuildTypeSelectionView(discord.ui.View):
         self.stock_tickers = stock_tickers
         self.ticker_view_class = ticker_view_class
         self.selected_model = selected_model
+        self.selected_thinking_level = selected_thinking_level
         
         # Add the model selection dropdown
         self.add_item(ModelSelectionDropdown(self, self.selected_model))
+        # Add the thinking level dropdown
+        self.add_item(ThinkingLevelDropdown(self, self.selected_thinking_level))
 
     @discord.ui.button(label="🌎 Economy Card", style=discord.ButtonStyle.primary, emoji="📈", row=0)
     async def economy_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content=f"🧠 **Building Economy Card** ({self.target_date}) using **{self.selected_model}**... 🛰️", view=None)
+        await interaction.response.edit_message(content=f"🧠 **Building Economy Card** ({self.target_date}) using **{self.selected_model}** | Thinking: **{self.selected_thinking_level}**... 🛰️", view=None)
         msg = await interaction.original_response()
         inputs = {
             "target_date": self.target_date, 
             "action": "update-economy",
-            "model": self.selected_model
+            "model": self.selected_model,
+            "thinking_level": self.selected_thinking_level
         }
         success, message, run_url = await self.dispatch_callback(inputs)
         monitor_link = run_url or self.actions_url
         if success:
-            await msg.edit(content=f"🧠 **Building Economy Card** ({self.target_date})...\n✅ **Dispatched!** (Model: {self.selected_model})\n🔗 [Monitor Progress](<{monitor_link}>) 📡⏱️")
+            await msg.edit(content=f"🧠 **Building Economy Card** ({self.target_date})...\n✅ **Dispatched!** (Model: {self.selected_model} | Thinking: {self.selected_thinking_level})\n🔗 [Monitor Progress](<{monitor_link}>) 📡⏱️")
         else:
             await msg.edit(content=f"🧠 **Building Economy Card** ({self.target_date})... ❌ **Failed:** {message}")
 
@@ -241,7 +284,8 @@ class BuildTypeSelectionView(discord.ui.View):
             stock_tickers=self.stock_tickers,
             dispatch_callback=self.dispatch_callback,
             actions_url=self.actions_url,
-            selected_model=self.selected_model
+            selected_model=self.selected_model,
+            selected_thinking_level=self.selected_thinking_level
         )
         await interaction.response.edit_message(
             content=f"🏢 **Select Companies** for **{self.target_date}** using **{self.selected_model}**:\n(Select multiple from the menus below)", 
@@ -249,13 +293,14 @@ class BuildTypeSelectionView(discord.ui.View):
         )
 
 class TickerSelectionView(discord.ui.View):
-    def __init__(self, target_date, stock_tickers, dispatch_callback, actions_url, selected_model="gemini-3.5-flash-free"):
+    def __init__(self, target_date, stock_tickers, dispatch_callback, actions_url, selected_model="gemini-3.5-flash-free", selected_thinking_level="high"):
         super().__init__(timeout=300)
         self.target_date = target_date
         self.stock_tickers = stock_tickers
         self.dispatch_callback = dispatch_callback
         self.actions_url = actions_url
         self.selected_model = selected_model
+        self.selected_thinking_level = selected_thinking_level
         self.selected_tickers = set()
         self.dropdown_states = {}
 
@@ -282,12 +327,13 @@ class TickerSelectionView(discord.ui.View):
             "target_date": self.target_date,
             "action": "update-company",
             "tickers": tickers_str,
-            "model": self.selected_model
+            "model": self.selected_model,
+            "thinking_level": self.selected_thinking_level
         }
         success, message, run_url = await self.dispatch_callback(inputs)
         monitor_link = run_url or self.actions_url
         if success:
-            await msg.edit(content=f"🚀 **Cards Dispatched!** ({len(self.selected_tickers)} tickers)\n✅ **Target Date:** {self.target_date}\n✅ **Model:** {self.selected_model}\n🔗 [Monitor Progress](<{monitor_link}>) 📡⏱️")
+            await msg.edit(content=f"🚀 **Cards Dispatched!** ({len(self.selected_tickers)} tickers)\n✅ **Target Date:** {self.target_date}\n✅ **Model:** {self.selected_model} | Thinking: {self.selected_thinking_level}\n🔗 [Monitor Progress](<{monitor_link}>) 📡⏱️")
         else:
             await msg.edit(content=f"❌ **Build Failed:** {message}")
 
@@ -332,25 +378,29 @@ class TempCardDispatchView(discord.ui.View):
         self.dispatch_callback = dispatch_callback
         self.actions_url = actions_url
         self.selected_model = "gemini-3.5-flash-free"
+        self.selected_thinking_level = "high"
         
         # Add the model selection dropdown
         self.add_item(ModelSelectionDropdown(self, self.selected_model))
+        # Add the thinking level dropdown
+        self.add_item(ThinkingLevelDropdown(self, self.selected_thinking_level))
 
     @discord.ui.button(label="🚀 Dispatch TEMP Build", style=discord.ButtonStyle.success, row=0)
     async def dispatch_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content=f"🚀 **Dispatching TEMP Cards** for `{self.tickers_str}` using **{self.selected_model}**... 🛰️", view=None)
+        await interaction.response.edit_message(content=f"🚀 **Dispatching TEMP Cards** for `{self.tickers_str}` using **{self.selected_model}** | Thinking: **{self.selected_thinking_level}**... 🛰️", view=None)
         msg = await interaction.original_response()
         
         inputs = {
             "target_date": self.target_date,
             "action": "update-temp-company",
             "tickers": self.tickers_str,
-            "model": self.selected_model
+            "model": self.selected_model,
+            "thinking_level": self.selected_thinking_level
         }
         success, message, run_url = await self.dispatch_callback(inputs)
         monitor_link = run_url or self.actions_url
         if success:
-            await msg.edit(content=f"🚀 **TEMP Cards Dispatched!** ({len(self.tickers_str.split(','))} tickers)\n✅ **Date:** {self.target_date}\n✅ **Model:** {self.selected_model}\n🔗 [Monitor Progress](<{monitor_link}>) 📡⏱️")
+            await msg.edit(content=f"🚀 **TEMP Cards Dispatched!** ({len(self.tickers_str.split(','))} tickers)\n✅ **Date:** {self.target_date}\n✅ **Model:** {self.selected_model} | Thinking: {self.selected_thinking_level}\n🔗 [Monitor Progress](<{monitor_link}>) 📡⏱️")
         else:
             await msg.edit(content=f"❌ **TEMP Card Build Failed:** {message}")
 
