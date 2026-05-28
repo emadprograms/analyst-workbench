@@ -171,46 +171,96 @@ class TargetSelectionView(discord.ui.View):
 
 # --- Build Cards UI ---
 
+class ModelSelectionDropdown(discord.ui.Select):
+    def __init__(self, parent_view, selected_model="gemini-3.5-flash-free"):
+        options = [
+            discord.SelectOption(
+                label="Gemini 3.5 Flash", 
+                value="gemini-3.5-flash-free", 
+                description="Fast, latest default model",
+                default=(selected_model == "gemini-3.5-flash-free")
+            ),
+            discord.SelectOption(
+                label="Gemini 3 Flash", 
+                value="gemini-3-flash-free", 
+                description="Standard Flash model",
+                default=(selected_model == "gemini-3-flash-free")
+            )
+        ]
+        super().__init__(placeholder="Select AI Model...", min_values=1, max_values=1, options=options, row=1)
+        self.parent_view = parent_view
+
+    async def callback(self, interaction: discord.Interaction):
+        self.parent_view.selected_model = self.values[0]
+        # Update default status in options for visual feedback
+        for option in self.options:
+            option.default = (option.value == self.parent_view.selected_model)
+        
+        # Determine current content to keep it consistent
+        content = interaction.message.content
+        if "using" in content:
+            # Update the "using MODEL" part if it exists
+            import re
+            content = re.sub(r"using \*\*.*?\*\*", f"using **{self.parent_view.selected_model}**", content)
+        
+        await interaction.response.edit_message(content=content, view=self.parent_view)
+
 class BuildTypeSelectionView(discord.ui.View):
-    def __init__(self, target_date, dispatch_callback, actions_url, stock_tickers, ticker_view_class):
+    def __init__(self, target_date, dispatch_callback, actions_url, stock_tickers, ticker_view_class, selected_model="gemini-3.5-flash-free"):
         super().__init__(timeout=180)
         self.target_date = target_date
         self.dispatch_callback = dispatch_callback
         self.actions_url = actions_url
         self.stock_tickers = stock_tickers
         self.ticker_view_class = ticker_view_class
+        self.selected_model = selected_model
+        
+        # Add the model selection dropdown
+        self.add_item(ModelSelectionDropdown(self, self.selected_model))
 
-    @discord.ui.button(label="🌎 Economy Card", style=discord.ButtonStyle.primary, emoji="📈")
+    @discord.ui.button(label="🌎 Economy Card", style=discord.ButtonStyle.primary, emoji="📈", row=0)
     async def economy_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content=f"🧠 **Building Economy Card** ({self.target_date})... 🛰️", view=None)
+        await interaction.response.edit_message(content=f"🧠 **Building Economy Card** ({self.target_date}) using **{self.selected_model}**... 🛰️", view=None)
         msg = await interaction.original_response()
-        inputs = {"target_date": self.target_date, "action": "update-economy"}
+        inputs = {
+            "target_date": self.target_date, 
+            "action": "update-economy",
+            "model": self.selected_model
+        }
         success, message, run_url = await self.dispatch_callback(inputs)
         monitor_link = run_url or self.actions_url
         if success:
-            await msg.edit(content=f"🧠 **Building Economy Card** ({self.target_date})...\n✅ **Dispatched!** (ETA: ~5-7 mins)\n🔗 [Monitor Progress](<{monitor_link}>) 📡⏱️")
+            await msg.edit(content=f"🧠 **Building Economy Card** ({self.target_date})...\n✅ **Dispatched!** (Model: {self.selected_model})\n🔗 [Monitor Progress](<{monitor_link}>) 📡⏱️")
         else:
             await msg.edit(content=f"🧠 **Building Economy Card** ({self.target_date})... ❌ **Failed:** {message}")
 
-    @discord.ui.button(label="🏢 Company Cards", style=discord.ButtonStyle.success, emoji="📊")
+    @discord.ui.button(label="🏢 Company Cards", style=discord.ButtonStyle.success, emoji="📊", row=0)
     async def company_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         view = self.ticker_view_class(
             target_date=self.target_date, 
             stock_tickers=self.stock_tickers,
             dispatch_callback=self.dispatch_callback,
-            actions_url=self.actions_url
+            actions_url=self.actions_url,
+            selected_model=self.selected_model
         )
-        await interaction.response.edit_message(content=f"🏢 **Select Companies** for **{self.target_date}**:\n(Select multiple from the menus below)", view=view)
+        await interaction.response.edit_message(
+            content=f"🏢 **Select Companies** for **{self.target_date}** using **{self.selected_model}**:\n(Select multiple from the menus below)", 
+            view=view
+        )
 
 class TickerSelectionView(discord.ui.View):
-    def __init__(self, target_date, stock_tickers, dispatch_callback, actions_url):
+    def __init__(self, target_date, stock_tickers, dispatch_callback, actions_url, selected_model="gemini-3.5-flash-free"):
         super().__init__(timeout=300)
         self.target_date = target_date
         self.stock_tickers = stock_tickers
         self.dispatch_callback = dispatch_callback
         self.actions_url = actions_url
+        self.selected_model = selected_model
         self.selected_tickers = set()
         self.dropdown_states = {}
+
+        # Add the model selection dropdown at the top
+        self.add_item(ModelSelectionDropdown(self, self.selected_model))
 
         sorted_stocks = sorted(stock_tickers)
         for i in range(0, len(sorted_stocks), 25):
@@ -225,18 +275,19 @@ class TickerSelectionView(discord.ui.View):
             return
         
         tickers_str = ",".join(sorted(list(self.selected_tickers)))
-        await interaction.response.edit_message(content=f"🚀 **Building Cards** for {len(self.selected_tickers)} tickers...\n`{tickers_str}`", view=None)
+        await interaction.response.edit_message(content=f"🚀 **Building Cards** for {len(self.selected_tickers)} tickers using **{self.selected_model}**...\n`{tickers_str}`", view=None)
         msg = await interaction.original_response()
         
         inputs = {
             "target_date": self.target_date,
             "action": "update-company",
-            "tickers": tickers_str
+            "tickers": tickers_str,
+            "model": self.selected_model
         }
         success, message, run_url = await self.dispatch_callback(inputs)
         monitor_link = run_url or self.actions_url
         if success:
-            await msg.edit(content=f"🚀 **Cards Dispatched!** ({len(self.selected_tickers)} tickers)\n✅ **Target Date:** {self.target_date}\n🔗 [Monitor Progress](<{monitor_link}>) 📡⏱️")
+            await msg.edit(content=f"🚀 **Cards Dispatched!** ({len(self.selected_tickers)} tickers)\n✅ **Target Date:** {self.target_date}\n✅ **Model:** {self.selected_model}\n🔗 [Monitor Progress](<{monitor_link}>) 📡⏱️")
         else:
             await msg.edit(content=f"❌ **Build Failed:** {message}")
 
@@ -272,6 +323,36 @@ class TickerDropdown(discord.ui.Select):
         self.parent_view.selected_tickers = all_selected
         count = len(self.parent_view.selected_tickers)
         await interaction.response.edit_message(content=f"🏢 **{count} Tickers Selected** for **{self.parent_view.target_date}**.\nAdd more or click dispatch below.", view=self.parent_view)
+
+class TempCardDispatchView(discord.ui.View):
+    def __init__(self, target_date, tickers_str, dispatch_callback, actions_url):
+        super().__init__(timeout=180)
+        self.target_date = target_date
+        self.tickers_str = tickers_str
+        self.dispatch_callback = dispatch_callback
+        self.actions_url = actions_url
+        self.selected_model = "gemini-3.5-flash-free"
+        
+        # Add the model selection dropdown
+        self.add_item(ModelSelectionDropdown(self, self.selected_model))
+
+    @discord.ui.button(label="🚀 Dispatch TEMP Build", style=discord.ButtonStyle.success, row=0)
+    async def dispatch_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content=f"🚀 **Dispatching TEMP Cards** for `{self.tickers_str}` using **{self.selected_model}**... 🛰️", view=None)
+        msg = await interaction.original_response()
+        
+        inputs = {
+            "target_date": self.target_date,
+            "action": "update-temp-company",
+            "tickers": self.tickers_str,
+            "model": self.selected_model
+        }
+        success, message, run_url = await self.dispatch_callback(inputs)
+        monitor_link = run_url or self.actions_url
+        if success:
+            await msg.edit(content=f"🚀 **TEMP Cards Dispatched!** ({len(self.tickers_str.split(','))} tickers)\n✅ **Date:** {self.target_date}\n✅ **Model:** {self.selected_model}\n🔗 [Monitor Progress](<{monitor_link}>) 📡⏱️")
+        else:
+            await msg.edit(content=f"❌ **TEMP Card Build Failed:** {message}")
 
 # --- View Cards UI ---
 

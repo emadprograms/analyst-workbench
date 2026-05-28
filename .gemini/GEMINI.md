@@ -170,6 +170,18 @@ The following rules apply **EXCLUSIVELY** to the **Gemini CLI** agent (this inte
 
 This section records resolved bugs and structural changes for traceability. Newest entries first.
 
+### 2026-05-28 — Discord Bot Card Generation Model Selection
+
+#### Feature Addition (`discord_bot/ui_components.py`, `discord_bot/bot.py`)
+*   **Purpose**: Added an interactive model selection option to the Discord bot's card building interfaces (`!buildcards` and `!buildtempcards`). This gives the user the choice between different Gemini models when dispatching card updates.
+*   **Default Model**: `gemini-3.5-flash-free` is selected as the default model.
+*   **Alternative Model**: `gemini-3-flash-free` is provided as a configurable alternative.
+*   **Implementation**:
+    1.  **Dropdown Component (`ModelSelectionDropdown`)**: Built a reusable `ModelSelectionDropdown` (subclass of `discord.ui.Select`) that populates the available models and dynamically updates the view's state on selection.
+    2.  **View Updates**: Added model selection support and dropdown integration to `BuildTypeSelectionView`, `TickerSelectionView`, and `TempCardDispatchView`.
+    3.  **Payload Integration**: Modified all dispatch callbacks to pass the chosen `"model"` parameter within the action payload to the GitHub Actions workflow runner.
+*   **Test Coverage**: Added `tests/test_bot_model_selection.py` to cover unit testing for model updates, dropdown interactions, view callbacks, and dispatch payloads. All 435 tests pass perfectly.
+
 ### 2026-04-17 — Discord Dashboard Truncation Fix
 
 #### Feature Fix (`modules/core/tracker.py`)

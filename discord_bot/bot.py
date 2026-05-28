@@ -25,7 +25,8 @@ from config import (
 )
 from ui_components import (
     DateSelectionView, NewsModal, BuildTypeSelectionView, TickerSelectionView,
-    ViewTypeSelectionView, EditNotesTickerSelectionView, EditNotesModal, EditNotesTriggerView, TargetSelectionView
+    ViewTypeSelectionView, EditNotesTickerSelectionView, EditNotesModal, EditNotesTriggerView, TargetSelectionView,
+    TempCardDispatchView
 )
 from formatters import format_economy_card, format_company_card
 from modules.data.db_utils import (
@@ -201,14 +202,14 @@ async def buildcards(ctx, date_indicator: str = None):
     
     async def build_callback(interaction, selected_date):
         view = BuildTypeSelectionView(selected_date, dispatch_github_action, ACTIONS_URL, stock_list, TickerSelectionView)
-        await interaction.response.edit_message(content=f"🏗️ **Building Cards for {selected_date}**\nWhich kind of card would you like to build?", view=view)
+        await interaction.response.edit_message(content=f"🏗️ **Building Cards for {selected_date}** using **{view.selected_model}**\nWhich kind of card would you like to build?", view=view)
     if not target_date:
         await ctx.send("🗓️ **Select Date for Card Generation:**", view=DateSelectionView(build_callback))
     else:
         try:
             datetime.strptime(target_date, "%Y-%m-%d")
             view = BuildTypeSelectionView(target_date, dispatch_github_action, ACTIONS_URL, stock_list, TickerSelectionView)
-            await ctx.send(f"🏗️ **Building Cards for {target_date}**\nWhich kind of card would you like to build?", view=view)
+            await ctx.send(f"🏗️ **Building Cards for {target_date}** using **{view.selected_model}**\nWhich kind of card would you like to build?", view=view)
         except ValueError: await ctx.send(f"❌ Error: `{target_date}` is invalid.")
 
 @bot.command()
@@ -598,32 +599,13 @@ async def buildtempcards(ctx, *, args_str: str = None):
     target_date = get_target_date(date_indicator or "0")  # Default to today
     
     tickers_str = ",".join(tickers)
+    view = TempCardDispatchView(target_date, tickers_str, dispatch_github_action, ACTIONS_URL)
     await ctx.send(
         f"🚀 **Building TEMP Cards** for **{len(tickers)}** ticker(s): `{tickers_str}`\n"
         f"📅 **Date:** {target_date}\n"
-        f"📡 Dispatching GitHub Action..."
+        f"🤖 Using **{view.selected_model}** - Select AI Model and click Dispatch:",
+        view=view
     )
-    msg = await ctx.channel.fetch_message(ctx.channel.last_message_id)
-    
-    inputs = {
-        "target_date": target_date,
-        "action": "update-temp-company",
-        "tickers": tickers_str
-    }
-    success, message, run_url = await dispatch_github_action(inputs)
-    monitor_link = run_url or ACTIONS_URL
-    if success:
-        await msg.edit(
-            content=f"🚀 **TEMP Cards Dispatched!** ({len(tickers)} tickers: `{tickers_str}`)\n"
-                    f"📅 **Date:** {target_date}\n"
-                    f"✅ **Dispatched!** (ETA: ~3-5 mins)\n"
-                    f"🔗 [Monitor Progress](<{monitor_link}>) 📡⏱️\n"
-                    f"💡 Use `!viewtempcards {target_date}` to view results when done."
-        )
-    else:
-        await msg.edit(
-            content=f"❌ **TEMP Card Build Failed:** {message}"
-        )
 
 @bot.command()
 async def viewtempcards(ctx, date_indicator: str = None):
